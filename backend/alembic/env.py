@@ -11,6 +11,7 @@ from app.core import models as core_models  # noqa: F401
 from app.core.config import get_settings
 from app.core.models import Base
 from app.devices import models as device_models  # noqa: F401
+from app.events import models as event_models  # noqa: F401
 from app.families import models as family_models  # noqa: F401
 from app.pairing import models as pairing_models  # noqa: F401
 

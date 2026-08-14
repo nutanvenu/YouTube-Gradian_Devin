@@ -1,6 +1,6 @@
 import logging
 
-from fastapi import Request
+from fastapi import HTTPException, Request
 from fastapi.responses import JSONResponse
 from starlette import status
 
@@ -20,6 +20,24 @@ async def validation_error_handler(
     return error_response(
         "VALIDATION_ERROR", "Request validation failed", status.HTTP_422_UNPROCESSABLE_ENTITY
     )
+
+
+def http_error_code(status_code: int) -> str:
+    return {
+        status.HTTP_400_BAD_REQUEST: "BAD_REQUEST",
+        status.HTTP_401_UNAUTHORIZED: "AUTHENTICATION_ERROR",
+        status.HTTP_403_FORBIDDEN: "AUTHORIZATION_ERROR",
+        status.HTTP_404_NOT_FOUND: "NOT_FOUND",
+        status.HTTP_409_CONFLICT: "CONFLICT",
+        status.HTTP_429_TOO_MANY_REQUESTS: "RATE_LIMITED",
+    }.get(status_code, "REQUEST_ERROR")
+
+
+async def http_exception_handler(_request: Request, exc: Exception) -> JSONResponse:
+    if not isinstance(exc, HTTPException):
+        return error_response("REQUEST_ERROR", "Request failed", status.HTTP_400_BAD_REQUEST)
+    message = exc.detail if isinstance(exc.detail, str) else "Request failed"
+    return error_response(http_error_code(exc.status_code), message, exc.status_code)
 
 
 async def internal_error_handler(_request: Request, exc: Exception) -> JSONResponse:

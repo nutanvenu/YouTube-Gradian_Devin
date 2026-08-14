@@ -1,7 +1,10 @@
+from uuid import uuid4
+
 import pytest
 from conftest import PairedDevice, ParentFamily
 from sqlalchemy import select
 
+from app.events.models import ProtectionHealthEvent, SafetyEvent, UsageAggregate, WebEvent
 from app.pairing.models import PairingSession
 
 
@@ -49,6 +52,72 @@ async def test_validation_errors_have_stable_shape(client) -> None:
 
 
 @pytest.mark.asyncio
+async def test_http_auth_errors_use_stable_envelope(client) -> None:
+    response = await client.post(
+        "/v1/auth/login",
+        json={"email": "unknown-envelope@example.com", "password": "wrong password"},
+    )
+    assert response.status_code == 401
+    assert response.json() == {
+        "error": {"code": "AUTHENTICATION_ERROR", "message": "Invalid credentials"}
+    }
+
+
+@pytest.mark.asyncio
+async def test_password_reset_revokes_existing_refresh_tokens(client, monkeypatch) -> None:
+    import importlib
+
+    api_module = importlib.import_module("app.api.app")
+    sent: list[str] = []
+
+    async def capture(_recipient: str, _subject: str, body: str) -> None:
+        sent.append(body)
+
+    monkeypatch.setattr(api_module.notifier, "send_email", capture)
+    email = f"{uuid4()}@example.com"
+    signup = await client.post(
+        "/v1/auth/signup",
+        json={"email": email, "password": "correct horse battery staple"},
+    )
+    refresh = signup.json()["refresh_token"]
+    reset_request = await client.post(
+        "/v1/auth/password-reset/request", json={"email": email}
+    )
+    assert reset_request.status_code == 202
+    assert sent
+    confirm = await client.post(
+        "/v1/auth/password-reset/confirm",
+        json={"token": sent[-1], "password": "NewPassword123!"},
+    )
+    assert confirm.status_code == 204
+    refresh_response = await client.post(
+        "/v1/auth/refresh", json={"refresh_token": refresh}
+    )
+    assert refresh_response.status_code == 401
+
+
+@pytest.mark.asyncio
+async def test_invalid_heartbeat_contract_is_rejected(client, paired_device: PairedDevice) -> None:
+    headers = {"Authorization": f"Bearer {paired_device.device_token}"}
+    response = await client.post(
+        "/v1/devices/me/heartbeat",
+        json={
+            "protection_state": "not-a-protection-state",
+            "capabilities": {
+                "unknown": {
+                    "level": "INVALID",
+                    "detail": None,
+                    "updatedAt": "2026-01-01T00:00:00Z",
+                }
+            },
+        },
+        headers=headers,
+    )
+    assert response.status_code == 422
+    assert response.json()["error"]["code"] == "VALIDATION_ERROR"
+
+
+@pytest.mark.asyncio
 async def test_login_rate_limit_trips(client) -> None:
     for _ in range(10):
         response = await client.post(
@@ -80,7 +149,7 @@ async def test_device_routes_and_minimized_event_validation(
     assert (
         await client.post(
             "/v1/devices/me/heartbeat",
-            json={"protection_state": "PROTECTED"},
+            json={"protection_state": "HEALTHY"},
             headers=device_headers,
         )
     ).status_code == 204
@@ -99,6 +168,57 @@ async def test_device_routes_and_minimized_event_validation(
     )
     assert rejected.status_code == 422
     assert rejected.json()["error"]["code"] == "VALIDATION_ERROR"
+
+
+@pytest.mark.asyncio
+async def test_device_events_and_health_are_persisted(
+    client, paired_device: PairedDevice, database_session
+) -> None:
+    headers = {"Authorization": f"Bearer {paired_device.device_token}"}
+    response = await client.post(
+        "/v1/devices/me/heartbeat",
+        json={"protection_state": "HEALTHY", "capabilities": {}},
+        headers=headers,
+    )
+    assert response.status_code == 204
+    response = await client.post(
+        "/v1/devices/me/events",
+        json={
+            "events": [
+                {
+                    "event_type": "APP",
+                    "occurred_at": "2026-01-01T00:00:00Z",
+                    "app_ref": "com.example.app",
+                },
+                {
+                    "event_type": "DOMAIN",
+                    "occurred_at": "2026-01-01T00:01:00Z",
+                    "domain": "example.com",
+                },
+                {
+                    "event_type": "SAFETY_BLOCK",
+                    "occurred_at": "2026-01-01T00:02:00Z",
+                    "domain": "unsafe.example.com",
+                },
+            ]
+        },
+        headers={**headers, "Idempotency-Key": "persisted-events"},
+    )
+    assert response.status_code == 202
+    assert await database_session.scalar(
+        select(UsageAggregate).where(UsageAggregate.device_id == paired_device.device_id)
+    )
+    assert await database_session.scalar(
+        select(WebEvent).where(WebEvent.device_id == paired_device.device_id)
+    )
+    assert await database_session.scalar(
+        select(SafetyEvent).where(SafetyEvent.device_id == paired_device.device_id)
+    )
+    assert await database_session.scalar(
+        select(ProtectionHealthEvent).where(
+            ProtectionHealthEvent.device_id == paired_device.device_id
+        )
+    )
 
 
 @pytest.mark.asyncio
@@ -142,6 +262,49 @@ async def test_pairing_idempotency_replays_and_conflicts(client, parent_a: Paren
 
 
 @pytest.mark.asyncio
+async def test_pairing_returns_manual_code_and_reuse_is_rejected(
+    client, parent_a: ParentFamily, caplog
+) -> None:
+    headers = {"Authorization": f"Bearer {parent_a.token}"}
+    pairing = await client.post(
+        f"/v1/families/{parent_a.family_id}/children/{parent_a.child_id}/pairing",
+        headers=headers,
+    )
+    payload = pairing.json()
+    assert payload["code"].isdigit() and len(payload["code"]) == 6
+    assert payload["code"] in payload["qr_payload"]
+    body = {
+        "session_id": payload["session_id"],
+        "code": payload["code"],
+        "child_profile_id": parent_a.child_id,
+        "platform": "ANDROID",
+        "public_key": "test-device-public-key-444444444444444444444444",
+    }
+    assert (await client.post("/v1/devices/pair", json=body)).status_code == 200
+    assert (await client.post("/v1/devices/pair", json=body)).status_code == 400
+    assert payload["code"] not in caplog.text
+
+
+@pytest.mark.asyncio
+async def test_pairing_cross_family_redemption_is_rejected(
+    client, parent_a: ParentFamily, parent_b: ParentFamily
+) -> None:
+    headers = {"Authorization": f"Bearer {parent_a.token}"}
+    pairing = await client.post(
+        f"/v1/families/{parent_a.family_id}/children/{parent_a.child_id}/pairing",
+        headers=headers,
+    )
+    body = {
+        "session_id": pairing.json()["session_id"],
+        "code": pairing.json()["code"],
+        "child_profile_id": parent_b.child_id,
+        "platform": "ANDROID",
+        "public_key": "test-device-public-key-555555555555555555555555",
+    }
+    assert (await client.post("/v1/devices/pair", json=body)).status_code == 400
+
+
+@pytest.mark.asyncio
 async def test_revoked_device_is_rejected_on_every_device_route(
     client, paired_device: PairedDevice
 ) -> None:
@@ -163,7 +326,7 @@ async def test_revoked_device_is_rejected_on_every_device_route(
     assert (
         await client.post(
             "/v1/devices/me/heartbeat",
-            json={"protection_state": "PROTECTED"},
+            json={"protection_state": "HEALTHY"},
             headers=device_headers,
         )
     ).status_code == 401
@@ -250,7 +413,7 @@ async def test_child_delete_and_guardian_invitation_single_use(
 ) -> None:
     import importlib
 
-    api_module = importlib.import_module("app.api.app")
+    api_module = importlib.import_module("app.api.routes")
     sent: list[str] = []
 
     async def capture(_recipient: str, _subject: str, body: str) -> None:
@@ -350,7 +513,7 @@ async def test_unhandled_error_uses_generic_error_shape(client, monkeypatch) -> 
 
     import httpx
 
-    api_module = importlib.import_module("app.api.app")
+    api_module = importlib.import_module("app.api.routes")
 
     async def fail(*_args, **_kwargs):
         raise RuntimeError("sensitive internal detail")

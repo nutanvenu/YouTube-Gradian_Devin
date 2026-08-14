@@ -1,7 +1,21 @@
+import re
 from datetime import date, datetime
+from typing import Literal
 from uuid import UUID
 
-from pydantic import BaseModel, ConfigDict, EmailStr, Field
+from pydantic import BaseModel, ConfigDict, EmailStr, Field, field_validator, model_validator
+
+PASSWORD_WORDS = re.compile(r"\S+")
+CAPABILITY_LEVELS = {"FULL", "BEST_EFFORT", "UNAVAILABLE", "REGION_LIMITED"}
+CAPABILITY_KEYS = {
+    "app_usage",
+    "app_blocking",
+    "web_filtering",
+    "communication_risk_signals",
+    "vpn_filtering",
+    "accessibility_signals",
+    "notification_signals",
+}
 
 
 class ErrorBody(BaseModel):
@@ -13,9 +27,29 @@ class SignupIn(BaseModel):
     email: EmailStr
     password: str = Field(min_length=12, max_length=128)
 
+    @field_validator("password")
+    @classmethod
+    def validate_password(cls, value: str) -> str:
+        return validate_password_strength(value)
 
-class LoginIn(SignupIn):
-    pass
+
+def validate_password_strength(value: str) -> str:
+    classes = sum(
+        (
+            any(character.islower() for character in value),
+            any(character.isupper() for character in value),
+            any(character.isdigit() for character in value),
+            any(not character.isalnum() and not character.isspace() for character in value),
+        )
+    )
+    if classes < 3 and len(PASSWORD_WORDS.findall(value)) < 4:
+        raise ValueError("Password must use at least three character classes or four words")
+    return value
+
+
+class LoginIn(BaseModel):
+    email: EmailStr
+    password: str = Field(min_length=1, max_length=128)
 
 
 class TokensOut(BaseModel):
@@ -38,7 +72,12 @@ class TokenConfirmIn(BaseModel):
 
 class PasswordResetConfirmIn(BaseModel):
     token: str = Field(min_length=20)
-    password: str = Field(min_length=12)
+    password: str = Field(min_length=12, max_length=128)
+
+    @field_validator("password")
+    @classmethod
+    def validate_password(cls, value: str) -> str:
+        return validate_password_strength(value)
 
 
 class ParentOut(BaseModel):
@@ -98,6 +137,7 @@ class GuardianAcceptIn(BaseModel):
 
 class PairingOut(BaseModel):
     session_id: UUID
+    code: str = Field(pattern=r"^\d{6}$")
     qr_payload: str
     expires_at: datetime
 
@@ -119,9 +159,24 @@ class DeviceAckIn(BaseModel):
     policy_version: int = Field(ge=1)
 
 
+class CapabilityStatusIn(BaseModel):
+    model_config = ConfigDict(extra="forbid", populate_by_name=True)
+
+    level: Literal["FULL", "BEST_EFFORT", "UNAVAILABLE", "REGION_LIMITED"]
+    detail: str | None = None
+    updated_at: datetime = Field(alias="updatedAt")
+
+
 class DeviceHeartbeatIn(BaseModel):
-    protection_state: str = Field(min_length=1, max_length=30)
-    capabilities: dict[str, object] = Field(default_factory=dict)
+    protection_state: Literal["HEALTHY", "DEGRADED", "DISABLED", "UNKNOWN"]
+    capabilities: dict[str, "CapabilityStatusIn"] = Field(default_factory=dict)
+
+    @model_validator(mode="after")
+    def validate_capability_keys(self) -> "DeviceHeartbeatIn":
+        unknown = set(self.capabilities) - CAPABILITY_KEYS
+        if unknown:
+            raise ValueError("Unknown capability key")
+        return self
 
 
 class MinimizedEvent(BaseModel):

@@ -116,7 +116,13 @@ async def parent_b(client: httpx.AsyncClient) -> ParentFamily:
     family = await client.post(
         "/v1/families", json={"name": "Family B"}, headers={"Authorization": f"Bearer {token}"}
     )
-    return ParentFamily(token, family.json()["id"], "")
+    family_id = family.json()["id"]
+    child = await client.post(
+        f"/v1/families/{family_id}/children",
+        json={"name": "Blair", "date_of_birth": "2013-08-15", "timezone": "UTC"},
+        headers={"Authorization": f"Bearer {token}"},
+    )
+    return ParentFamily(token, family_id, child.json()["id"])
 
 
 @pytest_asyncio.fixture

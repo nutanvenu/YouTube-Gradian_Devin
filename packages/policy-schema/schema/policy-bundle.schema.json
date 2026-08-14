@@ -39,7 +39,7 @@
       "items": { "$ref": "#/$defs/temporaryOverride" }
     },
     "communication_safety": { "$ref": "#/$defs/communicationSafety" },
-    "signature": { "type": "string", "contentEncoding": "base64", "minLength": 1 }
+    "signature": { "type": "string", "contentEncoding": "base64", "minLength": 0 }
   },
   "$defs": {
     "ageBand": {

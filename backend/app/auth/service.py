@@ -13,6 +13,10 @@ from ..core.config import get_settings
 from .models import OneTimeToken, Parent, RefreshToken
 
 password_hasher = PasswordHasher()
+DUMMY_PASSWORD_HASH = (
+    "$argon2id$v=19$m=65536,t=3,p=4$EKfyKQCowwRuHg6YhmBn/Q$"
+    "9NNCrmnhssL5IxVsPEmtG1E1QWEoe/d23wj335fwr5A"
+)
 
 
 def hash_password(value: str) -> str:
@@ -102,6 +106,14 @@ async def revoke_refresh(session: AsyncSession, raw: str) -> None:
     if row is not None:
         row.revoked_at = datetime.now(UTC)
         await session.commit()
+
+
+async def revoke_all_refresh(session: AsyncSession, parent_id: UUID) -> None:
+    await session.execute(
+        update(RefreshToken)
+        .where(RefreshToken.parent_id == parent_id, RefreshToken.revoked_at.is_(None))
+        .values(revoked_at=datetime.now(UTC))
+    )
 
 
 async def issue_one_time_token(
