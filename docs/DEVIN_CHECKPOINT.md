@@ -1388,3 +1388,11 @@ upload/read path and parent-side server persistence are still required before
 this can be treated as complete cross-device inventory synchronization; the
 current parent Rules screen must not be interpreted as reading the child
 device's package manager inventory.
+
+The child Activity surface now forwards native `WEB_BLOCKED` events and
+non-zero native usage summaries through the minimized
+`POST /v1/devices/me/events` contract. This path was typechecked, linted, and
+covered by the existing mobile test suite. Live visual Activity evidence is
+still open: the child emulator currently reports `Web protection permission
+is required`, and the backend event tables remained empty during the latest
+run, so no emulator-generated web event or usage point is claimed.
