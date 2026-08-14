@@ -1,4 +1,5 @@
 import * as SecureStore from "expo-secure-store";
+import { signDeviceRequest } from "@/api/device-signing";
 
 export type ApiErrorBody = { error?: { code?: string; message?: string } };
 export type Tokens = { access_token: string; refresh_token: string; token_type?: string };
@@ -114,6 +115,19 @@ export class GuardianApiClient {
     headers.set("Content-Type", "application/json");
     if (deviceAuthenticated) headers.set("Authorization", `Bearer ${deviceToken}`);
     else if (accessToken) headers.set("Authorization", `Bearer ${accessToken}`);
+    if (deviceAuthenticated && init.method && init.method !== "GET") {
+      const privateKey = await SecureStore.getItemAsync(DEVICE_PRIVATE_KEY_KEY);
+      if (!privateKey) throw new ApiError("Device proof is unavailable.", 401, "DEVICE_PROOF_MISSING");
+      const timestamp = String(Math.floor(Date.now() / 1000));
+      const nonce = `${Date.now()}-${Math.random().toString(36).slice(2)}`;
+      const body = typeof init.body === "string" ? init.body : "";
+      headers.set("X-Guardian-Device-Timestamp", timestamp);
+      headers.set("X-Guardian-Device-Nonce", nonce);
+      headers.set(
+        "X-Guardian-Device-Signature",
+        await signDeviceRequest(privateKey, init.method, path, timestamp, nonce, body),
+      );
+    }
     const response = await fetch(`${this.baseUrl}${path}`, { ...init, headers });
     if (response.status === 401 && retry && accessToken && !deviceAuthenticated) {
       const refreshToken = await sessionStorage.getRefreshToken();
@@ -161,9 +175,10 @@ export class GuardianApiClient {
       body: JSON.stringify(input),
     });
   }
-  createRequest(input: Omit<AccessRequest, "id" | "child_profile_id" | "device_id" | "state" | "decision_reason" | "expires_at">) {
+  createRequest(input: Omit<AccessRequest, "id" | "child_profile_id" | "device_id" | "state" | "decision_reason" | "expires_at">, idempotencyKey?: string) {
     return this.request<AccessRequest>("/v1/devices/me/requests", {
       method: "POST",
+      headers: idempotencyKey ? { "Idempotency-Key": idempotencyKey } : undefined,
       body: JSON.stringify(input),
     });
   }
