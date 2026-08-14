@@ -26,7 +26,7 @@ ed25519.hashes.sha512Async = async (message) =>
   new Uint8Array(
     await Crypto.digest(
       Crypto.CryptoDigestAlgorithm.SHA512,
-      message.buffer.slice(message.byteOffset, message.byteOffset + message.byteLength) as ArrayBuffer,
+      new Uint8Array(message),
     ),
   );
 

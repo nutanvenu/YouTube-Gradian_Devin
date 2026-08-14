@@ -175,7 +175,94 @@ The development build logged:
 ReactNativeJS: Running "main" with {"rootTag":1,"initialProps":{},"fabric":true}
 ```
 
-## Partially complete
+## Verification in this acceptance run
+
+The acceptance run used the real `guardian-api35` emulator, Chrome as the
+requesting application, the local FastAPI backend, PostgreSQL, and the signed
+policy for version 5:
+
+```text
+DOMAIN_BLOCK blocked.example.com
+DOMAIN_ALLOW example.com
+```
+
+The app rendered `Policy version: 5`, `Waiting for device acknowledgement.`,
+and `Web protection is active.` The allowed-domain TCP proxy was fixed to
+establish the protected upstream socket before sending the synthetic
+SYN-ACK. After that fix, Chrome loaded `https://example.com` and displayed
+`Connection is secure` / `Example Domain`:
+
+```text
+.scratch/emulator/58-allowed-after-tcp-fix.png
+.scratch/emulator/76-no-policy-allowed.png
+```
+
+Chrome failed to resolve the blocked domain with
+`DNS_PROBE_FINISHED_NXDOMAIN`:
+
+```text
+.scratch/emulator/59-blocked-after-tcp-fix.png
+.scratch/emulator/59-bridge-events.txt
+.scratch/emulator/60-bridge-event-after-reload.png
+```
+
+The filtered bridge evidence contains exactly one semantic event for the
+fresh DNS attempt:
+
+```text
+'GUARDIAN_BRIDGE_EVENT',
+'{"type":"WEB_BLOCKED","domain":"blocked.example.com","category":null,"appRef":"com.android.chrome","reasonCode":"EXPLICIT_TARGET_RULE"}'
+```
+
+No packet-level event string was present in the filtered bridge output. The
+first navigation was served from Chrome's negative DNS cache and emitted no
+new event; pressing Chrome Reload forced a fresh DNS request. That cache
+behavior is why the exact-count evidence is from the reload attempt.
+
+After `adb reboot`, the boot receiver started the foreground VPN service and
+the emulator reported `Active vpn type: 1`, session `Guardian protection`.
+The persisted policy remained available and the blocked-domain navigation
+again settled on `DNS_PROBE_FINISHED_NXDOMAIN`:
+
+```text
+.scratch/emulator/61-reboot-recovery-logcat.txt
+.scratch/emulator/63-reboot-blocked-settled.png
+```
+
+The VPN settings screen was used to disconnect the active VPN. With VPN
+consent denied through Android app-ops for the emulator's system-state
+exercise, the child screen reported `Web protection permission is required.`
+and offered `Enable web protection`:
+
+```text
+.scratch/emulator/70-vpn-consent-revoked-degraded.png
+.scratch/emulator/69-vpn-consent-revoked-logcat.txt
+```
+
+Restoring the VPN permission and returning to the app re-established the VPN,
+and the screen returned to `Web protection is active.`:
+
+```text
+.scratch/emulator/74-vpn-reconsent-restored.png
+```
+
+With the backend process stopped, Chrome still loaded `example.com` while the
+persisted local policy/VPN was active:
+
+```text
+.scratch/emulator/75-backend-down-allowed.png
+```
+
+With the protection service stopped (no active VPN), Chrome loaded
+`Example Domain`, demonstrating ordinary connectivity is not bricked when
+protection is unavailable:
+
+```text
+.scratch/emulator/76-no-policy-allowed.png
+```
+
+The backend was restarted on `0.0.0.0:8000`, PostgreSQL remained healthy, and
+the emulator, Metro, and VPN were left running at handoff.
 
 ### Slice 1.7 VPN enforcement
 
@@ -196,16 +283,21 @@ networks, TUN setup failure, packet-loop failure, and upstream forwarding
 failure. Failures are surfaced through protection health events and an
 explicit stop path clears the persisted enabled state.
 
-The native implementation and packet-codec tests are verified, but the strict
-Slice 1.7 acceptance gate is still open: no valid live app run has yet
-observed a policy-blocked domain fail, an allowed domain succeed, and a
-semantic `WEB_BLOCKED` event across the bridge. The debug dev-client install
-currently shows a blank surface because the installed dev launcher reports
-`ClassNotFoundException: expo.modules.splashscreen.SplashScreenManager`; the
-standalone release APK launches and was captured at
-`.scratch/emulator/29-release-role-selection.png`, but local backend access is
-HTTPS-only in release and therefore cannot be used for the debug backend
-acceptance flow.
+The live acceptance run above demonstrates blocked/allowed app traffic,
+semantic bridge delivery, Chrome attribution, reboot recovery, and
+connectivity with the backend unavailable. The exact bridge count is
+established by the filtered logcat file; the visible child-screen count is
+not used as the count assertion because the screen had prior events in its
+session.
+
+The VPN-revocation exercise used the Android VPN settings disconnect action
+plus an emulator-only `appops` denial to make `VpnService.prepare()` report
+consent unavailable. This is strong system-state evidence, but it is not a
+repeatable user-level "Forget consent" control exposed by Android settings.
+The app degraded to the explicit permission-required state and recovered
+after the permission was restored. Captive-portal and competing-VPN behavior
+remain code-path/test evidence rather than a separately captured live
+emulator scenario.
 
 No anti-tamper claim is made beyond standard Android installation behavior.
 

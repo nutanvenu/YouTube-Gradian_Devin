@@ -101,7 +101,8 @@ class PolicyManager(
       "family_id", "child_profile_id", "issued_at", "expires_soft_at", "key_id", "age_band",
     )
     if (requiredStrings.any { bundle[it] !is String }) return "SCHEMA_INVALID"
-    if (bundle["policy_version"] !is Number || bundle["policy_version"].toString().toLongOrNull() == null) {
+    val policyVersion = bundle["policy_version"] as? Number
+    if (policyVersion == null || policyVersion.toDouble() != policyVersion.toLong().toDouble()) {
       return "INVALID_POLICY_VERSION"
     }
     if (bundle["base_policy"] !is Map<*, *>) return "SCHEMA_INVALID"

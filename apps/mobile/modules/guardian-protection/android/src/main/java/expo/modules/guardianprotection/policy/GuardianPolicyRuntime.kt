@@ -1,13 +1,17 @@
 package expo.modules.guardianprotection.policy
 
 import java.util.concurrent.CopyOnWriteArraySet
+import java.util.concurrent.ConcurrentHashMap
 
 object GuardianPolicyRuntime {
   private var manager: PolicyManager? = null
   private val listeners = CopyOnWriteArraySet<Listener>()
+  private val lastBlockedAt = ConcurrentHashMap<String, Long>()
 
   fun install(policyManager: PolicyManager) {
     manager = policyManager
+    listeners.clear()
+    lastBlockedAt.clear()
   }
 
   fun hasActiveSnapshot(): Boolean = manager?.activeSnapshot() != null
@@ -40,6 +44,10 @@ object GuardianPolicyRuntime {
   }
 
   fun reportBlocked(domain: String, reasonCode: String, category: String? = null, appRef: String? = null) {
+    val now = System.currentTimeMillis()
+    val previous = lastBlockedAt.putIfAbsent(domain, now)
+    if (previous != null && now - previous < BLOCK_EVENT_DEDUP_MS) return
+    if (previous != null) lastBlockedAt[domain] = now
     listeners.forEach { it.onWebBlocked(domain, category, appRef, reasonCode) }
   }
 
@@ -53,4 +61,6 @@ object GuardianPolicyRuntime {
     fun onWebBlocked(domain: String, category: String?, appRef: String?, reasonCode: String)
     fun onVpnFailure(reason: String)
   }
+
+  private const val BLOCK_EVENT_DEDUP_MS = 5_000L
 }

@@ -12,6 +12,7 @@ import {
   SectionSurface,
 } from "@/design-system";
 import { GuardianProtection } from "../../../modules/guardian-protection/src";
+import type { GuardianNativeEvent } from "@guardian/contracts";
 
 function isRevokedDeviceError(error: unknown): boolean {
   if (error instanceof ApiError) return error.status === 401 || error.status === 403;
@@ -26,6 +27,18 @@ export default function ChildHomeRoute() {
   const { isOffline } = useNetworkStatus();
   const revoked = isRevokedDeviceError(policy.error);
   const [protectionMessage, setProtectionMessage] = useState("Checking web protection…");
+  const [blockedEvent, setBlockedEvent] = useState<Extract<GuardianNativeEvent, { type: "WEB_BLOCKED" }> | null>(null);
+  const [blockedEventCount, setBlockedEventCount] = useState(0);
+
+  useEffect(() => {
+    const subscription = GuardianProtection.subscribe((event) => {
+      if (event.type !== "WEB_BLOCKED") return;
+      setBlockedEvent(event);
+      setBlockedEventCount((count) => count + 1);
+      console.info("GUARDIAN_BRIDGE_EVENT", JSON.stringify(event));
+    });
+    return () => subscription.remove();
+  }, []);
 
   useEffect(() => {
     if (!policy.data?.bundle || revoked) return;
@@ -83,6 +96,13 @@ export default function ChildHomeRoute() {
                 : "Policy acknowledged by this device."}
             </Text>
             <Text>{protectionMessage}</Text>
+            {blockedEvent ? (
+              <Text>
+                WEB_BLOCKED events: {blockedEventCount} · {blockedEvent.domain} ·{" "}
+                {blockedEvent.category ?? "UNKNOWN"} · {blockedEvent.reasonCode} ·{" "}
+                {blockedEvent.appRef ?? "UNKNOWN_APP"}
+              </Text>
+            ) : null}
             {protectionMessage === "Web protection permission is required." ? (
               <PrimaryButton
                 label="Enable web protection"

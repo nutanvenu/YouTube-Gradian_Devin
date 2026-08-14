@@ -142,11 +142,23 @@ class GuardianVpnService : VpnService() {
         return
       }
     }
-    val flow = flows[key] as? UdpFlow ?: UdpFlow(key, ip).also {
-      flows[key] = it
-      it.start()
+    val currentFlow = flows[key] as? UdpFlow
+    if (currentFlow != null) {
+      currentFlow.send(datagram.payload)
+      return
     }
-    flow.send(datagram.payload)
+    if (flows.size >= MAX_FLOWS) {
+      failOnce("FLOW_LIMIT_REACHED")
+      return
+    }
+    val candidate = UdpFlow(key, ip)
+    val claimedFlow = flows.putIfAbsent(key, candidate)
+    if (claimedFlow == null) {
+      candidate.start()
+      candidate.send(datagram.payload)
+    } else {
+      (claimedFlow as? UdpFlow)?.send(datagram.payload)
+    }
   }
 
   private fun handleDns(ip: IpPacket, datagram: UdpDatagram) {
@@ -196,9 +208,18 @@ class GuardianVpnService : VpnService() {
       }
     }
     if (!segment.syn || segment.ack) return
+    if (flows.size >= MAX_FLOWS) {
+      failOnce("FLOW_LIMIT_REACHED")
+      write(PacketCodec.buildTcp(ip, ip.destination, ip.source, segment.destinationPort, segment.sourcePort, 0, segment.sequence + 1, RST or ACK, 0))
+      return
+    }
     val flow = TcpFlow(key, ip, segment)
-    flows[key] = flow
-    flow.start()
+    val claimedFlow = flows.putIfAbsent(key, flow)
+    if (claimedFlow == null) {
+      flow.start()
+    } else {
+      flow.close()
+    }
   }
 
   private fun write(packet: ByteArray) {
@@ -336,9 +357,12 @@ class GuardianVpnService : VpnService() {
     fun start() {
       Thread({
         runCatching {
-          write(PacketCodec.buildTcp(request, request.destination, request.source, key.destinationPort, key.sourcePort, localSequence, nextClientSequence, SYN or ACK, TCP_WINDOW))
           protect(socket)
-          socket.connect(InetSocketAddress(request.destination, key.destinationPort), TCP_CONNECT_TIMEOUT_MS.toInt())
+          socket.connect(
+            InetSocketAddress(request.destination, key.destinationPort),
+            TCP_CONNECT_TIMEOUT_MS.toInt(),
+          )
+          write(PacketCodec.buildTcp(request, request.destination, request.source, key.destinationPort, key.sourcePort, localSequence, nextClientSequence, SYN or ACK, TCP_WINDOW))
           val input = socket.getInputStream()
           val buffer = ByteArray(32768)
           while (!closed.get()) {
@@ -510,6 +534,7 @@ class GuardianVpnService : VpnService() {
     private const val TCP = 6
     private const val DNS_TIMEOUT_MS = 2000
     private const val TCP_CONNECT_TIMEOUT_MS = 3000L
+    private const val MAX_FLOWS = 256
     private const val TCP_WINDOW = 65535
     private const val SYN = 0x02
     private const val ACK = 0x10
