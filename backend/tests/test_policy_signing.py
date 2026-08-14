@@ -8,7 +8,12 @@ from cryptography.hazmat.primitives.asymmetric.ed25519 import Ed25519PrivateKey
 
 from app.core.config import get_settings
 from app.policies.service import default_policy
-from app.policies.signing import canonical_bytes, signer, validate_policy_bundle
+from app.policies.signing import (
+    canonical_bytes,
+    signer,
+    validate_policy_bundle,
+    verify_signed_bundle,
+)
 
 
 @pytest.fixture
@@ -51,3 +56,41 @@ def test_signer_validates_and_signs_a_policy_bundle(signing_key: str) -> None:
     public_key = Ed25519PrivateKey.from_private_bytes(bytes(range(32))).public_key()
     signature = base64.b64decode(str(signed["signature"]))
     public_key.verify(signature, canonical_bytes(signed))
+
+
+def test_python_verifies_the_typescript_signature_fixture() -> None:
+    fixture = json.loads(
+        (
+            Path(__file__).parents[2]
+            / "packages"
+            / "policy-schema"
+            / "test-fixtures"
+            / "signature-cross-language.json"
+        ).read_text()
+    )
+    public_key = Ed25519PrivateKey.from_private_bytes(
+        bytes.fromhex(fixture["private_key_seed"])
+    ).public_key()
+    public_key.verify(
+        base64.b64decode(fixture["signature"]),
+        canonical_bytes(fixture["bundle"]),
+    )
+
+
+def test_trusted_key_set_rejects_unknown_rotated_out_and_tampered_bundles() -> None:
+    fixture = json.loads(
+        (
+            Path(__file__).parents[2]
+            / "packages"
+            / "policy-schema"
+            / "test-fixtures"
+            / "signature-cross-language.json"
+        ).read_text()
+    )
+    bundle = {**fixture["bundle"], "signature": fixture["signature"]}
+    trusted = {"fixture-key": fixture["public_key"]}
+    assert verify_signed_bundle(bundle, trusted)
+    assert not verify_signed_bundle(bundle, {})
+    assert not verify_signed_bundle(bundle, {"old-key": fixture["public_key"]})
+    tampered = {**bundle, "family_id": "tampered"}
+    assert not verify_signed_bundle(tampered, trusted)

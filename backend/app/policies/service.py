@@ -214,6 +214,7 @@ async def create_initial_bundle(
         policy_version=1,
         author_parent_id=parent_id,
         effective_at=datetime.now(UTC),
+        previous_value=None,
         new_value=signed,
         key_id=str(signed["key_id"]),
         signature=str(signed["signature"]),

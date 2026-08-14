@@ -10,15 +10,20 @@ TERMINAL_STATES = {
     RequestState.EXPIRED.value,
     RequestState.CANCELLED.value,
 }
+ALLOWED_TRANSITIONS = {
+    RequestState.PENDING.value: {
+        RequestState.APPROVED.value,
+        RequestState.DENIED.value,
+        RequestState.EXPIRED.value,
+        RequestState.CANCELLED.value,
+    }
+}
 
 
 def transition(current: str, target: RequestState) -> None:
-    if current != RequestState.PENDING.value or target.value in TERMINAL_STATES - {
-        RequestState.PENDING.value
-    }:
-        if current != RequestState.PENDING.value:
+    if target.value not in ALLOWED_TRANSITIONS.get(current, set()):
+        if current in TERMINAL_STATES:
             raise HTTPException(status.HTTP_409_CONFLICT, "Request is already closed")
-    else:
         raise HTTPException(status.HTTP_409_CONFLICT, "Invalid request transition")
 
 

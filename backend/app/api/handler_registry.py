@@ -39,6 +39,7 @@ from ..core.notifier import LoggingNotifier
 from ..core.rate_limit import InProcessRateLimiter
 from ..devices.models import Device, DeviceCredential
 from ..devices.service import current_device
+from ..events.broadcaster import broadcaster
 from ..events.models import (
     ProtectionHealthEvent,
     SafetyEvent,
@@ -55,7 +56,7 @@ from ..policies.service import (
     default_policy,
     validate_timezone,
 )
-from ..policies.signing import signer
+from ..policies.signing import configured_trusted_public_keys, signer
 from ..push.models import PushToken
 from ..requests.models import Request as RequestRow
 from ..requests.models import RequestState
@@ -97,6 +98,7 @@ app.add_exception_handler(Exception, internal_error_handler)
 oauth2 = OAuth2PasswordBearer(tokenUrl="/v1/auth/login")
 auth_rate_limiter = InProcessRateLimiter()
 notifier = LoggingNotifier()
+__all__ = ["app", "notifier", "signer"]
 
 
 def policy_records(policy: dict[str, object], key: str) -> list[dict[str, object]]:
@@ -114,9 +116,16 @@ def policy_mapping(policy: dict[str, object], key: str) -> dict[str, object]:
 
 
 @app.get("/v1/policy/public-key")
-async def policy_public_key() -> dict[str, str]:
+async def policy_public_key() -> dict[str, object]:
     settings = get_settings()
-    return {"key_id": settings.policy_key_id, "public_key": signer.public_key()}
+    trusted = configured_trusted_public_keys()
+    if settings.policy_key_id not in trusted:
+        trusted[settings.policy_key_id] = signer.public_key()
+    return {
+        "key_id": settings.policy_key_id,
+        "public_key": trusted[settings.policy_key_id],
+        "trusted_public_keys": trusted,
+    }
 
 
 def rate_key(request: HTTPRequest, operation: str, principal: str) -> str:
@@ -633,12 +642,17 @@ async def mutate_policy(
             "APP_BLOCK": "BLOCK",
             "APP_UNLIMITED": "UNLIMITED",
             "APP_DAILY_MINUTES": "LIMIT",
+            "APP_SCHEDULE": "SCHEDULE",
         }[operation]
         rule: dict[str, object] = {"rule_id": rule_id, "app_ref": body.target, "action": action}
         if action == "LIMIT":
             if not isinstance(body.value, int) or body.value < 0:
                 raise HTTPException(status.HTTP_422_UNPROCESSABLE_ENTITY, "Daily minutes required")
             rule["daily_minutes"] = body.value
+        if action == "SCHEDULE":
+            if not isinstance(body.value, dict):
+                raise HTTPException(status.HTTP_422_UNPROCESSABLE_ENTITY, "Schedule required")
+            rule["schedule"] = body.value
         policy["app_rules"] = [*policy_records(policy, "app_rules"), rule]
     elif operation in {"DOMAIN_ALLOW", "DOMAIN_BLOCK"}:
         policy["domain_rules"] = [
@@ -649,26 +663,58 @@ async def mutate_policy(
                 "action": "ALLOW" if operation == "DOMAIN_ALLOW" else "BLOCK",
             },
         ]
-    elif operation == "CATEGORY_DAILY_MINUTES":
+    elif operation in {"CATEGORY_DAILY_MINUTES", "WEB_CATEGORY_ALLOW", "WEB_CATEGORY_BLOCK"}:
+        if operation == "WEB_CATEGORY_ALLOW":
+            action = "ALLOW"
+        elif operation == "WEB_CATEGORY_BLOCK":
+            action = "BLOCK"
+        else:
+            action = "LIMIT"
         if not isinstance(body.value, int) or body.value < 0:
-            raise HTTPException(status.HTTP_422_UNPROCESSABLE_ENTITY, "Daily minutes required")
+            if operation == "CATEGORY_DAILY_MINUTES":
+                raise HTTPException(status.HTTP_422_UNPROCESSABLE_ENTITY, "Daily minutes required")
         policy["category_rules"] = [
             *policy_records(policy, "category_rules"),
             {
                 "rule_id": rule_id,
                 "category": body.target,
-                "action": "LIMIT",
-                "daily_minutes": body.value,
+                "action": action,
+                **({"daily_minutes": body.value} if action == "LIMIT" else {}),
             },
         ]
-    elif operation == "UNKNOWN_DOMAIN_POLICY":
-        if body.value not in {"BLOCK", "ALLOW_AND_NOTIFY"}:
-            raise HTTPException(
-                status.HTTP_422_UNPROCESSABLE_ENTITY, "Invalid unknown-domain policy"
-            )
+    elif operation == "UNKNOWN_DOMAIN_POLICY" or operation == "UNKNOWN_APP_POLICY":
+        allowed = (
+            {"BLOCK", "BLOCK_WHILE_CLASSIFYING", "ALLOW_WHILE_CLASSIFYING", "ALLOW_AND_NOTIFY"}
+            if operation == "UNKNOWN_DOMAIN_POLICY"
+            else {"BLOCK", "LIMIT_AND_NOTIFY", "ALLOW_AND_NOTIFY", "ALLOW"}
+        )
+        if body.value not in allowed:
+            raise HTTPException(status.HTTP_422_UNPROCESSABLE_ENTITY, "Invalid unknown policy")
+        field = (
+            "unknown_domain_policy"
+            if operation == "UNKNOWN_DOMAIN_POLICY"
+            else "unknown_app_policy"
+        )
         base = policy_mapping(policy, "base_policy")
-        base["unknown_domain_policy"] = body.value
+        base[field] = body.value
         policy["base_policy"] = base
+    elif operation in {"ROUTINE_CREATE", "ROUTINE_UPDATE", "ROUTINE_DELETE"}:
+        routines = policy_records(policy, "routines")
+        if operation == "ROUTINE_DELETE":
+            routines = [routine for routine in routines if routine.get("routine_id") != body.target]
+        elif not isinstance(body.value, dict):
+            raise HTTPException(status.HTTP_422_UNPROCESSABLE_ENTITY, "Routine value required")
+        elif operation == "ROUTINE_CREATE":
+            routines.append(body.value)
+        else:
+            replaced = False
+            for index, routine in enumerate(routines):
+                if routine.get("routine_id") == body.target:
+                    routines[index] = body.value
+                    replaced = True
+            if not replaced:
+                raise HTTPException(status.HTTP_404_NOT_FOUND, "Routine not found")
+        policy["routines"] = routines
     elif operation == "COMMUNICATION_SENSITIVITY":
         if body.value not in {"LOW", "MEDIUM", "HIGH", "CRITICAL"}:
             raise HTTPException(status.HTTP_422_UNPROCESSABLE_ENTITY, "Invalid sensitivity")
@@ -702,12 +748,22 @@ async def mutate_policy(
         "bundle": bundle.new_value,
         "policy_version": bundle.policy_version,
         "effective_at": bundle.effective_at.isoformat(),
+        "author_parent_id": str(parent.id),
+        "expires_at": bundle.expires_at.isoformat() if bundle.expires_at else None,
+        "previous_value": bundle.previous_value,
+        "new_value": bundle.new_value,
+        "superseded_policy_version": bundle.policy_version - 1,
     }
     if idempotency_key is not None:
         await save_result(
             session, "policy_mutation", idempotency_key, digest, status.HTTP_200_OK, result
         )
     await session.commit()
+    broadcaster.publish(
+        family_id,
+        {"type": "policy-version-changed", "policy_version": bundle.policy_version},
+        child_id,
+    )
     return result
 
 
@@ -759,6 +815,15 @@ async def create_request(
             result.model_dump(mode="json"),
         )
     await session.commit()
+    family_id = await session.scalar(
+        select(ChildProfile.family_id).where(ChildProfile.id == device.child_profile_id)
+    )
+    if family_id is not None:
+        broadcaster.publish(
+            family_id,
+            {"type": "request-created", "request_id": str(request_row.id)},
+            device.child_profile_id,
+        )
     return result
 
 
@@ -838,6 +903,15 @@ async def decide_request(
             expires_at=datetime.now(UTC) + timedelta(hours=1),
         )
     await session.commit()
+    family_id = await session.scalar(
+        select(ChildProfile.family_id).where(ChildProfile.id == row.child_profile_id)
+    )
+    if family_id is not None:
+        broadcaster.publish(
+            family_id,
+            {"type": "request-decided", "request_id": str(row.id), "state": row.state},
+            row.child_profile_id,
+        )
     return RequestOut.model_validate(row)
 
 
@@ -847,10 +921,27 @@ async def approve_request(
     request_id: UUID,
     body: RequestDecisionIn,
     parent: Parent = Depends(current_parent),
+    idempotency_key: str | None = Header(default=None, alias="Idempotency-Key"),
     session: AsyncSession = Depends(get_session),
 ) -> RequestOut:
     await family_for_parent(session, parent, family_id)
-    return await decide_request(request_id, RequestState.APPROVED, body, parent, session)
+    digest = payload_hash(body.model_dump(mode="json"))
+    if idempotency_key is not None:
+        replay = await replay_or_conflict(session, "request_approval", idempotency_key, digest)
+        if replay is not None:
+            return RequestOut.model_validate(replay.response_body)
+    result = await decide_request(request_id, RequestState.APPROVED, body, parent, session)
+    if idempotency_key is not None:
+        await save_result(
+            session,
+            "request_approval",
+            idempotency_key,
+            digest,
+            status.HTTP_200_OK,
+            result.model_dump(mode="json"),
+        )
+        await session.commit()
+    return result
 
 
 @app.post("/v1/families/{family_id}/requests/{request_id}/deny", response_model=RequestOut)
@@ -880,6 +971,29 @@ async def register_push_token(
     )
     if existing is None:
         session.add(PushToken(parent_id=parent.id, platform=body.platform, token_hash=token_hash))
+    else:
+        existing.active = True
+        existing.platform = body.platform
+    await session.commit()
+
+
+@app.post("/v1/devices/me/push-tokens", status_code=status.HTTP_204_NO_CONTENT)
+async def register_device_push_token(
+    body: PushTokenIn,
+    device: Device = Depends(current_device),
+    session: AsyncSession = Depends(get_session),
+) -> None:
+    token_hash = hashlib.sha256(body.token.encode()).hexdigest()
+    existing = await session.scalar(
+        select(PushToken).where(
+            PushToken.device_id == device.id,
+            PushToken.token_hash == token_hash,
+        )
+    )
+    if existing is None:
+        session.add(
+            PushToken(device_id=device.id, platform=body.platform, token_hash=token_hash)
+        )
     else:
         existing.active = True
         existing.platform = body.platform
@@ -1016,17 +1130,31 @@ async def websocket_sync(
             "open_requests": [],
         }
     )
+    connection = broadcaster.subscribe(family_uuid, child_uuid if child_id is not None else None)
     try:
         while True:
-            try:
-                message = await asyncio.wait_for(websocket.receive_text(), timeout=30)
-            except TimeoutError:
+            receive_task = asyncio.create_task(websocket.receive_text())
+            event_task = asyncio.create_task(connection.queue.get())
+            done, pending = await asyncio.wait(
+                {receive_task, event_task},
+                timeout=30,
+                return_when=asyncio.FIRST_COMPLETED,
+            )
+            for task in pending:
+                task.cancel()
+            if not done:
                 await websocket.send_json({"type": "ping"})
                 continue
+            if event_task in done:
+                await websocket.send_json(event_task.result())
+                continue
+            message = receive_task.result()
             if message != "pong":
                 await websocket.send_json({"type": "pong"})
     except (WebSocketDisconnect, TimeoutError):
         return
+    finally:
+        broadcaster.unsubscribe(connection)
 
 
 @app.post("/v1/devices/me/heartbeat", status_code=204)
@@ -1050,6 +1178,19 @@ async def heartbeat(
         )
     )
     await session.commit()
+    family_id = await session.scalar(
+        select(ChildProfile.family_id).where(ChildProfile.id == device.child_profile_id)
+    )
+    if family_id is not None:
+        broadcaster.publish(
+            family_id,
+            {
+                "type": "protection-health-changed",
+                "device_id": str(device.id),
+                "protection_state": body.protection_state,
+            },
+            device.child_profile_id,
+        )
 
 
 @app.post("/v1/devices/me/events", status_code=202)

@@ -52,6 +52,18 @@ export async function verifyBundle(
   return bundle as VerifiedPolicyBundle;
 }
 
+export async function verifyBundleAgainstTrustedKeys(
+  bundle: SignedPolicyBundle,
+  trustedPublicKeys: Readonly<Record<string, string>>
+): Promise<VerifiedPolicyBundle> {
+  const keyId = bundle.key_id;
+  const publicKey = trustedPublicKeys[keyId];
+  if (!publicKey || !(await verifyPolicySignature(bundle, publicKey))) {
+    throw new BundleVerificationError("Policy bundle key is not trusted");
+  }
+  return bundle as VerifiedPolicyBundle;
+}
+
 export function unsafeTrustBundleForTesting(
   bundle: SignedPolicyBundle
 ): VerifiedPolicyBundle {

@@ -3,7 +3,11 @@ import json
 from collections.abc import Mapping
 from pathlib import Path
 
-from cryptography.hazmat.primitives.asymmetric.ed25519 import Ed25519PrivateKey
+from cryptography.exceptions import InvalidSignature
+from cryptography.hazmat.primitives.asymmetric.ed25519 import (
+    Ed25519PrivateKey,
+    Ed25519PublicKey,
+)
 from cryptography.hazmat.primitives.serialization import Encoding, PublicFormat
 from jsonschema import Draft202012Validator, FormatChecker
 
@@ -69,6 +73,54 @@ def validate_policy_bundle(bundle: dict[str, object]) -> None:
         raise ValueError(
             "Policy bundle validation failed: " + "; ".join(error.message for error in errors)
         )
+    identifiers: set[str] = set()
+    for field in ("app_rules", "domain_rules", "category_rules", "routines", "temporary_overrides"):
+        values = bundle.get(field)
+        if not isinstance(values, list):
+            continue
+        for value in values:
+            if isinstance(value, Mapping):
+                identifier = value.get("rule_id", value.get("routine_id"))
+                if isinstance(identifier, str):
+                    if identifier in identifiers:
+                        raise ValueError(f"Duplicate policy identifier: {identifier}")
+                    identifiers.add(identifier)
+
+
+def verify_signed_bundle(
+    bundle: Mapping[str, object], trusted_public_keys: Mapping[str, str]
+) -> bool:
+    key_id = bundle.get("key_id")
+    signature = bundle.get("signature")
+    if not isinstance(key_id, str) or not isinstance(signature, str):
+        return False
+    encoded_key = trusted_public_keys.get(key_id)
+    if encoded_key is None:
+        return False
+    try:
+        public_key = Ed25519PublicKey.from_public_bytes(
+            base64.b64decode(encoded_key, validate=True)
+        )
+        public_key.verify(
+            base64.b64decode(signature, validate=True),
+            canonical_bytes(bundle),
+        )
+    except (InvalidSignature, ValueError, TypeError):
+        return False
+    return True
+
+
+def configured_trusted_public_keys() -> dict[str, str]:
+    value = get_settings().policy_trusted_public_keys
+    if not value:
+        return {}
+    parsed = json.loads(value)
+    if not isinstance(parsed, dict) or not all(
+        isinstance(key, str) and isinstance(public_key, str)
+        for key, public_key in parsed.items()
+    ):
+        raise RuntimeError("GUARDIAN_POLICY_TRUSTED_PUBLIC_KEYS must be a JSON object")
+    return parsed
 
 
 class PolicySigner:

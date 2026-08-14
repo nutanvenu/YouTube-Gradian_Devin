@@ -1,0 +1,52 @@
+{
+  "bundle": {
+    "schema_version": 1,
+    "policy_version": 9007199254740991,
+    "family_id": "family-😀",
+    "child_profile_id": "child-東京",
+    "issued_at": "2026-01-01T00:00:00Z",
+    "expires_soft_at": "2026-01-08T00:00:00Z",
+    "key_id": "fixture-key",
+    "age_band": "TEEN",
+    "base_policy": {
+      "timezone": "Asia/Tokyo",
+      "unknown_domain_policy": "ALLOW_AND_NOTIFY",
+      "unknown_app_policy": "ALLOW_AND_NOTIFY",
+      "hard_category_rules": [],
+      "default_category_rules": [],
+      "safety_allowlist": [],
+      "nested": [
+        {
+          "domain": "例え.テスト",
+          "emoji": "🛡️",
+          "values": [
+            0,
+            9007199254740991,
+            -9007199254740991
+          ]
+        }
+      ]
+    },
+    "app_rules": [],
+    "domain_rules": [
+      {
+        "rule_id": "idn-1",
+        "domain": "例え.テスト",
+        "action": "ALLOW"
+      }
+    ],
+    "category_rules": [],
+    "routines": [],
+    "temporary_overrides": [],
+    "communication_safety": {
+      "enabled": true,
+      "severity_threshold": "HIGH",
+      "android_notification_signals": true,
+      "android_accessibility_signals": false
+    },
+    "signature": ""
+  },
+  "private_key_seed": "000102030405060708090a0b0c0d0e0f101112131415161718191a1b1c1d1e1f",
+  "signature": "s4tSOTciHo2MXj4TJeHyYU8xeqf+83VGaaucXSt2aL+vFuXG3LPFCAqrN8NU8KS+k7g00gH8Q1FKpPorWoO6Dw==",
+  "public_key": "A6EHv/POEL4dcN0Y50vAmWfk1jCbpQ1fHdyGZBJVMbg="
+}

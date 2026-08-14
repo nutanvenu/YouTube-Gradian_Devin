@@ -226,13 +226,20 @@ class PolicyMutationIn(BaseModel):
         "APP_BLOCK",
         "APP_UNLIMITED",
         "APP_DAILY_MINUTES",
+        "APP_SCHEDULE",
         "DOMAIN_ALLOW",
         "DOMAIN_BLOCK",
         "CATEGORY_DAILY_MINUTES",
+        "WEB_CATEGORY_ALLOW",
+        "WEB_CATEGORY_BLOCK",
         "UNKNOWN_DOMAIN_POLICY",
+        "UNKNOWN_APP_POLICY",
+        "ROUTINE_CREATE",
+        "ROUTINE_UPDATE",
+        "ROUTINE_DELETE",
         "COMMUNICATION_SENSITIVITY",
         "TEMPORARY_EXCEPTION",
     ]
     target: str = Field(min_length=1, max_length=512)
-    value: str | int | None = None
+    value: str | int | dict[str, object] | None = None
     expires_at: datetime | None = None

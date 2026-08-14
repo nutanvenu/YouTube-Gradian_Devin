@@ -13,6 +13,7 @@ class Settings(BaseSettings):
     refresh_days: int = 30
     policy_key_id: str = "guardian-dev"
     policy_private_key: str | None = None
+    policy_trusted_public_keys: str | None = None
     health_stale_minutes: int = 15
 
 
