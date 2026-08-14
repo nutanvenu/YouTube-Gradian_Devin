@@ -9,11 +9,14 @@ from uuid import uuid4
 import asyncpg
 import httpx
 import pytest_asyncio
+from cryptography.hazmat.primitives.asymmetric.ed25519 import Ed25519PrivateKey
+from cryptography.hazmat.primitives.serialization import Encoding, PublicFormat
 from sqlalchemy.ext.asyncio import AsyncSession, async_sessionmaker, create_async_engine
 
 from app.api.app import app
 from app.core.config import get_settings
 from app.core.db import get_session
+from app.devices.service import device_request_message
 
 
 @dataclass(frozen=True)
@@ -28,6 +31,21 @@ class PairedDevice:
     parent: ParentFamily
     device_id: str
     device_token: str
+    private_key: str
+
+    def signed_headers(self, path: str, body: bytes) -> dict[str, str]:
+        private = Ed25519PrivateKey.from_private_bytes(bytes(range(32)))
+        timestamp = str(int(__import__("time").time()))
+        nonce = str(uuid4())
+        signature = base64.b64encode(
+            private.sign(device_request_message("POST", path, timestamp, nonce, body))
+        ).decode("ascii")
+        return {
+            "Authorization": f"Bearer {self.device_token}",
+            "X-Guardian-Device-Timestamp": timestamp,
+            "X-Guardian-Device-Nonce": nonce,
+            "X-Guardian-Device-Signature": signature,
+        }
 
 
 @pytest_asyncio.fixture(scope="session")
@@ -150,7 +168,7 @@ async def paired_device(
         headers=headers,
     )
     payload = pairing.json()["qr_payload"]
-    code = payload.rsplit("code=", 1)[1]
+    code = payload.rsplit("code=", 1)[1].split("&", 1)[0]
     redeemed = await client.post(
         "/v1/devices/pair",
         json={
@@ -158,10 +176,20 @@ async def paired_device(
             "code": code,
             "child_profile_id": parent_a.child_id,
             "platform": "ANDROID",
-            "public_key": "test-device-public-key-000000000000000000000000",
+            "public_key": base64.b64encode(
+                Ed25519PrivateKey.from_private_bytes(bytes(range(32)))
+                .public_key()
+                .public_bytes(Encoding.Raw, PublicFormat.Raw)
+            ).decode("ascii"),
         },
     )
-    return PairedDevice(parent_a, redeemed.json()["device_id"], redeemed.json()["device_token"])
+    assert redeemed.status_code == 200, redeemed.text
+    return PairedDevice(
+        parent_a,
+        redeemed.json()["device_id"],
+        redeemed.json()["device_token"],
+        base64.b64encode(bytes(range(32))).decode("ascii"),
+    )
 
 
 @pytest_asyncio.fixture

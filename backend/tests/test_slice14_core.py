@@ -6,22 +6,23 @@ from app.core.config import get_settings
 
 @pytest.mark.asyncio
 async def test_signed_policy_and_requests_round_trip(client, paired_device) -> None:
-    device_headers = {"Authorization": f"Bearer {paired_device.device_token}"}
+    request_body = b'{"request_type":"UNBLOCK_APP","subject":"com.example.app"}'
+    device_headers = paired_device.signed_headers("/v1/devices/me/requests", request_body)
     policy = await client.get("/v1/devices/me/policy", headers=device_headers)
     assert policy.status_code == 200
-    body = policy.json()
-    assert body["bundle"]["signature"]
-    assert body["bundle"]["key_id"] == get_settings().policy_key_id
+    policy_body = policy.json()
+    assert policy_body["bundle"]["signature"]
+    assert policy_body["bundle"]["key_id"] == get_settings().policy_key_id
     request = await client.post(
         "/v1/devices/me/requests",
         headers={**device_headers, "Idempotency-Key": "request-1"},
-        json={"request_type": "UNBLOCK_APP", "subject": "com.example.app"},
+        content=request_body,
     )
     assert request.status_code == 201
     replay = await client.post(
         "/v1/devices/me/requests",
-        headers={**device_headers, "Idempotency-Key": "request-1"},
-        json={"request_type": "UNBLOCK_APP", "subject": "com.example.app"},
+        headers={**paired_device.signed_headers("/v1/devices/me/requests", request_body), "Idempotency-Key": "request-1"},
+        content=request_body,
     )
     assert replay.status_code == 201
     assert replay.json()["id"] == request.json()["id"]
@@ -150,12 +151,13 @@ async def test_device_push_token_registration_is_device_scoped(client, paired_de
 async def test_request_approval_retry_replays_without_new_policy_version(
     client, paired_device
 ) -> None:
-    device_headers = {"Authorization": f"Bearer {paired_device.device_token}"}
+    request_body = b'{"request_type":"UNBLOCK_APP","subject":"com.example.app"}'
+    device_headers = paired_device.signed_headers("/v1/devices/me/requests", request_body)
     parent_headers = {"Authorization": f"Bearer {paired_device.parent.token}"}
     created = await client.post(
         "/v1/devices/me/requests",
         headers=device_headers,
-        json={"request_type": "UNBLOCK_APP", "subject": "com.example.app"},
+        content=request_body,
     )
     assert created.status_code == 201
     path = (

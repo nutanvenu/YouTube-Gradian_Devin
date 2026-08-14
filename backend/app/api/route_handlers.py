@@ -1,12 +1,15 @@
 import asyncio
+import base64
 import hashlib
 import secrets
-from contextlib import asynccontextmanager
+from binascii import Error as Base64Error
 from collections.abc import Mapping
+from contextlib import asynccontextmanager
 from copy import deepcopy
 from datetime import UTC, datetime, timedelta
 from uuid import UUID
 
+from cryptography.hazmat.primitives.asymmetric.ed25519 import Ed25519PublicKey
 from fastapi import Depends, FastAPI, Header, HTTPException, WebSocket, WebSocketDisconnect, status
 from fastapi import Request as HTTPRequest
 from fastapi.exceptions import RequestValidationError
@@ -39,7 +42,7 @@ from ..core.idempotency import payload_hash, replay_or_conflict, save_result
 from ..core.notifier import LoggingNotifier
 from ..core.rate_limit import InProcessRateLimiter
 from ..devices.models import Device, DeviceCredential
-from ..devices.service import current_device
+from ..devices.service import current_device, verify_device_request_headers
 from ..events.broadcaster import broadcaster
 from ..events.models import (
     ProtectionHealthEvent,
@@ -57,7 +60,11 @@ from ..policies.service import (
     default_policy,
     validate_timezone,
 )
-from ..policies.signing import configured_trusted_public_keys, signer, validate_configured_signing_key
+from ..policies.signing import (
+    configured_trusted_public_keys,
+    signer,
+    validate_configured_signing_key,
+)
 from ..push.models import PushToken
 from ..requests.models import Request as RequestRow
 from ..requests.models import RequestState
@@ -91,6 +98,7 @@ from .schemas import (
     TokenRequestIn,
     TokensOut,
 )
+
 
 @asynccontextmanager
 async def lifespan(_: FastAPI):
@@ -530,6 +538,10 @@ async def redeem_pairing(
     idempotency_key: str | None = Header(default=None, alias="Idempotency-Key"),
     session: AsyncSession = Depends(get_session),
 ) -> DeviceCredentialOut:
+    try:
+        Ed25519PublicKey.from_public_bytes(base64.b64decode(body.public_key, validate=True))
+    except (ValueError, Base64Error):
+        raise HTTPException(status.HTTP_400_BAD_REQUEST, "Device public key is invalid") from None
     digest = payload_hash(body.model_dump(mode="json"))
     if idempotency_key is not None:
         replay = await replay_or_conflict(session, "pairing_redeem", idempotency_key, digest)
@@ -727,16 +739,27 @@ async def mutate_policy(
         base = policy_mapping(policy, "base_policy")
         base[field] = body.value
         policy["base_policy"] = base
-    elif operation in {"ROUTINE_CREATE", "ROUTINE_UPDATE", "ROUTINE_DELETE", "ROUTINE_ACTIVATE", "ROUTINE_DEACTIVATE"}:
+    elif operation in {
+        "ROUTINE_CREATE",
+        "ROUTINE_UPDATE",
+        "ROUTINE_DELETE",
+        "ROUTINE_ACTIVATE",
+        "ROUTINE_DEACTIVATE",
+    }:
         routines = policy_records(policy, "routines")
         if operation == "ROUTINE_DELETE":
             routines = [routine for routine in routines if routine.get("routine_id") != body.target]
         elif operation in {"ROUTINE_ACTIVATE", "ROUTINE_DEACTIVATE"}:
-            routine = next((item for item in routines if item.get("routine_id") == body.target), None)
+            routine = next(
+                (item for item in routines if item.get("routine_id") == body.target),
+                None,
+            )
             if routine is None or routine.get("kind") != "MANUAL":
                 raise HTTPException(status.HTTP_404_NOT_FOUND, "Manual routine not found")
             base = policy_mapping(policy, "base_policy")
-            base["current_manual_routine_id"] = body.target if operation == "ROUTINE_ACTIVATE" else None
+            base["current_manual_routine_id"] = (
+                body.target if operation == "ROUTINE_ACTIVATE" else None
+            )
             policy["base_policy"] = base
         elif not isinstance(body.value, dict):
             raise HTTPException(status.HTTP_422_UNPROCESSABLE_ENTITY, "Routine value required")
@@ -821,10 +844,12 @@ async def acknowledge_policy(
 )
 async def create_request(
     body: RequestCreateIn,
+    request: HTTPRequest,
     device: Device = Depends(current_device),
     idempotency_key: str | None = Header(default=None, alias="Idempotency-Key"),
     session: AsyncSession = Depends(get_session),
 ) -> RequestOut:
+    await verify_device_request_headers(request, device, session)
     payload = body.model_dump(mode="json")
     digest = payload_hash(payload)
     if idempotency_key is not None:

@@ -28,3 +28,12 @@ class IdempotencyRecord(TimestampMixin, Base):
     payload_hash: Mapped[str] = mapped_column(String(64))
     status_code: Mapped[int] = mapped_column(Integer)
     response_body: Mapped[dict[str, object]] = mapped_column(JSONB)
+
+
+class DeviceRequestNonce(TimestampMixin, Base):
+    __tablename__ = "device_request_nonces"
+    __table_args__ = (UniqueConstraint("device_id", "nonce"),)
+
+    id: Mapped[UUID] = mapped_column(PGUUID(as_uuid=True), primary_key=True, default=uuid4)
+    device_id: Mapped[UUID] = mapped_column(PGUUID(as_uuid=True), index=True)
+    nonce: Mapped[str] = mapped_column(String(200))
