@@ -197,6 +197,17 @@ export type ReputationStatus = {
   entryCount: number;
   pending: number;
 };
+export type GuardianPerformanceMetrics = {
+  vpnDecisionCount: number;
+  vpnDecisionAverageMicros: number;
+  policyApplyCount: number;
+  policyApplyAverageMillis: number;
+  usageRefreshCount: number;
+  usageRefreshAverageMillis: number;
+  bridgeEventCount: number;
+  moduleStartupMillis: number | null;
+  batteryMeasurement: string;
+};
 
 export interface GuardianProtectionNative {
   getCapabilities(): Promise<CapabilityRecord>;
@@ -211,6 +222,7 @@ export interface GuardianProtectionNative {
   applyReputationBundle(bundle: unknown): Promise<ReputationApplyResult>;
   getReputationStatus(): Promise<ReputationStatus>;
   getUsageSummary(range: TimeRange): Promise<UsageSummary>;
+  getPerformanceMetrics(): Promise<GuardianPerformanceMetrics>;
   getObservedApps(): Promise<ObservedApp[]>;
   markObservedAppReviewed(platformAppId: string): Promise<void>;
   subscribe(listener: (event: GuardianNativeEvent) => void): { remove: () => void };

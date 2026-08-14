@@ -1,7 +1,7 @@
 import { useEffect, useRef, useState } from "react";
 import { useQuery } from "@tanstack/react-query";
 import { useRouter } from "expo-router";
-import { AppState, Text } from "react-native";
+import { AppState, Platform, Text } from "react-native";
 import { ApiError, api, sessionStorage } from "@/api/client";
 import { useFamilySync } from "@/hooks/use-family-sync";
 import { useNetworkStatus } from "@/state/network";
@@ -98,7 +98,6 @@ export default function ChildHomeRoute() {
           reason_code: event.reasonCode,
         }]).catch(() => undefined);
       }
-      console.info("GUARDIAN_BRIDGE_EVENT", JSON.stringify(event));
       if (event.type === "APP_BLOCKED") {
         setAppBlockedMessage(`${event.appRef} · ${event.reasonCode}`);
       }
@@ -128,7 +127,7 @@ export default function ChildHomeRoute() {
         return;
       }
       const communication = policy.data.bundle as { communication_safety?: { enabled?: boolean } };
-      if (communication.communication_safety?.enabled && capabilities.communication_risk_signals?.level === "UNAVAILABLE") {
+      if (communication.communication_safety?.enabled && capabilities.communication_risk_signals.level === "UNAVAILABLE") {
         setProtectionMessage("Communication safety permission is required.");
       }
       await GuardianProtection.startProtection();
@@ -140,6 +139,10 @@ export default function ChildHomeRoute() {
         protection_state: protectionStatus.health,
         capabilities: currentCapabilities,
       });
+      if (__DEV__ && Platform.OS === "android") {
+        const metrics = await GuardianProtection.getPerformanceMetrics();
+        console.info("GUARDIAN_PERFORMANCE_METRICS", JSON.stringify(metrics));
+      }
       setAcknowledgedVersion(policy.data.policy_version);
       setProtectionMessage("Web protection is active for DNS and known blocked destinations. Other traffic may bypass Guardian.");
       if (!usageUploaded.current) {

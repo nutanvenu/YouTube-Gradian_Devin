@@ -19,6 +19,7 @@ import expo.modules.guardianprotection.flow.AndroidFlowAttribution
 import expo.modules.guardianprotection.policy.GuardianPolicyRuntime
 import expo.modules.guardianprotection.policy.PolicyManager
 import expo.modules.guardianprotection.storage.EncryptedPolicyStore
+import expo.modules.guardianprotection.observability.GuardianPerformanceMetrics
 import java.io.FileInputStream
 import java.io.FileOutputStream
 import java.net.DatagramPacket
@@ -149,7 +150,7 @@ class GuardianVpnService : VpnService() {
     val domain = dnsCache.domainFor(ip.destination)
     val responsibleApp = attribution.packageNamesForFlow(key.attributionKey()).firstOrNull()
     if (domain != null) {
-      val decision = GuardianPolicyRuntime.evaluateDomain(domain, ip.destination.hostAddress)
+      val decision = evaluateDomain(domain, ip.destination.hostAddress)
       if (decision.blocked) reportBlocked(domain, decision, responsibleApp)
     } else if (datagram.destinationPort == QUIC_PORT) {
       failOnce("QUIC_BLOCKED_DESTINATION_UNATTRIBUTED")
@@ -161,7 +162,7 @@ class GuardianVpnService : VpnService() {
     val segment = PacketCodec.parseTcp(ip.payload) ?: return
     val key = FlowKey(ip, segment.sourcePort, segment.destinationPort)
     val domain = dnsCache.domainFor(ip.destination) ?: return
-    val decision = GuardianPolicyRuntime.evaluateDomain(domain, ip.destination.hostAddress)
+    val decision = evaluateDomain(domain, ip.destination.hostAddress)
     if (decision.blocked) {
       val responsibleApp = attribution.packageNamesForFlow(key.attributionKey()).firstOrNull()
       reportBlocked(domain, decision, responsibleApp)
@@ -173,7 +174,7 @@ class GuardianVpnService : VpnService() {
     val responsibleApp = attribution.packageNamesForFlow(key.attributionKey()).firstOrNull()
     val upstream = if (ip.isIpv6) InetAddress.getByName("2606:4700:4700::1111")
     else InetAddress.getByName("1.1.1.1")
-    val decision = GuardianPolicyRuntime.evaluateDomain(query.domain, ip.destination.hostAddress)
+    val decision = evaluateDomain(query.domain, ip.destination.hostAddress)
     val primaryResponse = queryUpstream(datagram.payload, upstream)
     if (decision.blocked) {
       val leases = buildList {
@@ -232,6 +233,13 @@ class GuardianVpnService : VpnService() {
 
   private fun reportBlocked(domain: String, decision: GuardianPolicyRuntime.DomainDecision, appRef: String?) {
     GuardianPolicyRuntime.reportBlocked(domain, decision.reasonCode, decision.category, appRef)
+  }
+
+  private fun evaluateDomain(domain: String, destinationIp: String?): GuardianPolicyRuntime.DomainDecision {
+    val started = System.nanoTime()
+    val decision = GuardianPolicyRuntime.evaluateDomain(domain, destinationIp)
+    GuardianPerformanceMetrics.recordVpnDecision(System.nanoTime() - started)
+    return decision
   }
 
   private fun fail(reason: String) {

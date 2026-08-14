@@ -1,6 +1,7 @@
 package expo.modules.guardianprotection.policy
 
 import expo.modules.guardianprotection.storage.EncryptedPolicyStore
+import expo.modules.guardianprotection.observability.GuardianPerformanceMetrics
 import org.json.JSONObject
 import java.time.Instant
 
@@ -23,6 +24,7 @@ class PolicyManager(
   }
 
   fun apply(bundle: Map<String, Any?>): Map<String, Any?> {
+    val started = System.nanoTime()
     if (store.hasCorruptState()) return failure("LOCAL_STATE_CORRUPT", store.appliedVersion())
     val version = (bundle["policy_version"] as? Number)?.toLong()
       ?: return failure("INVALID_POLICY_VERSION")
@@ -31,7 +33,7 @@ class PolicyManager(
     val current = store.appliedVersion()
     if (current != null && version <= current) return failure("POLICY_VERSION_NOT_MONOTONIC", current)
     if (!verifier.verify(bundle)) return failure("SIGNATURE_INVALID", current)
-    return runCatching {
+    val result = runCatching {
       val compiled = compile(bundle)
       previous = active
       store.swap(CanonicalJson.encode(bundle), version)
@@ -40,6 +42,8 @@ class PolicyManager(
     }.getOrElse {
       failure("POLICY_REJECTED")
     }
+    GuardianPerformanceMetrics.recordPolicyApply(System.nanoTime() - started)
+    return result
   }
 
   fun rollback(): Boolean {

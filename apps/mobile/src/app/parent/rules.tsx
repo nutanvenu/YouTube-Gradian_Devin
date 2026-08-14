@@ -74,6 +74,7 @@ export default function ParentRulesRoute() {
   const appRules = list<AppRule>(policy.app_rules);
   const domainRules = list<DomainRule>(policy.domain_rules);
   const basePolicy = record(policy.base_policy);
+  const communicationPolicy = record(policy.communication_safety);
   const routines = list<Routine>(policy.routines);
   const acknowledged = health.data?.some((item) => item.child_profile_id === childId && item.policy_version_applied === pendingVersion);
   const syncState = pendingVersion === null || acknowledged ? "Rules active on device." : `Pending sync · device has not acknowledged version ${pendingVersion}.`;
@@ -105,15 +106,15 @@ export default function ParentRulesRoute() {
             parents receive only category, severity, source app, time, confidence, and reason.
           </Text>
           <SecondaryButton
-            label={Boolean(record(policy.communication_safety).enabled) ? "Disable Communication Safety" : "Enable Communication Safety"}
+            label={communicationPolicy.enabled === true ? "Disable Communication Safety" : "Enable Communication Safety"}
             onPress={() => save({
               operation: "COMMUNICATION_ENABLED",
               target: "communication_safety",
-              value: !Boolean(record(policy.communication_safety).enabled),
+              value: communicationPolicy.enabled !== true,
             })}
           />
           <Text>
-            Alert sensitivity: {String(record(policy.communication_safety).severity_threshold ?? "HIGH")}
+            Alert sensitivity: {typeof communicationPolicy.severity_threshold === "string" ? communicationPolicy.severity_threshold : "HIGH"}
           </Text>
           {(["HIGH", "MEDIUM", "LOW"] as const).map((threshold) => (
             <SecondaryButton

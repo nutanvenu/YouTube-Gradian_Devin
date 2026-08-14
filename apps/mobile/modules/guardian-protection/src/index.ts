@@ -36,6 +36,7 @@ export const GuardianProtection: GuardianProtectionNative = {
     native.applyReputationBundle(bundle),
   getReputationStatus: (): Promise<ReputationStatus> => native.getReputationStatus(),
   getUsageSummary: (range: TimeRange): Promise<UsageSummary> => native.getUsageSummary(range),
+  getPerformanceMetrics: () => native.getPerformanceMetrics(),
   getObservedApps: (): Promise<ObservedApp[]> => native.getObservedApps(),
   markObservedAppReviewed: (platformAppId: string): Promise<void> =>
     native.markObservedAppReviewed(platformAppId),

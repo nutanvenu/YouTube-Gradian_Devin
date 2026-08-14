@@ -12,6 +12,8 @@ import expo.modules.guardianprotection.policy.PolicyVerifier
 import expo.modules.guardianprotection.usage.UsageCollector
 import expo.modules.guardianprotection.vpn.GuardianVpnService
 import expo.modules.guardianprotection.communication.CommunicationSafetyRuntime
+import expo.modules.guardianprotection.observability.GuardianPerformanceMetrics
+import android.os.SystemClock
 import java.time.Instant
 import java.util.concurrent.atomic.AtomicReference
 
@@ -25,11 +27,13 @@ class GuardianProtectionModule : Module() {
   private val capabilities by lazy { CapabilityDetector(requireNotNull(appContext.reactContext)) }
   private val usage by lazy { UsageCollector(requireNotNull(appContext.reactContext), store) }
   private val lastCapabilities = AtomicReference<Map<String, Map<String, Any?>>?>()
+  private val moduleCreatedAtMillis = SystemClock.elapsedRealtime()
 
   override fun definition() = ModuleDefinition {
     Name("GuardianProtection")
     Events("onGuardianEvent")
     OnActivityEntersForeground {
+      GuardianPerformanceMetrics.recordStartup(SystemClock.elapsedRealtime() - moduleCreatedAtMillis)
       installCommunicationListener()
       reportCapabilityChanges(capabilities.getCapabilities())
     }
@@ -40,6 +44,9 @@ class GuardianProtectionModule : Module() {
     }
     AsyncFunction("getProtectionStatus") {
       policyManager.protectionStatus(reportCapabilityChanges(capabilities.getCapabilities()))
+    }
+    AsyncFunction("getPerformanceMetrics") {
+      GuardianPerformanceMetrics.snapshot()
     }
     AsyncFunction("requestVpnPermission") {
       capabilities.requestVpnPermission()
@@ -63,14 +70,14 @@ class GuardianProtectionModule : Module() {
         usage.refresh()
       }
       GuardianVpnService.start(requireNotNull(appContext.reactContext))
-      sendEvent("onGuardianEvent", mapOf(
+      emit(mapOf(
         "type" to "PROTECTION_STATUS_CHANGED",
         "status" to policyManager.protectionStatus(reportCapabilityChanges(capabilities.getCapabilities())),
       ))
     }
     AsyncFunction("stopProtection") {
       GuardianVpnService.stop(requireNotNull(appContext.reactContext))
-      sendEvent("onGuardianEvent", mapOf(
+      emit(mapOf(
         "type" to "PROTECTION_STATUS_CHANGED",
         "status" to mapOf(
           "active" to false,
@@ -87,7 +94,7 @@ class GuardianProtectionModule : Module() {
       if (result["applied"] == true) {
         val communication = bundle["communication_safety"] as? Map<*, *>
         CommunicationSafetyRuntime.setEnabled(communication?.get("enabled") == true)
-        sendEvent("onGuardianEvent", mapOf(
+        emit(mapOf(
           "type" to "POLICY_APPLIED",
           "version" to result["policyVersion"],
         ))
@@ -97,7 +104,7 @@ class GuardianProtectionModule : Module() {
     AsyncFunction("applyReputationBundle") { bundle: Map<String, Any?> ->
       GuardianPolicyRuntime.installReputation(reputationManager)
       val result = reputationManager.apply(bundle)
-      sendEvent("onGuardianEvent", mapOf(
+      emit(mapOf(
         "type" to "REPUTATION_STATUS_CHANGED",
         "version" to result.version,
         "reason" to result.reason,
@@ -140,9 +147,14 @@ class GuardianProtectionModule : Module() {
     }.getOrDefault(emptyMap())
   }
 
+  private fun emit(event: Map<String, Any?>) {
+    GuardianPerformanceMetrics.recordBridgeEvent()
+    sendEvent("onGuardianEvent", event)
+  }
+
   private val eventListener = object : GuardianPolicyRuntime.Listener {
     override fun onWebBlocked(domain: String, category: String?, appRef: String?, reasonCode: String) {
-      sendEvent("onGuardianEvent", mapOf(
+      emit(mapOf(
         "type" to "WEB_BLOCKED",
         "domain" to domain,
         "category" to category,
@@ -152,7 +164,7 @@ class GuardianProtectionModule : Module() {
     }
 
     override fun onVpnFailure(reason: String) {
-      sendEvent("onGuardianEvent", mapOf(
+      emit(mapOf(
         "type" to "PROTECTION_STATUS_CHANGED",
         "status" to mapOf(
           "active" to false,
@@ -165,7 +177,7 @@ class GuardianProtectionModule : Module() {
     }
 
     override fun onAppBlocked(packageName: String, reasonCode: String) {
-      sendEvent("onGuardianEvent", mapOf(
+      emit(mapOf(
         "type" to "APP_BLOCKED",
         "appRef" to packageName,
         "reasonCode" to reasonCode,
@@ -173,7 +185,7 @@ class GuardianProtectionModule : Module() {
     }
 
     override fun onTimeWarning(targetRef: String, remainingSeconds: Long) {
-      sendEvent("onGuardianEvent", mapOf(
+      emit(mapOf(
         "type" to "TIME_WARNING",
         "targetRef" to targetRef,
         "remainingSeconds" to remainingSeconds,
@@ -181,7 +193,7 @@ class GuardianProtectionModule : Module() {
     }
 
     override fun onTimeExpired(targetRef: String) {
-      sendEvent("onGuardianEvent", mapOf(
+      emit(mapOf(
         "type" to "TIME_EXPIRED",
         "targetRef" to targetRef,
       ))
@@ -190,7 +202,7 @@ class GuardianProtectionModule : Module() {
 
   private fun installCommunicationListener() {
     CommunicationSafetyRuntime.setListener { signal, packageName ->
-      sendEvent("onGuardianEvent", mapOf(
+      emit(mapOf(
         "type" to "SAFETY_EVENT",
         "category" to signal.category,
         "severity" to signal.severity,
@@ -207,7 +219,7 @@ class GuardianProtectionModule : Module() {
     if (previous != null) {
       current.forEach { (capability, status) ->
         if (previous[capability] != status) {
-          sendEvent("onGuardianEvent", mapOf(
+          emit(mapOf(
             "type" to "PERMISSION_STATE_CHANGED",
             "capability" to capability,
             "state" to status["level"],

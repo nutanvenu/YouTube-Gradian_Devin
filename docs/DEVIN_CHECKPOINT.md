@@ -1633,12 +1633,14 @@ content-free, and expose permission-revocation recovery; iOS UI says
 `Not available on iPhone/iPad`. Communication routing uses immediate critical,
 high-priority, summary medium, and trend-only low dispositions.
 
-The detector measurement now uses 120 genuinely unique labelled fixtures:
+The detector measurement now uses 120 genuinely unique labelled fixtures
+(60 hard negatives and 60 positives), rather than counting repeated
+executions of a smaller seed set:
 60 hard negatives and 60 positives, including benign risk-word uses, quoted
 lyrics, news, homework, medical, recipe/photo, school/sports/security
 contexts, ambiguous single-word notifications, and two adversarial positives
 per category that are intentionally expected to expose false negatives. The
-focused native test reported:
+focused native test was rerun after this carry-over and reported:
 
 ```text
 SELF_HARM precision=1.0 recall=0.9 falsePositives=0 falseNegatives=1 adversarialMisses=self-harm-010
@@ -1647,7 +1649,7 @@ SEXUAL_SOLICITATION precision=1.0 recall=0.9 falsePositives=0 falseNegatives=1 a
 GROOMING precision=1.0 recall=0.8 falsePositives=0 falseNegatives=2 adversarialMisses=grooming-009,grooming-010
 HARASSMENT precision=1.0 recall=0.8 falsePositives=0 falseNegatives=2 adversarialMisses=harassment-009,harassment-010
 PHISHING_CREDENTIAL_THEFT precision=1.0 recall=0.8 falsePositives=0 falseNegatives=2 adversarialMisses=phishing-009,phishing-010
-uniqueFixtures=120 runtimeNanos=14437721 batteryMeasurement=UNAVAILABLE
+uniqueFixtures=120 runtimeNanos=23123153 batteryMeasurement=UNAVAILABLE
 ```
 
 The sole sexual-content false positive is the intentionally overlapping
@@ -1657,27 +1659,49 @@ documented adversarial misses are deliberate evidence of the rules'
 limitations, not relabelled fixtures. Battery measurement is
 `UNAVAILABLE`; runtime is not battery evidence. This is a curated
 rules-based fixture measurement, not a production accuracy claim, and no
-model or fabricated AI confidence score ships.
+model or fabricated AI confidence score ships. Complete rerun output is
+retained at `.scratch/emulator/reputation/communication-fixture-verification.log`
+and in the native XML test report.
 
 Phase 3 tablet/adaptive work now uses the cross-platform React Native
 `useWindowDimensions` breakpoint at 600 points. Regular-width screens center
 content at a maximum width of 720 points and use flexible two-column dashboard
 sections; compact-width screens remain single-column. Parent Home and Activity
 use the responsive dashboard container. A Pixel Tablet API 35 AVD
-(`guardian-tablet-api35`, `emulator-5558`, 2560x1600) was booted and the
-debug development build rendered real Guardian onboarding and parent sign-in
-surfaces in both orientations. Evidence and UI XML are at:
+(`guardian-tablet-api35`, `emulator-5558`, 2560x1600) was booted and a fresh
+parent account/family was authenticated through the real backend in the debug
+development build. Actual Guardian Parent Home, Rules, Activity, and
+Protection Health surfaces were captured in portrait:
 
-- `.scratch/emulator/tablet-server.png`
-- `.scratch/emulator/tablet-server.xml`
-- `.scratch/emulator/tablet-portrait-parent-signin.png`
-- `.scratch/emulator/tablet-portrait-parent-signin.xml`
-- `.scratch/emulator/tablet-landscape-parent.png`
-- `.scratch/emulator/tablet-landscape-parent.xml`
+- `.scratch/emulator/tablet-parent-home-portrait.png`
+- `.scratch/emulator/tablet-parent-home-portrait.xml`
+- `.scratch/emulator/tablet-parent-rules-portrait.png`
+- `.scratch/emulator/tablet-rules-portrait.xml`
+- `.scratch/emulator/tablet-parent-activity-portrait.png`
+- `.scratch/emulator/tablet-activity-portrait.xml`
+- `.scratch/emulator/tablet-parent-health-portrait.png`
+- `.scratch/emulator/tablet-health-portrait.xml`
 
-These captures verify the actual app surface and orientation changes, but do
-not claim an authenticated dashboard rendering on the tablet. iPad hardware
-or simulator evidence and platform-native split-view evidence remain
+The same authenticated parent surfaces were captured in landscape:
+
+- `.scratch/emulator/tablet-parent-home-landscape.png`
+- `.scratch/emulator/tablet-home-landscape.xml`
+- `.scratch/emulator/tablet-parent-rules-landscape.png`
+- `.scratch/emulator/tablet-rules-landscape.xml`
+- `.scratch/emulator/tablet-parent-activity-landscape.png`
+- `.scratch/emulator/tablet-activity-landscape.xml`
+- `.scratch/emulator/tablet-parent-health-landscape.png`
+- `.scratch/emulator/tablet-health-landscape.xml`
+
+An actual Child pairing surface was also rendered on the tablet in portrait:
+
+- `.scratch/emulator/tablet-child-pair.png`
+- `.scratch/emulator/tablet-child-pair.xml`
+
+The parent authentication setup used a generated local test account; its
+credentials are retained only in the ignored
+`.scratch/emulator/tablet-auth-credentials.txt` artifact. iPad hardware or
+simulator evidence and platform-native split-view evidence remain
 unavailable; Expo Router Split View is iOS-only alpha and the shipped layout
 therefore uses standard responsive primitives.
 
@@ -1706,10 +1730,17 @@ connected after the workload. Raw output is at:
 The emulator battery report exposed no usable package CPU, radio, or energy
 measurement (`-1`/unsupported power-profile fields and no package mAh
 estimate), so battery cost is explicitly `UNAVAILABLE`, not inferred from
-runtime. Isolated VPN/DNS decision latency, policy-apply latency, usage
-collection cost, and React Native bridge event volume still need dedicated
-instrumentation; the URL dispatch and warm-start numbers must not be used as
-proxies for them.
+runtime. The native implementation now exposes dedicated counters and
+duration averages through `GuardianProtection.getPerformanceMetrics()`:
+VPN/DNS domain-decision count and average microseconds, policy-apply count and
+average milliseconds, usage-refresh count and average milliseconds, native
+bridge-event volume, and first module-startup timing. The child development
+surface requests this snapshot in development builds without serializing
+notification content. A trustworthy live snapshot still requires a healthy
+authenticated child JavaScript session; the current emulator relaunch ended
+in the development-client internal-error surface before a snapshot could be
+captured. Therefore no live counter values are claimed here. The URL dispatch
+and warm-start numbers must not be used as proxies for these paths.
 
 The release app manifest was reconciled against the implemented code: camera,
 internet, and vibration remain declared; unused microphone, external-storage,
@@ -1739,13 +1770,37 @@ development session, and the VPN recovered on `tun0`; no new
 `MissingForegroundServiceTypeException` or VPN startup error appeared.
 Evidence is at `.scratch/emulator/policy/foreground-service-type-fix.txt`.
 
-Remaining Phase 3 work, in risk order: authenticated tablet dashboard
-rendering and iPad/split-view limitations; device-level accessibility audit
-(TalkBack, Dynamic Type, contrast, focus order, reduced motion, RTL);
-dedicated real-path instrumentation for VPN/DNS decisions, policy apply,
-usage collection, bridge event volume, and cold startup; improved battery
-measurement if the emulator exposes usable energy data; observability
-completeness; OWASP mobile-code-review workflow; Google
-`play-policy-insights` workflow; and remediation of material findings,
-including a full manifest/Data Safety/prominent-disclosure/consent
-reconciliation.
+The §21 observability review is recorded at
+`.scratch/observability-review.md`. It covers structured events for policy
+apply, enforcement decisions, VPN lifecycle, degraded capabilities, usage
+collection, safety events, reputation synchronization, request/approval, and
+notification routing, with timing, outcome, reason, and bounded counts where
+available. Raw notification content and bridge-event JSON serialization are
+excluded. Consistent request/correlation-ID propagation across native → JS →
+API remains a documented gap.
+
+The static OWASP MASVS v2.1.0/MASTG review is recorded at
+`.scratch/owasp-mobile-code-review.md`, covering STORAGE, CRYPTO, AUTH,
+NETWORK, PLATFORM, CODE, RESILIENCE (static-only), and PRIVACY (runtime
+caveats). The Google Play Policy Insights workflow completed worker,
+aggregation, critic, and compliance-report stages under
+`.scratch/play_policy_insights_37a79f77-b6c9-4295-b00f-fa23573e90c5/`.
+Material findings are documented rather than hidden: reviewer credentials are
+needed for gated flows; no discoverable in-app account deletion flow was
+found; Data Safety must accurately cover account, age-band/date-of-birth,
+child/app names, heartbeat/protection metadata, and minimized safety events;
+and Accessibility API, notification listener, package visibility, and
+special-use foreground-service declarations/reviewer evidence must match the
+release behavior. The unpublished Play Store lookup returned 404 and is not a
+compliance determination.
+
+Remaining Phase 3 work, in risk order: complete device-level accessibility
+coverage (TalkBack traversal, Dynamic Type/large text, contrast, focus order,
+reduced motion, RTL) and fix surfaced failures; capture a trustworthy
+authenticated live performance snapshot for the new native counters and cold
+startup; retain the emulator battery limitation above; close consistent
+request/correlation-ID propagation; complete runtime portions of the OWASP and
+privacy review; and remediate the Play account-deletion, reviewer-credential,
+Data Safety, prominent-disclosure/consent, and special-permission evidence
+findings. iPad hardware/simulator and native split-view remain a documented
+Mac-only gap.

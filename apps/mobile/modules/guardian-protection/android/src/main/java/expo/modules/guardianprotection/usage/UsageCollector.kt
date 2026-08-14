@@ -5,6 +5,7 @@ import android.app.usage.UsageStatsManager
 import android.content.Context
 import expo.modules.guardianprotection.inventory.PackageInventory
 import expo.modules.guardianprotection.storage.EncryptedPolicyStore
+import expo.modules.guardianprotection.observability.GuardianPerformanceMetrics
 import java.time.Instant
 import java.time.LocalDate
 import java.time.ZoneId
@@ -17,6 +18,7 @@ class UsageCollector(
 ) {
   @Synchronized
   fun refresh(now: Instant = Instant.now(), timezone: String? = null): UsageCollection {
+    val started = System.nanoTime()
     val zone = ZoneId.of(timezone ?: ZoneId.systemDefault().id)
     val localNow = now.atZone(zone)
     val dayStart = localNow.toLocalDate().atStartOfDay(zone).toInstant()
@@ -31,12 +33,14 @@ class UsageCollector(
       put("DEVICE", appTotals.values.sum() / 1000)
     }
     store.mergeUsageSnapshot(localNow.toLocalDate().toString(), totals)
-    return UsageCollection(
+    val result = UsageCollection(
       date = localNow.toLocalDate().toString(),
       appMillis = appTotals,
       categoryMillis = categoryTotals,
       deviceMillis = appTotals.values.sum(),
     )
+    GuardianPerformanceMetrics.recordUsageRefresh(System.nanoTime() - started)
+    return result
   }
 
   fun usageToday(packageName: String?, category: String?, timezone: String? = null): UsageContext {
