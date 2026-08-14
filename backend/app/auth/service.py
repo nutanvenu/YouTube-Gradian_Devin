@@ -10,7 +10,7 @@ from sqlalchemy import select, update
 from sqlalchemy.ext.asyncio import AsyncSession
 
 from ..core.config import get_settings
-from .models import Parent, RefreshToken
+from .models import OneTimeToken, Parent, RefreshToken
 
 password_hasher = PasswordHasher()
 
@@ -94,3 +94,37 @@ async def revoke_refresh(session: AsyncSession, raw: str) -> None:
     if row is not None:
         row.revoked_at = datetime.now(UTC)
         await session.commit()
+
+
+async def issue_one_time_token(
+    session: AsyncSession, parent: Parent, purpose: str, lifetime: timedelta
+) -> str:
+    raw = secrets.token_urlsafe(36)
+    session.add(
+        OneTimeToken(
+            parent_id=parent.id,
+            purpose=purpose,
+            token_hash=_hash_token(raw),
+            expires_at=datetime.now(UTC) + lifetime,
+        )
+    )
+    await session.flush()
+    return raw
+
+
+async def consume_one_time_token(
+    session: AsyncSession, raw: str, purpose: str
+) -> Parent:
+    row = await session.scalar(
+        select(OneTimeToken).where(
+            OneTimeToken.token_hash == _hash_token(raw),
+            OneTimeToken.purpose == purpose,
+        )
+    )
+    if row is None or row.used_at is not None or row.expires_at <= datetime.now(UTC):
+        raise HTTPException(status.HTTP_400_BAD_REQUEST, "Token is invalid or expired")
+    parent = await session.get(Parent, row.parent_id)
+    if parent is None:
+        raise HTTPException(status.HTTP_400_BAD_REQUEST, "Token is invalid or expired")
+    row.used_at = datetime.now(UTC)
+    return parent

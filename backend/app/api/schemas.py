@@ -28,6 +28,19 @@ class RefreshIn(BaseModel):
     refresh_token: str = Field(min_length=20)
 
 
+class TokenRequestIn(BaseModel):
+    email: EmailStr
+
+
+class TokenConfirmIn(BaseModel):
+    token: str = Field(min_length=20)
+
+
+class PasswordResetConfirmIn(BaseModel):
+    token: str = Field(min_length=20)
+    password: str = Field(min_length=12)
+
+
 class ParentOut(BaseModel):
     model_config = ConfigDict(from_attributes=True)
     id: UUID

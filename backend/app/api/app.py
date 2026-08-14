@@ -11,7 +11,9 @@ from sqlalchemy.ext.asyncio import AsyncSession
 
 from ..auth.models import Parent
 from ..auth.service import (
+    consume_one_time_token,
     hash_password,
+    issue_one_time_token,
     issue_tokens,
     parent_from_access,
     rotate_refresh,
@@ -38,8 +40,11 @@ from .schemas import (
     PairingOut,
     PairingRedeemIn,
     ParentOut,
+    PasswordResetConfirmIn,
     RefreshIn,
     SignupIn,
+    TokenConfirmIn,
+    TokenRequestIn,
     TokensOut,
 )
 
@@ -102,6 +107,45 @@ async def refresh(body: RefreshIn, session: AsyncSession = Depends(get_session))
 @app.get("/v1/auth/me", response_model=ParentOut)
 async def me(parent: Parent = Depends(current_parent)) -> Parent:
     return parent
+
+
+@app.post("/v1/auth/verification/request", status_code=202)
+async def request_verification(
+    parent: Parent = Depends(current_parent),
+    session: AsyncSession = Depends(get_session),
+) -> None:
+    token = await issue_one_time_token(session, parent, "EMAIL_VERIFY", timedelta(hours=24))
+    await notifier.send_email(parent.email, "Verify your Guardian email", token)
+    await session.commit()
+
+
+@app.post("/v1/auth/verification/confirm", status_code=204)
+async def confirm_verification(
+    body: TokenConfirmIn, session: AsyncSession = Depends(get_session)
+) -> None:
+    parent = await consume_one_time_token(session, body.token, "EMAIL_VERIFY")
+    parent.email_verified_at = datetime.now(UTC)
+    await session.commit()
+
+
+@app.post("/v1/auth/password-reset/request", status_code=202)
+async def request_password_reset(
+    body: TokenRequestIn, session: AsyncSession = Depends(get_session)
+) -> None:
+    parent = await session.scalar(select(Parent).where(Parent.email == body.email.lower()))
+    if parent is not None:
+        token = await issue_one_time_token(session, parent, "PASSWORD_RESET", timedelta(hours=1))
+        await notifier.send_email(parent.email, "Reset your Guardian password", token)
+        await session.commit()
+
+
+@app.post("/v1/auth/password-reset/confirm", status_code=204)
+async def confirm_password_reset(
+    body: PasswordResetConfirmIn, session: AsyncSession = Depends(get_session)
+) -> None:
+    parent = await consume_one_time_token(session, body.token, "PASSWORD_RESET")
+    parent.password_hash = hash_password(body.password)
+    await session.commit()
 
 
 @app.post("/v1/auth/logout", status_code=204)
