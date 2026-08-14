@@ -48,17 +48,22 @@ describe("policy decision conformance fixtures", () => {
 describe("policy evaluator invariants", () => {
   it("is deterministic for the same bundle and context", () => {
     const bundle = fixtureBundle("precedence");
-    const firstFixture = fixtures.cases.at(0);
-    if (!firstFixture) {
-      throw new Error("Missing policy fixture case");
-    }
-    const context = firstFixture.context;
     fc.assert(
-      fc.property(fc.constant(null), () => {
-        const first = evaluatePolicy(bundle, context);
-        const second = evaluatePolicy(bundle, context);
+      fc.property(
+        fc.constantFrom("APP", "DOMAIN", "CATEGORY"),
+        fc.string({ minLength: 1 }),
+        fc.integer({ min: 0, max: 86_400 }),
+        (kind, ref, elapsed) => {
+          const context: DecisionContext = {
+            target: { kind, ref },
+            timestamp: "2026-01-05T20:00:00Z",
+            elapsed_usage_seconds: elapsed
+          };
+          const first = evaluatePolicy(bundle, context);
+          const second = evaluatePolicy(bundle, context);
         expect(second).toEqual(first);
-      })
+        }
+      )
     );
   });
 
