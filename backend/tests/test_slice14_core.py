@@ -21,7 +21,10 @@ async def test_signed_policy_and_requests_round_trip(client, paired_device) -> N
     assert request.status_code == 201
     replay = await client.post(
         "/v1/devices/me/requests",
-        headers={**paired_device.signed_headers("/v1/devices/me/requests", request_body), "Idempotency-Key": "request-1"},
+        headers={
+            **paired_device.signed_headers("/v1/devices/me/requests", request_body),
+            "Idempotency-Key": "request-1",
+        },
         content=request_body,
     )
     assert replay.status_code == 201

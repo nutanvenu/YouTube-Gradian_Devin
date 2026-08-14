@@ -66,7 +66,7 @@ function validateUniqueIdentifiers(
   for (const rule of collections) {
     const identifier = "rule_id" in rule ? rule.rule_id : rule.routine_id;
     if (identifiers.has(identifier)) {
-      issues.push(`/identifiers/${identifier} must be unique across the bundle`);
+      issues.push(`/identifiers/${String(identifier)} must be unique across the bundle`);
     }
     identifiers.add(identifier);
   }
