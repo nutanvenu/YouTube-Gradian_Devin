@@ -1711,8 +1711,26 @@ collection cost, and React Native bridge event volume still need dedicated
 instrumentation; the URL dispatch and warm-start numbers must not be used as
 proxies for them.
 
-Remaining Phase 3 work, in risk order: complete the tablet screen audit;
-device-level accessibility audit (TalkBack, Dynamic Type, contrast, focus
-order, reduced motion, RTL); real-path performance and battery measurement;
-observability completeness; OWASP mobile-code-review workflow; Google
-`play-policy-insights` workflow; and remediation of material findings.
+The Android policy audit found a reachable foreground-service failure on
+Android 14+/target SDK 36: the VPN manifest declared the `specialUse`
+foreground-service type, but `GuardianVpnService` used the two-argument
+`startForeground` overload. Existing logs contained
+`MissingForegroundServiceTypeException: Starting FGS without a type`. The
+service now passes `ServiceInfo.FOREGROUND_SERVICE_TYPE_SPECIAL_USE` on
+Android 14+ and retains the two-argument call on older releases. Native unit
+tests and the full debug APK build passed after the fix. The rebuilt APK was
+installed on child `emulator-5556`, the app was relaunched through a live
+development session, and the VPN recovered on `tun0`; no new
+`MissingForegroundServiceTypeException` or VPN startup error appeared.
+Evidence is at `.scratch/emulator/policy/foreground-service-type-fix.txt`.
+
+Remaining Phase 3 work, in risk order: authenticated tablet dashboard
+rendering and iPad/split-view limitations; device-level accessibility audit
+(TalkBack, Dynamic Type, contrast, focus order, reduced motion, RTL);
+dedicated real-path instrumentation for VPN/DNS decisions, policy apply,
+usage collection, bridge event volume, and cold startup; improved battery
+measurement if the emulator exposes usable energy data; observability
+completeness; OWASP mobile-code-review workflow; Google
+`play-policy-insights` workflow; and remediation of material findings,
+including a full manifest/Data Safety/prominent-disclosure/consent
+reconciliation.
