@@ -133,6 +133,71 @@ async def test_login_rate_limit_trips(client) -> None:
 
 
 @pytest.mark.asyncio
+async def test_verification_and_password_reset_rate_limits_trip(client) -> None:
+    email = f"{uuid4()}@example.com"
+    signup = await client.post(
+        "/v1/auth/signup",
+        json={"email": email, "password": "correct horse battery staple"},
+    )
+    headers = {"Authorization": f"Bearer {signup.json()['access_token']}"}
+    for _ in range(5):
+        assert (
+            await client.post("/v1/auth/verification/request", headers=headers)
+        ).status_code == 202
+    assert (
+        await client.post("/v1/auth/verification/request", headers=headers)
+    ).status_code == 429
+
+    reset_email = f"{uuid4()}@example.com"
+    for _ in range(5):
+        assert (
+            await client.post(
+                "/v1/auth/password-reset/request", json={"email": reset_email}
+            )
+        ).status_code == 202
+    assert (
+        await client.post(
+            "/v1/auth/password-reset/request", json={"email": reset_email}
+        )
+    ).status_code == 429
+
+
+@pytest.mark.asyncio
+async def test_access_and_refresh_expiry_are_rejected(client) -> None:
+    from app.core.config import get_settings
+
+    settings = get_settings()
+    email = f"{uuid4()}@example.com"
+    await client.post(
+        "/v1/auth/signup",
+        json={"email": email, "password": "correct horse battery staple"},
+    )
+    original_access = settings.access_minutes
+    original_refresh = settings.refresh_days
+    try:
+        settings.access_minutes = 0
+        settings.refresh_days = 0
+        expired_access = await client.post(
+            "/v1/auth/login",
+            json={"email": email, "password": "correct horse battery staple"},
+        )
+        assert expired_access.status_code == 200
+        refresh = expired_access.json()["refresh_token"]
+        assert (
+            await client.get(
+                "/v1/auth/me",
+                headers={"Authorization": f"Bearer {expired_access.json()['access_token']}"},
+            )
+        ).status_code == 401
+        assert (
+            await client.post("/v1/auth/refresh", json={"refresh_token": refresh})
+        ).status_code == 401
+    finally:
+        settings.access_minutes = original_access
+        settings.refresh_days = original_refresh
+
+
+@pytest.mark.asyncio
 async def test_device_routes_and_minimized_event_validation(
     client, paired_device: PairedDevice
 ) -> None:
@@ -302,6 +367,24 @@ async def test_pairing_cross_family_redemption_is_rejected(
         "public_key": "test-device-public-key-555555555555555555555555",
     }
     assert (await client.post("/v1/devices/pair", json=body)).status_code == 400
+
+
+@pytest.mark.asyncio
+async def test_pairing_creation_rate_limit_trips(client, parent_a: ParentFamily) -> None:
+    headers = {"Authorization": f"Bearer {parent_a.token}"}
+    for _ in range(10):
+        assert (
+            await client.post(
+                f"/v1/families/{parent_a.family_id}/children/{parent_a.child_id}/pairing",
+                headers=headers,
+            )
+        ).status_code == 200
+    assert (
+        await client.post(
+            f"/v1/families/{parent_a.family_id}/children/{parent_a.child_id}/pairing",
+            headers=headers,
+        )
+    ).status_code == 429
 
 
 @pytest.mark.asyncio
