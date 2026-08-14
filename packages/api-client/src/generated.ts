@@ -68,53 +68,6 @@ export const openApiDocument = {
         "title": "ChildCreate",
         "type": "object"
       },
-      "ChildOut": {
-        "properties": {
-          "age_band": {
-            "title": "Age Band",
-            "type": "string"
-          },
-          "date_of_birth": {
-            "format": "date",
-            "title": "Date Of Birth",
-            "type": "string"
-          },
-          "family_id": {
-            "format": "uuid",
-            "title": "Family Id",
-            "type": "string"
-          },
-          "id": {
-            "format": "uuid",
-            "title": "Id",
-            "type": "string"
-          },
-          "name": {
-            "title": "Name",
-            "type": "string"
-          },
-          "policy_document": {
-            "additionalProperties": true,
-            "title": "Policy Document",
-            "type": "object"
-          },
-          "timezone": {
-            "title": "Timezone",
-            "type": "string"
-          }
-        },
-        "required": [
-          "id",
-          "family_id",
-          "name",
-          "date_of_birth",
-          "age_band",
-          "timezone",
-          "policy_document"
-        ],
-        "title": "ChildOut",
-        "type": "object"
-      },
       "ChildUpdate": {
         "properties": {
           "date_of_birth": {
@@ -171,25 +124,6 @@ export const openApiDocument = {
           "policy_version"
         ],
         "title": "DeviceAckIn",
-        "type": "object"
-      },
-      "DeviceCredentialOut": {
-        "properties": {
-          "device_id": {
-            "format": "uuid",
-            "title": "Device Id",
-            "type": "string"
-          },
-          "device_token": {
-            "title": "Device Token",
-            "type": "string"
-          }
-        },
-        "required": [
-          "device_id",
-          "device_token"
-        ],
-        "title": "DeviceCredentialOut",
         "type": "object"
       },
       "DeviceHeartbeatIn": {
@@ -251,25 +185,6 @@ export const openApiDocument = {
         "title": "FamilyCreate",
         "type": "object"
       },
-      "FamilyOut": {
-        "properties": {
-          "id": {
-            "format": "uuid",
-            "title": "Id",
-            "type": "string"
-          },
-          "name": {
-            "title": "Name",
-            "type": "string"
-          }
-        },
-        "required": [
-          "id",
-          "name"
-        ],
-        "title": "FamilyOut",
-        "type": "object"
-      },
       "GuardianAcceptIn": {
         "properties": {
           "token": {
@@ -296,37 +211,6 @@ export const openApiDocument = {
           "email"
         ],
         "title": "GuardianInviteIn",
-        "type": "object"
-      },
-      "GuardianOut": {
-        "properties": {
-          "family_id": {
-            "format": "uuid",
-            "title": "Family Id",
-            "type": "string"
-          },
-          "id": {
-            "format": "uuid",
-            "title": "Id",
-            "type": "string"
-          },
-          "parent_id": {
-            "format": "uuid",
-            "title": "Parent Id",
-            "type": "string"
-          },
-          "role": {
-            "title": "Role",
-            "type": "string"
-          }
-        },
-        "required": [
-          "id",
-          "parent_id",
-          "family_id",
-          "role"
-        ],
-        "title": "GuardianOut",
         "type": "object"
       },
       "HTTPValidationError": {
@@ -409,37 +293,6 @@ export const openApiDocument = {
         "title": "MinimizedEvent",
         "type": "object"
       },
-      "PairingOut": {
-        "properties": {
-          "code": {
-            "pattern": "^\\d{6}$",
-            "title": "Code",
-            "type": "string"
-          },
-          "expires_at": {
-            "format": "date-time",
-            "title": "Expires At",
-            "type": "string"
-          },
-          "qr_payload": {
-            "title": "Qr Payload",
-            "type": "string"
-          },
-          "session_id": {
-            "format": "uuid",
-            "title": "Session Id",
-            "type": "string"
-          }
-        },
-        "required": [
-          "session_id",
-          "code",
-          "qr_payload",
-          "expires_at"
-        ],
-        "title": "PairingOut",
-        "type": "object"
-      },
       "PairingRedeemIn": {
         "properties": {
           "child_profile_id": {
@@ -477,39 +330,6 @@ export const openApiDocument = {
           "public_key"
         ],
         "title": "PairingRedeemIn",
-        "type": "object"
-      },
-      "ParentOut": {
-        "properties": {
-          "email": {
-            "format": "email",
-            "title": "Email",
-            "type": "string"
-          },
-          "email_verified_at": {
-            "anyOf": [
-              {
-                "format": "date-time",
-                "type": "string"
-              },
-              {
-                "type": "null"
-              }
-            ],
-            "title": "Email Verified At"
-          },
-          "id": {
-            "format": "uuid",
-            "title": "Id",
-            "type": "string"
-          }
-        },
-        "required": [
-          "id",
-          "email",
-          "email_verified_at"
-        ],
-        "title": "ParentOut",
         "type": "object"
       },
       "PasswordResetConfirmIn": {
@@ -698,91 +518,6 @@ export const openApiDocument = {
           "reason"
         ],
         "title": "RequestDecisionIn",
-        "type": "object"
-      },
-      "RequestOut": {
-        "properties": {
-          "child_profile_id": {
-            "format": "uuid",
-            "title": "Child Profile Id",
-            "type": "string"
-          },
-          "decision_reason": {
-            "anyOf": [
-              {
-                "type": "string"
-              },
-              {
-                "type": "null"
-              }
-            ],
-            "title": "Decision Reason"
-          },
-          "device_id": {
-            "format": "uuid",
-            "title": "Device Id",
-            "type": "string"
-          },
-          "expires_at": {
-            "anyOf": [
-              {
-                "format": "date-time",
-                "type": "string"
-              },
-              {
-                "type": "null"
-              }
-            ],
-            "title": "Expires At"
-          },
-          "id": {
-            "format": "uuid",
-            "title": "Id",
-            "type": "string"
-          },
-          "reason": {
-            "anyOf": [
-              {
-                "type": "string"
-              },
-              {
-                "type": "null"
-              }
-            ],
-            "title": "Reason"
-          },
-          "request_type": {
-            "title": "Request Type",
-            "type": "string"
-          },
-          "state": {
-            "title": "State",
-            "type": "string"
-          },
-          "subject": {
-            "anyOf": [
-              {
-                "type": "string"
-              },
-              {
-                "type": "null"
-              }
-            ],
-            "title": "Subject"
-          }
-        },
-        "required": [
-          "id",
-          "child_profile_id",
-          "device_id",
-          "request_type",
-          "subject",
-          "state",
-          "reason",
-          "decision_reason",
-          "expires_at"
-        ],
-        "title": "RequestOut",
         "type": "object"
       },
       "SignupIn": {
@@ -994,7 +729,9 @@ export const openApiDocument = {
           "200": {
             "content": {
               "application/json": {
-                "schema": {}
+                "schema": {
+                  "$ref": "#/components/schemas/TokensOut"
+                }
               }
             },
             "description": "Successful Response"
@@ -1149,7 +886,9 @@ export const openApiDocument = {
           "200": {
             "content": {
               "application/json": {
-                "schema": {}
+                "schema": {
+                  "$ref": "#/components/schemas/TokensOut"
+                }
               }
             },
             "description": "Successful Response"
@@ -1185,7 +924,9 @@ export const openApiDocument = {
           "201": {
             "content": {
               "application/json": {
-                "schema": {}
+                "schema": {
+                  "$ref": "#/components/schemas/TokensOut"
+                }
               }
             },
             "description": "Successful Response"
@@ -1558,31 +1299,6 @@ export const openApiDocument = {
       }
     },
     "/v1/families": {
-      "get": {
-        "operationId": "list_families_v1_families_get",
-        "responses": {
-          "200": {
-            "content": {
-              "application/json": {
-                "schema": {
-                  "items": {
-                    "$ref": "#/components/schemas/FamilyOut"
-                  },
-                  "title": "Response List Families V1 Families Get",
-                  "type": "array"
-                }
-              }
-            },
-            "description": "Successful Response"
-          }
-        },
-        "security": [
-          {
-            "OAuth2PasswordBearer": []
-          }
-        ],
-        "summary": "List Families"
-      },
       "post": {
         "operationId": "create_family_v1_families_post",
         "requestBody": {
@@ -1700,56 +1416,6 @@ export const openApiDocument = {
           }
         ],
         "summary": "Read Family"
-      }
-    },
-    "/v1/families/{family_id}/activity": {
-      "get": {
-        "operationId": "family_activity_v1_families__family_id__activity_get",
-        "parameters": [
-          {
-            "in": "path",
-            "name": "family_id",
-            "required": true,
-            "schema": {
-              "format": "uuid",
-              "title": "Family Id",
-              "type": "string"
-            }
-          }
-        ],
-        "responses": {
-          "200": {
-            "content": {
-              "application/json": {
-                "schema": {
-                  "items": {
-                    "additionalProperties": true,
-                    "type": "object"
-                  },
-                  "title": "Response Family Activity V1 Families  Family Id  Activity Get",
-                  "type": "array"
-                }
-              }
-            },
-            "description": "Successful Response"
-          },
-          "422": {
-            "content": {
-              "application/json": {
-                "schema": {
-                  "$ref": "#/components/schemas/HTTPValidationError"
-                }
-              }
-            },
-            "description": "Validation Error"
-          }
-        },
-        "security": [
-          {
-            "OAuth2PasswordBearer": []
-          }
-        ],
-        "summary": "Family Activity"
       }
     },
     "/v1/families/{family_id}/children": {
@@ -2282,49 +1948,6 @@ export const openApiDocument = {
         "summary": "Invite Guardian"
       }
     },
-    "/v1/families/{family_id}/health": {
-      "get": {
-        "operationId": "family_health_v1_families__family_id__health_get",
-        "parameters": [
-          {
-            "in": "path",
-            "name": "family_id",
-            "required": true,
-            "schema": {
-              "format": "uuid",
-              "title": "Family Id",
-              "type": "string"
-            }
-          }
-        ],
-        "responses": {
-          "200": {
-            "content": {
-              "application/json": {
-                "schema": {}
-              }
-            },
-            "description": "Successful Response"
-          },
-          "422": {
-            "content": {
-              "application/json": {
-                "schema": {
-                  "$ref": "#/components/schemas/HTTPValidationError"
-                }
-              }
-            },
-            "description": "Validation Error"
-          }
-        },
-        "security": [
-          {
-            "OAuth2PasswordBearer": []
-          }
-        ],
-        "summary": "Family Health"
-      }
-    },
     "/v1/families/{family_id}/requests": {
       "get": {
         "operationId": "list_requests_v1_families__family_id__requests_get",
@@ -2565,16 +2188,30 @@ export const openApiDocument = {
   }
 } as const;
 
-export type GuardianApiPath = "/health" | "/livez" | "/readiness" | "/readyz" | "/v1/auth/login" | "/v1/auth/logout" | "/v1/auth/me" | "/v1/auth/password-reset/confirm" | "/v1/auth/password-reset/request" | "/v1/auth/refresh" | "/v1/auth/signup" | "/v1/auth/verification/confirm" | "/v1/auth/verification/request" | "/v1/devices/me/events" | "/v1/devices/me/heartbeat" | "/v1/devices/me/policy" | "/v1/devices/me/policy/ack" | "/v1/devices/me/push-tokens" | "/v1/devices/me/requests" | "/v1/devices/pair" | "/v1/families" | "/v1/families/guardians/accept" | "/v1/families/{family_id}" | "/v1/families/{family_id}/activity" | "/v1/families/{family_id}/children" | "/v1/families/{family_id}/children/{child_id}" | "/v1/families/{family_id}/children/{child_id}/pairing" | "/v1/families/{family_id}/children/{child_id}/policy/mutations" | "/v1/families/{family_id}/devices/{device_id}/revoke" | "/v1/families/{family_id}/guardians" | "/v1/families/{family_id}/guardians/invite" | "/v1/families/{family_id}/health" | "/v1/families/{family_id}/requests" | "/v1/families/{family_id}/requests/{request_id}/approve" | "/v1/families/{family_id}/requests/{request_id}/deny" | "/v1/me/push-tokens" | "/v1/policy/public-key";
+export type GuardianApiPath = "/health" | "/livez" | "/readiness" | "/readyz" | "/v1/auth/login" | "/v1/auth/logout" | "/v1/auth/me" | "/v1/auth/password-reset/confirm" | "/v1/auth/password-reset/request" | "/v1/auth/refresh" | "/v1/auth/signup" | "/v1/auth/verification/confirm" | "/v1/auth/verification/request" | "/v1/devices/me/events" | "/v1/devices/me/heartbeat" | "/v1/devices/me/policy" | "/v1/devices/me/policy/ack" | "/v1/devices/me/push-tokens" | "/v1/devices/me/requests" | "/v1/devices/pair" | "/v1/families" | "/v1/families/guardians/accept" | "/v1/families/{family_id}" | "/v1/families/{family_id}/children" | "/v1/families/{family_id}/children/{child_id}" | "/v1/families/{family_id}/children/{child_id}/pairing" | "/v1/families/{family_id}/children/{child_id}/policy/mutations" | "/v1/families/{family_id}/devices/{device_id}/revoke" | "/v1/families/{family_id}/guardians" | "/v1/families/{family_id}/guardians/invite" | "/v1/families/{family_id}/requests" | "/v1/families/{family_id}/requests/{request_id}/approve" | "/v1/families/{family_id}/requests/{request_id}/deny" | "/v1/me/push-tokens" | "/v1/policy/public-key";
+
+export class GeneratedGuardianError extends Error {
+  constructor(message: string, readonly status: number) {
+    super(message);
+    this.name = "GeneratedGuardianError";
+  }
+}
 
 export class GeneratedGuardianClient {
-  constructor(private readonly baseUrl: string, private readonly token?: string) {}
+  constructor(
+    private readonly baseUrl: string,
+    private readonly getToken?: () => Promise<string | null>,
+  ) {}
   async request<T>(path: GuardianApiPath, init: RequestInit = {}): Promise<T> {
     const headers = new Headers(init.headers);
     headers.set("Content-Type", "application/json");
-    if (this.token) headers.set("Authorization", `Bearer ${this.token}`);
+    const token = await this.getToken?.();
+    if (token && !headers.has("Authorization")) headers.set("Authorization", `Bearer ${token}`);
     const response = await fetch(`${this.baseUrl}${path}`, { ...init, headers });
-    if (!response.ok) throw new Error(`Guardian API request failed: ${response.status}`);
+    if (!response.ok) {
+      const body = (await response.json().catch(() => ({}))) as { error?: { message?: string } };
+      throw new GeneratedGuardianError(body.error?.message ?? `Guardian API request failed: ${response.status}`, response.status);
+    }
     if (response.status === 204) return undefined as T;
     return (await response.json()) as T;
   }

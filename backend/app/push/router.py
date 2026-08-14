@@ -5,4 +5,3 @@ from ..api import route_handlers as handlers
 
 router = APIRouter()
 router.add_api_route("/v1/me/push-tokens", handlers.register_push_token, methods=["POST"], status_code=204, response_model=None)
-router.add_api_route("/v1/devices/me/push-tokens", handlers.register_device_push_token, methods=["POST"], status_code=204, response_model=None)

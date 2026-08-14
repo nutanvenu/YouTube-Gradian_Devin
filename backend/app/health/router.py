@@ -4,7 +4,6 @@ from fastapi.responses import JSONResponse
 from sqlalchemy import text
 from sqlalchemy.ext.asyncio import AsyncSession
 
-from ..api import route_handlers as handlers
 from ..core.db import get_session
 from ..policies.signing import validate_configured_signing_key
 
@@ -24,4 +23,3 @@ async def readiness(session: AsyncSession = Depends(get_session)) -> JSONRespons
 
 router.add_api_route("/readiness", readiness, methods=["GET"], response_model=None)
 router.add_api_route("/readyz", readiness, methods=["GET"], response_model=None)
-router.add_api_route("/v1/families/{family_id}/health", handlers.family_health, methods=["GET"], response_model=None)
