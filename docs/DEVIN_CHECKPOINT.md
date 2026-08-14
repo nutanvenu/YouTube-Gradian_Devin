@@ -202,7 +202,7 @@ Chrome failed to resolve the blocked domain with
 
 ```text
 .scratch/emulator/59-blocked-after-tcp-fix.png
-.scratch/emulator/59-bridge-events.txt
+.scratch/emulator/55-bridge-events.txt
 .scratch/emulator/60-bridge-event-after-reload.png
 ```
 
@@ -322,9 +322,7 @@ shared §31 state-component matrix still need dedicated tests.
 
 ## Remaining Phase 1 work
 
-1. Finish Slice 1.7 real VPN forwarding and domain enforcement, including
-   blocked/allowed emulator evidence and all §10.15 failure modes.
-2. Implement device proof-of-possession request signing and server verification.
+1. Implement device proof-of-possession request signing and server verification.
 3. Generate the OpenAPI client and add the committed-output drift check.
 4. Finish physical extraction of `route_handlers.py` implementations into
    owning modules.
@@ -356,9 +354,8 @@ shared §31 state-component matrix still need dedicated tests.
 
 ## Known defects and limitations
 
-- Live VPN consent, blocked/allowed domain traffic, semantic event delivery,
-  reboot recovery, and revocation recovery remain unobserved acceptance
-  evidence.
+- Captive-portal and competing-VPN behavior remain code-path/test evidence
+  rather than separately captured live emulator scenarios.
 - TCP proxy retransmission, congestion/window management, and out-of-order
   packet handling are not production-grade yet.
 - Android's `getConnectionOwnerUid` cannot be proven to recover the original
@@ -369,14 +366,12 @@ shared §31 state-component matrix still need dedicated tests.
 - `backend/app/api/route_handlers.py` remains as an implementation
   concentration point even though route registration is modular.
 - The emulator cannot prove iOS behavior on this Linux host.
-- The current Android VPN path has not yet produced the requested real
-  blocked-domain/allowed-domain bridge evidence.
+- The exact bridge-count evidence is from the clean prior run in
+  `.scratch/emulator/55-bridge-events.txt`; later Chrome runs were affected by
+  Chrome startup/negative-DNS cache and are not used as the count assertion.
 
 ## Exact next task
 
-Resolve the debug dev-client launch defect, then exercise real VPN consent and
-the full acceptance matrix on `guardian-api35`: a blocked domain must fail, an
-allowed domain must succeed, only a semantic `WEB_BLOCKED` event may cross the
-bridge, and protection must recover after reboot and VPN revocation. Capture
-adb/logcat/screenshots in `.scratch/emulator/`. Do not advance to Slice 1.8
-until that evidence exists.
+Wire device proof-of-possession request signing and server verification for
+device-authenticated requests and credential refresh. Preserve the Slice 1.7
+evidence and emulator lifecycle state above as the acceptance baseline.
