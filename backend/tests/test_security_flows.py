@@ -26,7 +26,7 @@ async def test_refresh_rotation_and_reuse_revokes_family(client, parent_a: Paren
         await client.post(
             "/v1/auth/refresh", json={"refresh_token": rotated.json()["refresh_token"]}
         )
-    ).status_code == 400
+    ).status_code == 401
 
 
 @pytest.mark.asyncio
@@ -110,7 +110,7 @@ async def test_credentials_cannot_cross_parent_and_device_routes(
     assert (await client.get("/v1/devices/me/policy", headers=parent_headers)).status_code == 401
     assert (
         await client.get(f"/v1/families/{paired_device.parent.family_id}", headers=device_headers)
-    ).status_code == 400
+    ).status_code == 401
 
 
 @pytest.mark.asyncio
@@ -159,14 +159,14 @@ async def test_revoked_device_is_rejected_on_every_device_route(
             json={"policy_version": 1},
             headers=device_headers,
         )
-    ).status_code == 400
+    ).status_code == 401
     assert (
         await client.post(
             "/v1/devices/me/heartbeat",
             json={"protection_state": "PROTECTED"},
             headers=device_headers,
         )
-    ).status_code == 400
+    ).status_code == 401
     assert (
         await client.post(
             "/v1/devices/me/events",
