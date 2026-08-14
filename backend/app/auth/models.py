@@ -22,6 +22,7 @@ class RefreshToken(TimestampMixin, Base):
     parent_id: Mapped[UUID] = mapped_column(
         ForeignKey("parents.id", ondelete="CASCADE"), index=True
     )
+    family_id: Mapped[UUID | None] = mapped_column(PGUUID(as_uuid=True), index=True)
     token_hash: Mapped[str] = mapped_column(String(128), unique=True)
     expires_at: Mapped[datetime] = mapped_column(DateTime(timezone=True))
     revoked_at: Mapped[datetime | None] = mapped_column(DateTime(timezone=True))

@@ -1,7 +1,7 @@
 import hashlib
 import secrets
 from datetime import UTC, datetime, timedelta
-from uuid import UUID
+from uuid import UUID, uuid4
 
 import jwt
 from argon2 import PasswordHasher
@@ -39,11 +39,14 @@ def _jwt(parent_id: UUID, token_type: str, expires: timedelta) -> str:
     )
 
 
-async def issue_tokens(session: AsyncSession, parent: Parent) -> tuple[str, str]:
+async def issue_tokens(
+    session: AsyncSession, parent: Parent, family_id: UUID | None = None
+) -> tuple[str, str]:
     refresh_raw = secrets.token_urlsafe(48)
     now = datetime.now(UTC)
     row = RefreshToken(
         parent_id=parent.id,
+        family_id=family_id or uuid4(),
         token_hash=_hash_token(refresh_raw),
         expires_at=now + timedelta(days=get_settings().refresh_days),
     )
@@ -74,15 +77,20 @@ async def rotate_refresh(session: AsyncSession, raw: str) -> tuple[str, str]:
         if row is not None and row.revoked_at is not None:
             await session.execute(
                 update(RefreshToken)
-                .where(RefreshToken.parent_id == row.parent_id)
+                .where(
+                    RefreshToken.family_id == row.family_id
+                    if row.family_id is not None
+                    else RefreshToken.parent_id == row.parent_id
+                )
                 .values(revoked_at=datetime.now(UTC))
             )
+            await session.commit()
         raise HTTPException(status.HTTP_401_UNAUTHORIZED, "Refresh token is invalid")
     parent = await session.get(Parent, row.parent_id)
     if parent is None:
         raise HTTPException(status.HTTP_401_UNAUTHORIZED, "Refresh token is invalid")
     row.revoked_at = datetime.now(UTC)
-    access, refresh = await issue_tokens(session, parent)
+    access, refresh = await issue_tokens(session, parent, row.family_id)
     await session.commit()
     return access, refresh
 
