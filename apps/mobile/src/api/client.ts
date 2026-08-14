@@ -53,6 +53,18 @@ export type AccessRequest = {
   decision_reason: string | null;
   expires_at: string | null;
 };
+export type RequestPushPayload = {
+  type: string;
+  request_id: string;
+  title: string;
+  body: string;
+  actions: Array<{
+    id: string;
+    label: string;
+    method: string;
+    path: string;
+  }>;
+};
 export type ActivityEvent = {
   id: string;
   kind: "WEB" | "SAFETY";
@@ -197,6 +209,12 @@ export class GuardianApiClient {
     return this.request<AccessRequest>(`/v1/families/${familyId}/requests/${requestId}/${decision}`, {
       method: "POST",
       body: JSON.stringify({ reason }),
+    });
+  }
+  pushAction(path: string, reason?: string) {
+    return this.request<AccessRequest>(path, {
+      method: "POST",
+      body: JSON.stringify(reason ? { reason } : {}),
     });
   }
   websocketUrl(path: string, params: Record<string, string>) {
