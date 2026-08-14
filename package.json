@@ -8,6 +8,8 @@
     "node": "22.12.0"
   },
   "scripts": {
+    "generate:openapi": "python scripts/generate_openapi_client.py",
+    "check:openapi": "pnpm generate:openapi && git diff --exit-code -- packages/api-client/src/generated.ts",
     "lint": "eslint .",
     "typecheck": "tsc --noEmit",
     "test": "vitest run"
