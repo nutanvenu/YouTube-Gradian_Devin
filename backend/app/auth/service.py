@@ -10,7 +10,7 @@ from sqlalchemy import select, update
 from sqlalchemy.ext.asyncio import AsyncSession
 
 from ..core.config import get_settings
-from ..core.models import Parent, RefreshToken
+from .models import Parent, RefreshToken
 
 password_hasher = PasswordHasher()
 

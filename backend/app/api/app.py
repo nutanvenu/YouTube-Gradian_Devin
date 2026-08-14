@@ -8,6 +8,7 @@ from fastapi.security import OAuth2PasswordBearer
 from sqlalchemy import select
 from sqlalchemy.ext.asyncio import AsyncSession
 
+from ..auth.models import Parent
 from ..auth.service import (
     hash_password,
     issue_tokens,
@@ -15,17 +16,11 @@ from ..auth.service import (
     rotate_refresh,
     verify_password,
 )
+from ..children.models import ChildProfile
 from ..core.db import get_session
-from ..core.models import (
-    ChildProfile,
-    Device,
-    DeviceCredential,
-    Family,
-    FamilyGuardian,
-    GuardianRole,
-    PairingSession,
-    Parent,
-)
+from ..devices.models import Device, DeviceCredential
+from ..families.models import Family, FamilyGuardian, GuardianRole
+from ..pairing.models import PairingSession
 from ..policies.service import age_band_for_dob, default_policy, validate_timezone
 from .schemas import (
     ChildCreate,
