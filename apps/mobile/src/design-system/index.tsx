@@ -43,7 +43,11 @@ export function ScreenScaffold({
       accessibilityLabel={title}
     >
       <View style={[styles.content, isRegularWidth && styles.contentRegular]}>
-        {title ? <Text style={[styles.title, { color: palette.text }]}>{title}</Text> : null}
+        {title ? (
+          <Text accessibilityRole="header" style={[styles.title, { color: palette.text }]}>
+            {title}
+          </Text>
+        ) : null}
         {children}
       </View>
     </ScrollView>
@@ -97,8 +101,8 @@ export function ListRow({
   const palette = usePalette();
   const content = (
     <View style={styles.row}>
-      <Text style={[styles.body, { color: palette.text }]}>{label}</Text>
-      {value ? <Text style={[styles.caption, { color: palette.secondaryText }]}>{value}</Text> : null}
+      <Text style={[styles.body, styles.rowLabel, { color: palette.text }]}>{label}</Text>
+      {value ? <Text style={[styles.caption, styles.rowValue, { color: palette.secondaryText }]}>{value}</Text> : null}
     </View>
   );
   return onPress ? (
@@ -129,6 +133,7 @@ export function PrimaryButton({
     <Pressable
       accessibilityRole="button"
       accessibilityLabel={label}
+      accessibilityState={{ disabled: Boolean(disabled) }}
       disabled={disabled}
       onPress={onPress}
       style={({ pressed }) => [
@@ -149,6 +154,7 @@ export function SecondaryButton({ label, onPress, disabled }: { label: string; o
     <Pressable
       accessibilityRole="button"
       accessibilityLabel={label}
+      accessibilityState={{ disabled: Boolean(disabled) }}
       disabled={disabled}
       onPress={onPress}
       style={({ pressed }) => [
@@ -197,7 +203,11 @@ export function ProtectionStatePill({ state }: { state: "PROTECTED" | "DEGRADED"
   const palette = usePalette();
   const color = protectionStateColors[state].light;
   return (
-    <View style={[styles.pill, { backgroundColor: `${color}22` }]}>
+    <View
+      accessible
+      accessibilityLabel={`Protection status: ${state}`}
+      style={[styles.pill, { backgroundColor: `${color}22` }]}
+    >
       <Text style={[styles.label, { color: palette.text }]}>{state}</Text>
     </View>
   );
@@ -224,7 +234,7 @@ export function DataState({
   if (state === "stale") {
     return (
       <>
-        <View style={styles.state}>
+        <View accessibilityLiveRegion="polite" style={styles.state}>
           <Text style={[styles.body, { color: palette.text }]}>{message}</Text>
         </View>
         {children}
@@ -232,7 +242,7 @@ export function DataState({
     );
   }
   return (
-    <View style={styles.state}>
+    <View accessibilityLiveRegion="polite" style={styles.state}>
       <Text style={[styles.body, { color: palette.text }]}>{message}</Text>
       {onRetry && state === "error" ? <SecondaryButton label="Retry" onPress={onRetry} /> : null}
     </View>
@@ -242,7 +252,7 @@ export function DataState({
 export function ProtectionRemovedState({ onRecover }: { onRecover: () => void }) {
   const palette = usePalette();
   return (
-    <View style={styles.state}>
+    <View accessibilityLiveRegion="polite" style={styles.state}>
       <Text style={[styles.body, { color: palette.text }]}>Protection removed</Text>
       <Text style={[styles.body, { color: palette.text }]}>
         This device is no longer linked to the family.
@@ -274,6 +284,8 @@ const styles = StyleSheet.create({
   label: typography.label,
   caption: typography.caption,
   row: { minHeight: touchTarget.minimum, flexDirection: "row", alignItems: "center", justifyContent: "space-between", gap: spacing.md },
+  rowLabel: { flex: 1, flexShrink: 1 },
+  rowValue: { flexShrink: 1 },
   button: { minHeight: touchTarget.minimum, alignItems: "center", justifyContent: "center", borderRadius: radii.md, borderWidth: 1, paddingHorizontal: spacing.md },
   buttonText: typography.bodyEmphasis,
   input: { minHeight: touchTarget.minimum, borderWidth: 1, borderRadius: radii.sm, paddingHorizontal: spacing.md, ...typography.body },

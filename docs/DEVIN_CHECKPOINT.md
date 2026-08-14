@@ -1681,8 +1681,17 @@ or simulator evidence and platform-native split-view evidence remain
 unavailable; Expo Router Split View is iOS-only alpha and the shipped layout
 therefore uses standard responsive primitives.
 
+A code-level accessibility audit fixed the shared surfaces' focus semantics:
+screen titles are headers, disabled buttons expose disabled state, status pills
+are announced as one status, transient data-state messages use a polite live
+region, and list-row labels/values can shrink and wrap instead of clipping at
+large font scales. Shared controls retain the 44-point minimum touch target.
+The remaining TalkBack traversal, Dynamic Type rendering, contrast,
+reduced-motion, and RTL checks still require device-level exercise and are not
+claimed as complete.
+
 Remaining Phase 3 work, in risk order: complete the tablet screen audit;
-accessibility audit (TalkBack, Dynamic Type, contrast, focus order, reduced
-motion, RTL); real-path performance and battery measurement; observability
-completeness; OWASP mobile-code-review workflow; Google
+device-level accessibility audit (TalkBack, Dynamic Type, contrast, focus
+order, reduced motion, RTL); real-path performance and battery measurement;
+observability completeness; OWASP mobile-code-review workflow; Google
 `play-policy-insights` workflow; and remediation of material findings.
