@@ -93,6 +93,7 @@ async def test_parent_policy_override_surface_records_audit_fields(client, paren
         body = response.json()
         assert body["policy_version"] == previous_version + 1
         assert body["author_parent_id"]
+        assert body["mutation_at"]
         assert body["effective_at"]
         assert body["previous_value"]["operation"] == operation["operation"]
         assert body["new_value"]["policy_version"] == body["policy_version"]

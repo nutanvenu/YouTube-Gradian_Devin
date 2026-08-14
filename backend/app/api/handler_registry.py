@@ -757,6 +757,7 @@ async def mutate_policy(
         "policy_version": bundle.policy_version,
         "effective_at": bundle.effective_at.isoformat(),
         "author_parent_id": str(parent.id),
+        "mutation_at": bundle.created_at.isoformat(),
         "expires_at": bundle.expires_at.isoformat() if bundle.expires_at else None,
         "previous_value": bundle.previous_value,
         "new_value": bundle.new_value,
