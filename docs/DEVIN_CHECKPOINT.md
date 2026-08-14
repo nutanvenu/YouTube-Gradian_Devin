@@ -1690,6 +1690,27 @@ The remaining TalkBack traversal, Dynamic Type rendering, contrast,
 reduced-motion, and RTL checks still require device-level exercise and are not
 claimed as complete.
 
+An emulator session was measured on child `emulator-5556` from
+`2026-08-14T22:58:54Z` through `2026-08-14T22:59:15Z` with the VPN active on
+`tun0`. The workload launched Guardian once and dispatched five URL intents
+through Chrome while `dumpsys batterystats --reset` and
+`dumpsys batterystats --checkin com.guardian.family` bracketed the session.
+The URL intent `WaitTime` values were 497 ms, 26 ms, 61 ms, 38 ms, and 80 ms;
+these are Android activity-dispatch timings, not isolated VPN/DNS decision
+latencies. Guardian's warm `am start -W` reported `TotalTime: 0 ms` and
+`WaitTime: 3 ms`, which is not a cold-start measurement. The VPN remained
+connected after the workload. Raw output is at:
+
+- `.scratch/emulator/performance/child-enforcement-session.txt`
+
+The emulator battery report exposed no usable package CPU, radio, or energy
+measurement (`-1`/unsupported power-profile fields and no package mAh
+estimate), so battery cost is explicitly `UNAVAILABLE`, not inferred from
+runtime. Isolated VPN/DNS decision latency, policy-apply latency, usage
+collection cost, and React Native bridge event volume still need dedicated
+instrumentation; the URL dispatch and warm-start numbers must not be used as
+proxies for them.
+
 Remaining Phase 3 work, in risk order: complete the tablet screen audit;
 device-level accessibility audit (TalkBack, Dynamic Type, contrast, focus
 order, reduced motion, RTL); real-path performance and battery measurement;
