@@ -1040,7 +1040,66 @@ emulator-5554     device
 PostgreSQL        healthy
 ```
 
-The Phase 1 acceptance gate is not fully closed because live parent Rules
-visual mutation, parent-to-child WebSocket invalidation, and emulator
-offline-request reconnect evidence are still absent. Phase 2 must not begin
-until those artifacts are captured.
+The Phase 1 acceptance gate is not fully closed because a dedicated
+parent-to-child WebSocket no-refresh visual capture remains outstanding.
+Phase 2 must not begin until that artifact is captured.
+
+## Phase 1 live evidence update
+
+The live emulator run on `emulator-5554` completed the remaining visible
+Rules mutations against the real parent session and paired child
+`f6a73077-2876-40c6-b8bc-0b0a7b19142f`:
+
+```text
+policy version 4  DOMAIN_BLOCK example.org
+policy version 5  APP_BLOCK (parent Rules UI)
+policy version 6  UNKNOWN_APP_POLICY=BLOCK
+```
+
+The domain mutation's pending banner and child acknowledgement are captured
+at:
+
+```text
+.scratch/emulator/phase1-rules-domain-pending-top.png
+.scratch/emulator/phase1-child-domain-ack.png
+```
+
+The unknown-app mutation was driven through the actual Rules button and
+confirmed in PostgreSQL as version 6 with `unknown_app_policy=BLOCK`.
+The active post-reload Rules surface is:
+
+```text
+.scratch/emulator/phase1-rules-unknown-app-ack.png
+```
+
+The earlier app-limit and schedule artifacts remain:
+
+```text
+.scratch/emulator/phase1-rules-app-limit-pending.png
+.scratch/emulator/phase1-rules-app-limit-ack.png
+.scratch/emulator/phase1-rules-schedule-pending.png
+.scratch/emulator/phase1-child-schedule-ack.png
+```
+
+Offline request queueing and reconnect delivery were exercised on the same
+emulator. With Wi-Fi and mobile data disabled, the child request screen
+showed the explicit caveat and durable queued state:
+
+```text
+.scratch/emulator/phase1-child-request-offline-queued.png
+```
+
+After connectivity was restored, the outbox flushed, the child showed
+`Request delivered`, PostgreSQL recorded a real `MORE_TIME` request in
+`PENDING`, and the parent inbox displayed `MORE_TIME / Waiting for a parent`:
+
+```text
+.scratch/emulator/phase1-child-request-reconnected.png
+.scratch/emulator/phase1-parent-inbox-after-reconnect.png
+```
+
+The child policy now subscribes to the family WebSocket invalidation stream
+and invalidates `device-policy` when a family event arrives. This code is
+linted and typed, but a two-surface no-refresh visual capture is still
+outstanding because this single-emulator run cannot keep the parent and child
+surfaces simultaneously visible.

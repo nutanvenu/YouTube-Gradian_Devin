@@ -204,6 +204,16 @@ export function DataState({
     revoked: "Protection removed. This device is no longer linked to the family.",
     "pending-sync": "Changes are waiting to sync.",
   }[state];
+  if (state === "stale") {
+    return (
+      <>
+        <View style={styles.state}>
+          <Text style={[styles.body, { color: palette.text }]}>{message}</Text>
+        </View>
+        {children}
+      </>
+    );
+  }
   return (
     <View style={styles.state}>
       <Text style={[styles.body, { color: palette.text }]}>{message}</Text>

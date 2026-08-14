@@ -2,7 +2,8 @@ import { useEffect, useState } from "react";
 import { useQuery } from "@tanstack/react-query";
 import { useRouter } from "expo-router";
 import { AppState, Text } from "react-native";
-import { ApiError, api } from "@/api/client";
+import { ApiError, api, sessionStorage } from "@/api/client";
+import { useFamilySync } from "@/hooks/use-family-sync";
 import { useNetworkStatus } from "@/state/network";
 import {
   DataState,
@@ -25,6 +26,7 @@ export default function ChildHomeRoute() {
   const router = useRouter();
   const policy = useQuery({ queryKey: ["device-policy"], queryFn: () => api.policy() });
   const { isOffline } = useNetworkStatus();
+  const [familyId, setFamilyId] = useState<string>();
   const revoked = isRevokedDeviceError(policy.error);
   const [protectionMessage, setProtectionMessage] = useState("Checking web protection…");
   const [blockedEvent, setBlockedEvent] = useState<Extract<GuardianNativeEvent, { type: "WEB_BLOCKED" }> | null>(null);
@@ -32,6 +34,18 @@ export default function ChildHomeRoute() {
   const [appBlockedMessage, setAppBlockedMessage] = useState<string | null>(null);
   const [timeMessage, setTimeMessage] = useState<string | null>(null);
   const [acknowledgedVersion, setAcknowledgedVersion] = useState<number | null>(null);
+
+  useEffect(() => {
+    let mounted = true;
+    void sessionStorage.getFamilyId().then((value) => {
+      if (mounted) setFamilyId(value ?? undefined);
+    });
+    return () => {
+      mounted = false;
+    };
+  }, []);
+
+  useFamilySync(familyId);
 
   useEffect(() => {
     const subscription = GuardianProtection.subscribe((event) => {

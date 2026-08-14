@@ -34,6 +34,7 @@ export function useFamilySync(familyId: string | undefined, childId?: string) {
         void queryClient.invalidateQueries({ queryKey: ["health", familyId] });
         void queryClient.invalidateQueries({ queryKey: ["requests", familyId] });
         void queryClient.invalidateQueries({ queryKey: ["activity", familyId] });
+        void queryClient.invalidateQueries({ queryKey: ["device-policy"] });
       };
     };
     void connect();
