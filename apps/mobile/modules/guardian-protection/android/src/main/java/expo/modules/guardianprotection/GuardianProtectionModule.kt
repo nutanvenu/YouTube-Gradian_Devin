@@ -11,6 +11,7 @@ import expo.modules.guardianprotection.reputation.ReputationManager
 import expo.modules.guardianprotection.policy.PolicyVerifier
 import expo.modules.guardianprotection.usage.UsageCollector
 import expo.modules.guardianprotection.vpn.GuardianVpnService
+import expo.modules.guardianprotection.communication.CommunicationSafetyRuntime
 import java.time.Instant
 import java.util.concurrent.atomic.AtomicReference
 
@@ -29,10 +30,12 @@ class GuardianProtectionModule : Module() {
     Name("GuardianProtection")
     Events("onGuardianEvent")
     OnActivityEntersForeground {
+      installCommunicationListener()
       reportCapabilityChanges(capabilities.getCapabilities())
     }
 
     AsyncFunction("getCapabilities") {
+      installCommunicationListener()
       reportCapabilityChanges(capabilities.getCapabilities())
     }
     AsyncFunction("getProtectionStatus") {
@@ -51,6 +54,7 @@ class GuardianProtectionModule : Module() {
       capabilities.openNotificationAccessSettings()
     }
     AsyncFunction("startProtection") {
+      installCommunicationListener()
       GuardianPolicyRuntime.install(policyManager)
       GuardianPolicyRuntime.installReputation(reputationManager)
       GuardianPolicyRuntime.addListener(eventListener)
@@ -178,6 +182,18 @@ class GuardianProtectionModule : Module() {
       sendEvent("onGuardianEvent", mapOf(
         "type" to "TIME_EXPIRED",
         "targetRef" to targetRef,
+      ))
+    }
+  }
+
+  private fun installCommunicationListener() {
+    CommunicationSafetyRuntime.setListener { signal, packageName ->
+      sendEvent("onGuardianEvent", mapOf(
+        "type" to "SAFETY_EVENT",
+        "category" to signal.category,
+        "severity" to signal.severity,
+        "reasonCode" to signal.reasonCode,
+        "appRef" to packageName,
       ))
     }
   }

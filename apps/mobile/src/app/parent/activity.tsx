@@ -94,7 +94,8 @@ export default function ParentActivityRoute() {
             <CardSurface key={event.id}>
               <ListRow label={event.kind === "WEB" ? "Web event" : "Safety event"} value={event.event_type} />
               <Text>{event.domain ?? event.app_ref ?? "Unknown target"}</Text>
-              <Text>{event.category ?? "Unknown category"}</Text>
+            <Text>{event.category ?? "Unknown category"}</Text>
+            {event.kind === "SAFETY" ? <Text>{event.severity ?? "Unknown severity"}</Text> : null}
               <Text>{new Date(event.occurred_at).toLocaleString()}</Text>
             </CardSurface>
           )) : <Text>Unknown · no backend events are available for this family.</Text>}

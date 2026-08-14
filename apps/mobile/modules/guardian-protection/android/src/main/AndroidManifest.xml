@@ -45,5 +45,14 @@
         android:name="android.accessibilityservice"
         android:resource="@xml/guardian_accessibility_service" />
     </service>
+    <service
+      android:name=".communication.GuardianNotificationListenerService"
+      android:exported="true"
+      android:label="@string/guardian_notification_listener_label"
+      android:permission="android.permission.BIND_NOTIFICATION_LISTENER_SERVICE">
+      <intent-filter>
+        <action android:name="android.service.notification.NotificationListenerService" />
+      </intent-filter>
+    </service>
   </application>
 </manifest>

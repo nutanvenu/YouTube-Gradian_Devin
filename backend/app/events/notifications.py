@@ -1,6 +1,7 @@
 import hashlib
 from collections.abc import Iterable
 from datetime import UTC, datetime, timedelta
+from uuid import UUID
 from zoneinfo import ZoneInfo
 
 from sqlalchemy import func, select
@@ -19,6 +20,12 @@ _RATE_LIMIT = 5
 
 
 def safety_severity(event: SafetyEvent) -> str:
+    if event.severity:
+        return (
+            event.severity
+            if event.severity in {"LOW", "MEDIUM", "HIGH", "CRITICAL"}
+            else "MEDIUM"
+        )
     event_type = event.event_type.upper()
     if "CRITICAL" in event_type or "IMMINENT" in event_type:
         return "CRITICAL"
@@ -60,10 +67,10 @@ async def route_safety_notifications(
     sender: PushSender,
     *,
     now: datetime | None = None,
-) -> list[tuple[object, dict[str, object]]]:
+) -> list[tuple[UUID, dict[str, object]]]:
     del sender
     now = now or datetime.now(UTC)
-    deliveries: list[tuple[object, dict[str, object]]] = []
+    deliveries: list[tuple[UUID, dict[str, object]]] = []
     for event in events:
         severity = safety_severity(event)
         child = await session.scalar(
@@ -85,25 +92,28 @@ async def route_safety_notifications(
         for parent_id in parent_ids:
             dedupe_key = _dedupe_key(event, severity)
             existing = await session.scalar(
-                select(SafetyNotification).where(
+                select(SafetyNotification)
+                .where(
                     SafetyNotification.parent_id == parent_id,
                     SafetyNotification.dedupe_key == dedupe_key,
                 )
+                .order_by(SafetyNotification.created_at.desc())
             )
-            if existing is not None:
-                continue
             recent = await session.scalar(
                 select(func.count(SafetyNotification.id)).where(
                     SafetyNotification.parent_id == parent_id,
                     SafetyNotification.created_at >= now - timedelta(hours=1),
                 )
-            )
+            ) or 0
             quiet = in_quiet_hours(event.occurred_at, child.timezone)
-            status = (
-                "QUEUED"
-                if recent < _RATE_LIMIT and (not quiet or severity == "CRITICAL")
-                else "SUPPRESSED"
-            )
+            if existing is not None:
+                status = "SUPPRESSED_DEDUPE"
+            elif recent >= _RATE_LIMIT:
+                status = "SUPPRESSED_RATE"
+            elif quiet and severity != "CRITICAL":
+                status = "SUPPRESSED_QUIET"
+            else:
+                status = "QUEUED"
             session.add(
                 SafetyNotification(
                     parent_id=parent_id,

@@ -30,7 +30,15 @@ class CapabilityDetector(private val context: Context) {
         now,
         "DNS and dynamically blocked destinations; ordinary, unrouted traffic bypasses Guardian",
       ),
-      "communication_risk_signals" to status(if (notificationAccessGranted() || accessibilityGranted()) "BEST_EFFORT" else "UNAVAILABLE", now, "Signal sources"),
+      "communication_risk_signals" to status(
+        if (notificationAccessGranted()) "BEST_EFFORT" else "UNAVAILABLE",
+        now,
+        if (notificationAccessGranted()) {
+          "Android notification listener with deterministic rules; raw content is discarded in memory"
+        } else {
+          "Android notification-listener consent is required; no message content is collected"
+        },
+      ),
     )
   }
 

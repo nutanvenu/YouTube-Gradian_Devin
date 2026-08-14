@@ -73,6 +73,7 @@ export type ActivityEvent = {
   domain: string | null;
   app_ref: string | null;
   category: string | null;
+  severity: "LOW" | "MEDIUM" | "HIGH" | "CRITICAL" | null;
 };
 export type ActivityUsagePoint = {
   app_ref: string | null;
@@ -97,6 +98,7 @@ export type DeviceEvent = {
   app_ref?: string | null;
   domain?: string | null;
   category?: string | null;
+  severity?: "LOW" | "MEDIUM" | "HIGH" | "CRITICAL" | null;
   timezone?: string;
   duration_seconds?: number;
 };

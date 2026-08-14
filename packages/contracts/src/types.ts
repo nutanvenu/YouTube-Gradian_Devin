@@ -228,7 +228,13 @@ export type GuardianNativeEvent =
     }
   | { type: "TIME_WARNING"; targetRef: string; remainingSeconds: number }
   | { type: "TIME_EXPIRED"; targetRef: string }
-  | { type: "SAFETY_EVENT"; category: string; severity: string }
+  | {
+      type: "SAFETY_EVENT";
+      category: string;
+      severity: "LOW" | "MEDIUM" | "HIGH" | "CRITICAL";
+      reasonCode?: string;
+      appRef?: string;
+    }
   | { type: "POLICY_APPLIED"; version: number }
   | { type: "PERMISSION_STATE_CHANGED"; capability: string; state: string }
   | { type: "REPUTATION_STATUS_CHANGED"; version?: number; reason: string };

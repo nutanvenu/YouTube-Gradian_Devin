@@ -138,7 +138,7 @@ async def ingest_events(
         if event_type in {"URL", "DOMAIN", "WEB"} or event_type.startswith("WEB_"):
             session.add(WebEvent(**values))
         elif event_type.startswith("SAFETY"):
-            row = SafetyEvent(**values)
+            row = SafetyEvent(**values, severity=event.severity)
             session.add(row)
             safety_rows.append(row)
         else:

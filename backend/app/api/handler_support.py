@@ -244,6 +244,7 @@ __all__ = [
     'validate_configured_signing_key',
     'validate_timezone',
     'validation_error_handler',
+    'usage_report',
     'verify_device_request_headers',
     'verify_password',
 ]

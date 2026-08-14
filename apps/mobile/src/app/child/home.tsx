@@ -87,6 +87,15 @@ export default function ChildHomeRoute() {
             .catch(() => undefined);
         }
       }
+      if (event.type === "SAFETY_EVENT") {
+        void api.ingestEvents([{
+          event_type: `SAFETY_${event.category}`,
+          occurred_at: new Date().toISOString(),
+          app_ref: event.appRef ?? null,
+          category: event.category,
+          severity: event.severity,
+        }]).catch(() => undefined);
+      }
       console.info("GUARDIAN_BRIDGE_EVENT", JSON.stringify(event));
       if (event.type === "APP_BLOCKED") {
         setAppBlockedMessage(`${event.appRef} · ${event.reasonCode}`);

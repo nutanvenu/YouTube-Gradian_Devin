@@ -76,6 +76,7 @@ async def family_activity(
             "domain": event.domain,
             "app_ref": event.app_ref,
             "category": event.category,
+            "severity": None,
         }
         for event in web_events
     ]
@@ -88,6 +89,7 @@ async def family_activity(
             "domain": event.domain,
             "app_ref": event.app_ref,
             "category": event.category,
+            "severity": event.severity,
         }
         for event in safety_events
     )

@@ -73,6 +73,10 @@ private final class FamilyControlsAuthorization {
         "level": "LIMITED",
         "detail": "iOS filtering is limited to Network Extension flows and Managed Settings web domains; it cannot provide Android-style packet attribution.",
       ],
+      "communication_risk_signals": [
+        "level": "UNAVAILABLE",
+        "detail": "iOS does not expose a general notification-listener API to Guardian; no notification content is collected.",
+      ],
     ]
   }
 }

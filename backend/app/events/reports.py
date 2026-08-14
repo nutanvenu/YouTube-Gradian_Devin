@@ -1,6 +1,6 @@
 from collections import defaultdict
 from datetime import UTC, date, datetime, timedelta
-from typing import Literal
+from typing import Any, Literal
 from uuid import UUID
 from zoneinfo import ZoneInfo
 
@@ -56,7 +56,7 @@ async def usage_report(
     if child_id is not None:
         query = query.where(ChildProfile.id == child_id)
     rows = list((await session.execute(query)).all())
-    buckets: dict[tuple[UUID, date], dict[str, object]] = {}
+    buckets: dict[tuple[UUID, date], dict[str, Any]] = {}
     for row, row_child_id in rows:
         remaining_start = row.occurred_at
         remaining_end = row.occurred_at + timedelta(seconds=row.duration_seconds)

@@ -190,6 +190,7 @@ class MinimizedEvent(BaseModel):
     app_ref: str | None = Field(default=None, max_length=200)
     domain: str | None = Field(default=None, max_length=253)
     category: str | None = Field(default=None, max_length=50)
+    severity: Literal["LOW", "MEDIUM", "HIGH", "CRITICAL"] | None = None
     duration_seconds: int = Field(default=0, ge=0, le=86400)
 
     @field_validator("timezone")
@@ -236,6 +237,7 @@ class ActivityEventOut(BaseModel):
     domain: str | None
     app_ref: str | None
     category: str | None
+    severity: str | None
 
 
 class ActivityUsagePointOut(BaseModel):

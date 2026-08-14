@@ -1586,22 +1586,44 @@ persisted data remains `Unknown` rather than a fabricated zero.
 
 Focused report tests cover a DST transition, a timezone change in the report
 view, weekly aggregation across two devices for one child, and route
-authorization. The live backend was migrated to `0016_safety_notifications`
-and the report endpoint returned an authenticated empty array for the current
-empty family. Runtime evidence is in
+authorization. The earlier empty report was ownership-correct: the queried
+family `8bffc14d-747e-4e56-aa3f-104839a2fe25` had no aggregates, while the 69
+rows belonged to families `d654598b-6ef2-4eca-b001-e0017d2180ac` (63 rows)
+and `5abf06a7-3f24-4170-ab6b-2b41039dc331` (6 rows). The live backend is now
+migrated to `0018_safety_routing_outcomes`. A fresh authenticated
+data-owning-family run returned one populated daily report bucket, two usage
+rows, and one activity event. Runtime evidence is in
 `.scratch/emulator/usage-reports/runtime-status.txt`,
-`.scratch/emulator/usage-reports/live-database-counts.txt`, and
-`.scratch/emulator/usage-reports/live-report.json`. A populated report
-rendering on a rebuilt parent APK remains a follow-up evidence item.
+`.scratch/emulator/usage-reports/live-database-counts.txt`,
+`.scratch/emulator/usage-reports/live-report.json`,
+`.scratch/emulator/phase2/populated-report.json`, and
+`.scratch/emulator/phase2/populated-report-authenticated-request.txt`. The
+populated API response is real persisted data; a rebuilt parent APK visual
+rendering remains a follow-up evidence item.
 
 Safety events now pass through severity and age-band-sensitive routing before
 the existing `PushSender`: younger bands receive medium-or-higher alerts,
 TEEN receives high/critical alerts, OLDER_TEEN receives critical alerts,
 quiet hours suppress non-critical alerts, and persisted dedupe keys plus a
 five-per-parent-per-hour bound prevent noisy devices from spamming a parent.
-Payloads contain only structured event metadata. The current sender is the
-provider-independent logging implementation; APNs/FCM delivery and
-notification-provider credentials remain unavailable and are not claimed.
+Payloads contain only structured event metadata. Every routing outcome is now
+persisted, including `QUEUED`, `SUPPRESSED_QUIET`, `SUPPRESSED_DEDUPE`, and
+`SUPPRESSED_RATE`; the unique dedupe constraint was replaced with an indexed
+lookup so suppressed attempts are retained. A live provider-independent run
+is recorded in `.scratch/emulator/notifications/routing-request.txt` and
+`.scratch/emulator/notifications/persisted-routing-outcomes.txt`. The current
+sender is the provider-independent logging implementation; APNs/FCM delivery
+and notification-provider credentials remain unavailable and are not claimed.
+
+Phase 3 communication-safety foundations now include an Android
+`NotificationListenerService`. Notification title/body values are consumed
+only in memory by deterministic documented rules and are not included in
+events, persistence, logs, or parent UI. Only category, severity, reason code,
+and minimized source package are bridged as structured events. iOS reports
+`communication_risk_signals` as `UNAVAILABLE` because it has no general
+notification-listener API. The rules detector has a labelled fixture test;
+accuracy, runtime, and battery measurement results are reported only after
+the focused native test run. No model or fabricated confidence score ships.
 
 Remaining Phase 3 work, in risk order: communication safety with in-memory raw
 content handling and minimized structured events only; honest iOS capability

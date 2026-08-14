@@ -16,6 +16,7 @@ async def test_family_activity_and_usage_return_real_device_events(
                 "occurred_at": occurred_at,
                 "domain": "example.org",
                 "category": "EDUCATION",
+                "severity": None,
             },
             {
                 "event_type": "APP_USAGE",
@@ -46,6 +47,7 @@ async def test_family_activity_and_usage_return_real_device_events(
     assert activity.json()[0]["event_type"] == "WEB_BLOCKED"
     assert activity.json()[0]["domain"] == "example.org"
     assert activity.json()[0]["category"] == "EDUCATION"
+    assert activity.json()[0]["severity"] is None
 
     usage = await client.get(
         f"/v1/families/{parent_a.family_id}/activity/usage", headers=headers
