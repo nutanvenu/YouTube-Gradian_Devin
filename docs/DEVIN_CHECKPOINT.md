@@ -976,3 +976,71 @@ on `emulator-5554`; the earlier Metro `Unable to resolve module console`
 failure no longer reproduces. A dedicated parent-role Rules mutation run,
 WebSocket no-refresh capture, and emulator offline queue/reconnect capture
 remain required before those acceptance items can be claimed.
+
+## Phase 1 verification gate
+
+The Phase 1 code gate was run after the implementation commits on a clean
+working tree. Root JavaScript checks passed under Node 22.12.0:
+
+```text
+pnpm lint       passed
+pnpm typecheck  passed
+pnpm test       6 files passed, 60 tests passed
+```
+
+Mobile checks passed:
+
+```text
+guardian-mobile lint       passed
+guardian-mobile typecheck  passed
+guardian-mobile Jest       6 suites passed, 23 tests passed
+```
+
+The complete backend suite passed:
+
+```text
+ruff check app tests       passed
+mypy app                   Success: no issues found in 50 source files
+pytest                    95 passed
+```
+
+An empty PostgreSQL database migrated from scratch to:
+
+```text
+0010_device_request_nonces
+exit=0
+```
+
+Evidence log:
+`.scratch/phase1-alembic-upgrade.log`.
+
+The generated OpenAPI drift check passed with the active FastAPI route graph
+and emitted no duplicate-operation warning:
+
+```text
+pnpm check:openapi          passed
+```
+
+Android verification passed:
+
+```text
+./gradlew :guardian-protection:testDebugUnitTest :app:assembleDebug :app:assembleRelease --no-daemon
+BUILD SUCCESSFUL in 51s
+./gradlew :app:connectedDebugAndroidTest --no-daemon
+BUILD SUCCESSFUL in 34s
+```
+
+The live runtime remained available after the gate:
+
+```text
+GET /health       200 {"status":"ok"}
+GET /readiness    200 {"status":"ready"}
+metro             200
+emulator-5554     device
+PostgreSQL        healthy
+```
+
+The Phase 1 acceptance gate is not fully closed because live parent Rules
+visual mutation, parent-to-child WebSocket invalidation, and emulator
+offline-request reconnect evidence are still absent. Phase 2 must not begin
+until those artifacts are captured.
