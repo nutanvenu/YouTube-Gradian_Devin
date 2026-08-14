@@ -1490,12 +1490,6 @@ explicit bounded-memory estimate of 512 bytes per retained entry
 estimate, not a platform heap profile; a device heap profiler remains useful
 for release benchmarking and is not represented as measured here.
 
-Remaining reputation evidence:
-
-```text
-.scratch/emulator/reputation/
-```
-
 The Android debug APK was rebuilt with the backend's trusted
 `guardian-dev` public key and installed on both live emulators. The child then
 applied the signed full bundle and emitted:
@@ -1513,17 +1507,68 @@ APK-configuration failure, not a backend signature or route failure. The
 signed-build artifact is
 `.scratch/emulator/reputation/child-main-after-signed.png`.
 
-The live unknown-domain attempt was not counted as pending-classification
-evidence: the child was still running an earlier scheduled routine policy and
-the app's development-launcher surface did not produce a new JavaScript
-session during that attempt. The fixture policy was restored afterward. No
-claim is made for the pending/resolve flow until a run captures the native
-`REPUTATION_PENDING*` event, minimized classification request, and subsequent
-bundle synchronization together.
+The live unknown-domain flow was subsequently captured on child
+`emulator-5556` with a live Metro JavaScript session and current policy version
+5. The temporary signed fixture put the child in `YOUNG_CHILD`,
+`BLOCK_WHILE_CLASSIFYING`, with no scheduled routines. The evidence chain is:
+
+```text
+ReactNativeJS: Running "main"
+POLICY_APPLIED {"version":5}
+VPN CONNECTED InterfaceName: tun0
+WEB_BLOCKED domain=optimizationguide-pa.googleapis.com
+  reasonCode=REPUTATION_PENDING
+POST /v1/devices/me/reputation/classify 200 OK
+GET /v1/devices/me/reputation?version=1 200 OK
+REPUTATION_STATUS_CHANGED {"version":7,"reason":"APPLIED"}
+WEB_BLOCKED domain=optimizationguide-pa.googleapis.com
+  reasonCode=UNKNOWN_DOMAIN_POLICY
+```
+
+The backend persisted `unknown-reputation.example` as an explicit `UNKNOWN`
+from `guardian-curated-seed` with the deterministic rationale that no curated
+verdict was available. Its signed revision was a `DELTA` with
+`base_version=1`, and the request boundary accepted only the normalized domain
+identifier; no URL, path, query, fragment, or browsing history was stored.
+Chrome also generated background DNS requests, which produced additional
+minimized identifiers and chained deltas (versions 3 through 7); those are
+visible in `.scratch/emulator/reputation/live-result-db.txt`.
+
+The second native event demonstrates the post-verdict younger-band behavior:
+once the signed `UNKNOWN` entry was locally available, the request no longer
+used the pending reason and remained blocked by the configured unknown-domain
+policy. The temporary fixture was then restored through a signed policy update:
+the child applied policy version 6 with its original `TEEN`,
+`ALLOW_AND_NOTIFY`, and scheduled-routine settings.
+
+Live evidence artifacts:
+
+```text
+.scratch/emulator/reputation/live-attempt.log
+.scratch/emulator/reputation/live-result-db.txt
+.scratch/emulator/reputation/live-evidence-summary.txt
+.scratch/emulator/reputation/live-child-events.txt
+.scratch/emulator/reputation/live-logcat-final.txt
+```
+
+The native large-bundle check covers 10,000 entries. It reports the encoded
+bundle size and apply duration through the native apply result, plus the
+bounded-memory estimate of 512 bytes per retained entry:
+
+```text
+entryCount=10000
+estimatedMemoryBytes=5120000
+encodedBytes and applyMillis: reported by the large-bundle JVM test
+```
+
+The memory value is an upper-bound accounting estimate, not a platform heap
+profile. The live delta application emitted `version=7/APPLIED`; its bridge
+event does not expose the apply metrics, so the JVM performance artifact is
+the source for the numeric bundle measurements.
 
 The child-side sync/classification transport now requests only the event's
 minimized domain, applies full/delta responses locally, and refetches a full
-bundle after `DELTA_GAP`. The live two-device pending/resolve run still needs
-to be captured before this slice can be called fully verified. Usage
-aggregation/reports and parent safety notification routing remain separate
-later slices.
+bundle after `DELTA_GAP`. The live pending/resolve run is now recorded for the
+younger-band path; APNs/FCM delivery remains outside this slice and requires
+provider credentials. Usage aggregation/reports and parent safety notification
+routing remain separate later slices.
