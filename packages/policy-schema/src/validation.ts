@@ -64,7 +64,7 @@ function validateUniqueIdentifiers(
     ...bundle.temporary_overrides
   ];
   for (const rule of collections) {
-    const identifier = "rule_id" in rule ? rule.rule_id : rule.routine_id;
+    const identifier = String("rule_id" in rule ? rule.rule_id : rule.routine_id);
     if (identifiers.has(identifier)) {
       issues.push(`/identifiers/${String(identifier)} must be unique across the bundle`);
     }

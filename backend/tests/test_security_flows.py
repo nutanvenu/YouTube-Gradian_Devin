@@ -311,7 +311,7 @@ async def test_pairing_idempotency_replays_and_conflicts(client, parent_a: Paren
         "code": code,
         "child_profile_id": parent_a.child_id,
         "platform": "ANDROID",
-        "public_key": "test-device-public-key-111111111111111111111111",
+        "public_key": "AQEBAQEBAQEBAQEBAQEBAQEBAQEBAQEBAQEBAQEBAQE=",
     }
     idem = {"Idempotency-Key": "pairing-replay"}
     first = await client.post("/v1/devices/pair", json=body, headers=idem)
@@ -344,7 +344,7 @@ async def test_pairing_returns_manual_code_and_reuse_is_rejected(
         "code": payload["code"],
         "child_profile_id": parent_a.child_id,
         "platform": "ANDROID",
-        "public_key": "test-device-public-key-444444444444444444444444",
+        "public_key": "BAQEBAQEBAQEBAQEBAQEBAQEBAQEBAQEBAQEBAQEBAQ=",
     }
     assert (await client.post("/v1/devices/pair", json=body)).status_code == 200
     assert (await client.post("/v1/devices/pair", json=body)).status_code == 400
@@ -365,7 +365,7 @@ async def test_pairing_cross_family_redemption_is_rejected(
         "code": pairing.json()["code"],
         "child_profile_id": parent_b.child_id,
         "platform": "ANDROID",
-        "public_key": "test-device-public-key-555555555555555555555555",
+        "public_key": "BQUFBQUFBQUFBQUFBQUFBQUFBQUFBQUFBQUFBQUFBQU=",
     }
     assert (await client.post("/v1/devices/pair", json=body)).status_code == 400
 
@@ -455,7 +455,7 @@ async def test_pairing_wrong_code_locks_session(client, parent_a: ParentFamily) 
         "code": "000000",
         "child_profile_id": parent_a.child_id,
         "platform": "ANDROID",
-        "public_key": "test-device-public-key-222222222222222222222222",
+        "public_key": "AgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgI=",
     }
     for _ in range(5):
         assert (await client.post("/v1/devices/pair", json=body)).status_code == 400
@@ -486,7 +486,7 @@ async def test_pairing_expired_is_rejected(
         "code": code,
         "child_profile_id": parent_a.child_id,
         "platform": "ANDROID",
-        "public_key": "test-device-public-key-333333333333333333333333",
+        "public_key": "AwMDAwMDAwMDAwMDAwMDAwMDAwMDAwMDAwMDAwMDAwM=",
     }
     assert (await client.post("/v1/devices/pair", json=body)).status_code == 400
 

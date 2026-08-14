@@ -5,6 +5,7 @@ from fastapi.exceptions import RequestValidationError
 
 from ..auth.router import router as auth_router
 from ..children.router import router as children_router
+from ..core.errors import http_exception_handler, internal_error_handler, validation_error_handler
 from ..devices.router import router as devices_router
 from ..events.router import router as events_router
 from ..families.router import router as families_router
@@ -13,13 +14,7 @@ from ..pairing.router import router as pairing_router
 from ..policies.router import router as policies_router
 from ..push.router import router as push_router
 from ..requests.router import router as requests_router
-from .route_handlers import (
-    http_exception_handler,
-    internal_error_handler,
-    lifespan,
-    notifier,
-    validation_error_handler,
-)
+from .route_handlers import lifespan, notifier
 
 app = FastAPI(title="Guardian API", version="0.1.0", lifespan=lifespan)
 app.add_exception_handler(RequestValidationError, validation_error_handler)

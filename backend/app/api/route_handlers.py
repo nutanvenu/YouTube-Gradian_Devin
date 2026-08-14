@@ -3,7 +3,7 @@ import base64
 import hashlib
 import secrets
 from binascii import Error as Base64Error
-from collections.abc import Mapping
+from collections.abc import AsyncIterator, Mapping
 from contextlib import asynccontextmanager
 from copy import deepcopy
 from datetime import UTC, datetime, timedelta
@@ -101,7 +101,7 @@ from .schemas import (
 
 
 @asynccontextmanager
-async def lifespan(_: FastAPI):
+async def lifespan(_: FastAPI) -> AsyncIterator[None]:
     validate_configured_signing_key()
     yield
 
@@ -526,7 +526,7 @@ async def create_pairing(
     return PairingOut(
         session_id=row.id,
         code=code,
-        qr_payload=f"guardian://pair/{row.id}?code={code}&child_id={child_id}",
+        qr_payload=f"guardian://pair/{row.id}?child_id={child_id}&code={code}",
         expires_at=row.expires_at,
     )
 
@@ -1129,28 +1129,34 @@ async def family_activity(
             )
         ).all()
     )
-    events = [
-        {
-            "id": str(row.id),
-            "kind": "WEB",
-            "event_type": row.event_type,
-            "occurred_at": row.occurred_at,
-            "domain": row.domain,
-            "app_ref": row.app_ref,
-        }
-        for row in web_rows
-    ] + [
-        {
-            "id": str(row.id),
-            "kind": "SAFETY",
-            "event_type": row.event_type,
-            "occurred_at": row.occurred_at,
-            "domain": row.domain,
-            "app_ref": row.app_ref,
-        }
-        for row in safety_rows
-    ]
-    return sorted(events, key=lambda event: event["occurred_at"], reverse=True)[:100]
+    events: list[dict[str, object]] = []
+    events.extend(
+        [
+            {
+                "id": str(row.id),
+                "kind": "WEB",
+                "event_type": row.event_type,
+                "occurred_at": row.occurred_at,
+                "domain": row.domain,
+                "app_ref": row.app_ref,
+            }
+            for row in web_rows
+        ]
+    )
+    events.extend(
+        [
+            {
+                "id": str(row.id),
+                "kind": "SAFETY",
+                "event_type": row.event_type,
+                "occurred_at": row.occurred_at,
+                "domain": row.domain,
+                "app_ref": row.app_ref,
+            }
+            for row in safety_rows
+        ]
+    )
+    return sorted(events, key=lambda event: str(event["occurred_at"]), reverse=True)[:100]
 
 
 @app.websocket("/v1/ws/sync")
