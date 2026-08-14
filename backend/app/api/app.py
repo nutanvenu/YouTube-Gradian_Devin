@@ -4,6 +4,7 @@ from datetime import UTC, datetime, timedelta
 from uuid import UUID
 
 from fastapi import Depends, FastAPI, HTTPException, status
+from fastapi.exceptions import RequestValidationError
 from fastapi.security import OAuth2PasswordBearer
 from sqlalchemy import select
 from sqlalchemy.ext.asyncio import AsyncSession
@@ -18,6 +19,9 @@ from ..auth.service import (
 )
 from ..children.models import ChildProfile
 from ..core.db import get_session
+from ..core.errors import internal_error_handler, validation_error_handler
+from ..core.notifier import LoggingNotifier
+from ..core.rate_limit import InProcessRateLimiter
 from ..devices.models import Device, DeviceCredential
 from ..families.models import Family, FamilyGuardian, GuardianRole
 from ..pairing.models import PairingSession
@@ -40,7 +44,11 @@ from .schemas import (
 )
 
 app = FastAPI(title="Guardian API", version="0.1.0")
+app.add_exception_handler(RequestValidationError, validation_error_handler)
+app.add_exception_handler(Exception, internal_error_handler)
 oauth2 = OAuth2PasswordBearer(tokenUrl="/v1/auth/login")
+auth_rate_limiter = InProcessRateLimiter()
+notifier = LoggingNotifier()
 
 
 async def current_parent(
@@ -62,6 +70,7 @@ async def family_for_parent(session: AsyncSession, parent: Parent, family_id: UU
 
 @app.post("/v1/auth/signup", response_model=TokensOut, status_code=201)
 async def signup(body: SignupIn, session: AsyncSession = Depends(get_session)) -> TokensOut:
+    auth_rate_limiter.check(f"signup:{body.email.lower()}", 5, 60)
     if await session.scalar(select(Parent).where(Parent.email == body.email.lower())) is not None:
         raise HTTPException(status.HTTP_409_CONFLICT, "Email already registered")
     parent = Parent(email=body.email.lower(), password_hash=hash_password(body.password))
@@ -74,6 +83,7 @@ async def signup(body: SignupIn, session: AsyncSession = Depends(get_session)) -
 
 @app.post("/v1/auth/login", response_model=TokensOut)
 async def login(body: LoginIn, session: AsyncSession = Depends(get_session)) -> TokensOut:
+    auth_rate_limiter.check(f"login:{body.email.lower()}", 10, 60)
     parent = await session.scalar(select(Parent).where(Parent.email == body.email.lower()))
     if parent is None or not verify_password(body.password, parent.password_hash):
         raise HTTPException(status.HTTP_401_UNAUTHORIZED, "Invalid credentials")
@@ -84,6 +94,7 @@ async def login(body: LoginIn, session: AsyncSession = Depends(get_session)) -> 
 
 @app.post("/v1/auth/refresh", response_model=TokensOut)
 async def refresh(body: RefreshIn, session: AsyncSession = Depends(get_session)) -> TokensOut:
+    auth_rate_limiter.check("refresh", 30, 60)
     access, refresh_token = await rotate_refresh(session, body.refresh_token)
     return TokensOut(access_token=access, refresh_token=refresh_token)
 
@@ -91,6 +102,14 @@ async def refresh(body: RefreshIn, session: AsyncSession = Depends(get_session))
 @app.get("/v1/auth/me", response_model=ParentOut)
 async def me(parent: Parent = Depends(current_parent)) -> Parent:
     return parent
+
+
+@app.post("/v1/auth/logout", status_code=204)
+async def logout(body: RefreshIn, session: AsyncSession = Depends(get_session)) -> None:
+    auth_rate_limiter.check("logout", 30, 60)
+    from ..auth.service import revoke_refresh
+
+    await revoke_refresh(session, body.refresh_token)
 
 
 @app.post("/v1/families", response_model=FamilyOut, status_code=201)

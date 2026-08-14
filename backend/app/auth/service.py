@@ -85,3 +85,12 @@ async def rotate_refresh(session: AsyncSession, raw: str) -> tuple[str, str]:
     access, refresh = await issue_tokens(session, parent)
     await session.commit()
     return access, refresh
+
+
+async def revoke_refresh(session: AsyncSession, raw: str) -> None:
+    row = await session.scalar(
+        select(RefreshToken).where(RefreshToken.token_hash == _hash_token(raw))
+    )
+    if row is not None:
+        row.revoked_at = datetime.now(UTC)
+        await session.commit()
