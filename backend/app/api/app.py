@@ -1,9 +1,11 @@
 import json
 import logging
+from collections.abc import Awaitable, Callable
 from uuid import uuid4
 
 from fastapi import FastAPI, HTTPException, Request
 from fastapi.exceptions import RequestValidationError
+from starlette.responses import Response
 
 from ..auth.router import router as auth_router
 from ..children.router import router as children_router
@@ -26,7 +28,10 @@ logger.setLevel(logging.INFO)
 
 
 @app.middleware("http")
-async def request_id_middleware(request: Request, call_next):
+async def request_id_middleware(
+    request: Request,
+    call_next: Callable[[Request], Awaitable[Response]],
+) -> Response:
     request_id = request.headers.get("X-Request-ID") or str(uuid4())
     request.state.request_id = request_id
     response = await call_next(request)
