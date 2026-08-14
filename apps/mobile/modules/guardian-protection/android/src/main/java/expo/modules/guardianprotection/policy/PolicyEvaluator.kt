@@ -37,7 +37,11 @@ private data class Candidate(
 )
 
 class PolicyEvaluator {
-  fun evaluate(snapshot: CompiledPolicySnapshot, context: PolicyContext): PolicyDecision {
+  fun evaluate(
+    snapshot: CompiledPolicySnapshot,
+    context: PolicyContext,
+    signatureValid: Boolean = true,
+  ): PolicyDecision {
     val base = snapshot.basePolicy
     val targetKind = when {
       context.packageName != null -> "APP"
@@ -48,6 +52,10 @@ class PolicyEvaluator {
     val targetCategory = context.category ?: if (targetKind == "CATEGORY") targetRef else null
     val usageSeconds = (context.usageTodayMs ?: 0L) / 1000
     val stale = snapshot.expiresSoftAt?.let { !context.now.isBefore(it) } ?: false
+
+    if (!signatureValid) {
+      return PolicyDecision("BLOCK", "TAMPERED_SIGNATURE", null, snapshot.policyVersion, null, stale)
+    }
 
     fun finish(candidate: Candidate): PolicyDecision {
       val deviceBudget = (base["daily_device_budget_minutes"] as? Number)?.toLong()

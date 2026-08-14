@@ -9,7 +9,7 @@
     "scheme": "guardian",
     "newArchEnabled": true,
     "autolinking": {
-      "nativeModulesDir": "../../modules"
+      "nativeModulesDir": "./modules"
     },
     "plugins": [
       "expo-router",

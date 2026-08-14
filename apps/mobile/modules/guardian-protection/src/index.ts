@@ -1,4 +1,4 @@
-import { requireNativeModule, EventEmitter } from "expo-modules-core";
+import { requireNativeModule } from "expo-modules-core";
 import type {
   ApplyResult,
   CapabilityRecord,
@@ -11,10 +11,14 @@ import type {
   UsageSummary,
 } from "@guardian/contracts";
 
-type NativeModule = GuardianProtectionNative;
+type NativeModule = Omit<GuardianProtectionNative, "subscribe"> & {
+  addListener(
+    eventName: "onGuardianEvent",
+    listener: (event: GuardianNativeEvent) => void,
+  ): { remove: () => void };
+};
 
 const native = requireNativeModule<NativeModule>("GuardianProtection");
-const emitter = new EventEmitter(native);
 
 export const GuardianProtection: GuardianProtectionNative = {
   getCapabilities: () => native.getCapabilities(),
@@ -28,7 +32,7 @@ export const GuardianProtection: GuardianProtectionNative = {
   getUsageSummary: (range: TimeRange): Promise<UsageSummary> => native.getUsageSummary(range),
   getObservedApps: (): Promise<ObservedApp[]> => native.getObservedApps(),
   subscribe: (listener: (event: GuardianNativeEvent) => void) =>
-    emitter.addListener("onGuardianEvent", listener),
+    native.addListener("onGuardianEvent", listener),
 };
 
 export { type ApplyResult, type CapabilityRecord, type GuardianNativeEvent, type ObservedApp, type PermissionResult, type ProtectionStatus, type TimeRange, type UsageSummary };

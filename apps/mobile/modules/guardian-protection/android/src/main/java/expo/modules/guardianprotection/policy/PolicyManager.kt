@@ -56,6 +56,8 @@ class PolicyManager(
     started = true
   }
 
+  fun activeSnapshot(): CompiledPolicySnapshot? = active
+
   fun protectionStatus(capabilities: Map<String, Map<String, Any?>>): Map<String, Any?> {
     val missing = capabilities.filterValues { it["level"] == "UNAVAILABLE" }.keys
     val health = when {

@@ -9,7 +9,13 @@ export type Pairing = { session_id: string; code: string; qr_payload: string; ex
 export type DeviceCredentials = { device_id: string; device_token: string };
 export type Health = { child_profile_id: string; device_id: string; state: "PROTECTED" | "DEGRADED" | "UNKNOWN"; last_seen_at: string | null; policy_version_applied: number | null };
 
-const API_URL = process.env.EXPO_PUBLIC_API_URL ?? "http://10.0.2.2:8000";
+const configuredApiUrl = typeof process.env.EXPO_PUBLIC_API_URL === "string"
+  ? process.env.EXPO_PUBLIC_API_URL.replace(/\/+$/, "")
+  : undefined;
+const API_URL = configuredApiUrl ?? (__DEV__ ? "http://10.0.2.2:8000" : "https://api.guardian.example");
+if (!__DEV__ && !API_URL.startsWith("https://")) {
+  throw new Error("Release builds require an HTTPS API URL.");
+}
 const ACCESS_TOKEN_KEY = "guardian.access-token";
 const REFRESH_TOKEN_KEY = "guardian.refresh-token";
 const DEVICE_TOKEN_KEY = "guardian.device-token";

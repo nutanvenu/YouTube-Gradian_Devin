@@ -4,7 +4,9 @@ import expo.modules.kotlin.modules.Module
 import expo.modules.kotlin.modules.ModuleDefinition
 import expo.modules.guardianprotection.health.CapabilityDetector
 import expo.modules.guardianprotection.policy.PolicyManager
+import expo.modules.guardianprotection.policy.GuardianPolicyRuntime
 import expo.modules.guardianprotection.storage.EncryptedPolicyStore
+import expo.modules.guardianprotection.vpn.GuardianVpnService
 import java.time.Instant
 import java.util.concurrent.atomic.AtomicReference
 
@@ -40,13 +42,17 @@ class GuardianProtectionModule : Module() {
       capabilities.openNotificationAccessSettings()
     }
     AsyncFunction("startProtection") {
+      GuardianPolicyRuntime.install(policyManager)
+      GuardianPolicyRuntime.addListener(eventListener)
       policyManager.start()
+      GuardianVpnService.start(requireNotNull(appContext.reactContext))
       sendEvent("onGuardianEvent", mapOf(
         "type" to "PROTECTION_STATUS_CHANGED",
         "status" to policyManager.protectionStatus(reportCapabilityChanges(capabilities.getCapabilities())),
       ))
     }
     AsyncFunction("applyPolicyBundle") { bundle: Map<String, Any?> ->
+      GuardianPolicyRuntime.install(policyManager)
       val result = policyManager.apply(bundle)
       if (result["applied"] == true) {
         sendEvent("onGuardianEvent", mapOf(
@@ -61,6 +67,23 @@ class GuardianProtectionModule : Module() {
     }
     AsyncFunction("getObservedApps") {
       capabilities.observedApps()
+    }
+  }
+
+  private val eventListener = object : GuardianPolicyRuntime.Listener {
+    override fun onWebBlocked(domain: String, reasonCode: String) {
+      sendEvent("onGuardianEvent", mapOf(
+        "type" to "WEB_BLOCKED",
+        "domain" to domain,
+        "reasonCode" to reasonCode,
+      ))
+    }
+
+    override fun onVpnFailure(reason: String) {
+      sendEvent("onGuardianEvent", mapOf(
+        "type" to "PROTECTION_STATUS_CHANGED",
+        "status" to mapOf("active" to false, "health" to "DEGRADED", "details" to reason),
+      ))
     }
   }
 

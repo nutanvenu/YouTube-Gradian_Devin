@@ -7,6 +7,7 @@ import android.content.pm.ApplicationInfo
 import android.net.VpnService
 import android.provider.Settings
 import android.os.Process
+import expo.modules.guardianprotection.vpn.GuardianVpnService
 import java.time.Instant
 
 class CapabilityDetector(private val context: Context) {
@@ -18,7 +19,11 @@ class CapabilityDetector(private val context: Context) {
       "accessibility_signals" to status(if (accessibilityGranted()) "FULL" else "UNAVAILABLE", now, "Accessibility"),
       "notification_signals" to status(if (notificationAccessGranted()) "FULL" else "UNAVAILABLE", now, "Notification access"),
       "app_blocking" to status("UNAVAILABLE", now, "Native evaluator is available; enforcement service is not started"),
-      "web_filtering" to status("UNAVAILABLE", now, "VPN service is not started"),
+      "web_filtering" to status(
+        if (GuardianVpnService.isRunning()) "FULL" else "UNAVAILABLE",
+        now,
+        "VPN DNS inspection",
+      ),
       "communication_risk_signals" to status(if (notificationAccessGranted() || accessibilityGranted()) "BEST_EFFORT" else "UNAVAILABLE", now, "Signal sources"),
     )
   }
