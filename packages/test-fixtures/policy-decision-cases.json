@@ -1,0 +1,325 @@
+{
+  "bundles": {
+    "precedence": {
+      "schema_version": 1,
+      "policy_version": 1,
+      "family_id": "fam_fixture",
+      "child_profile_id": "child_fixture",
+      "issued_at": "2026-01-01T00:00:00Z",
+      "expires_soft_at": "2026-01-08T00:00:00Z",
+      "age_band": "TEEN",
+      "base_policy": {
+        "timezone": "UTC",
+        "unknown_domain_policy": "BLOCK",
+        "unknown_app_policy": "BLOCK",
+        "hard_category_rules": [
+          {"rule_id": "hard-adult", "action": "BLOCK", "category": "ADULT_PORNOGRAPHY"}
+        ],
+        "default_category_rules": [
+          {"rule_id": "default-games", "action": "LIMIT", "category": "GAMES", "daily_minutes": 60}
+        ],
+        "safety_allowlist": [
+          {"target_kind": "APP", "target_ref": "com.guardian.emergency"}
+        ]
+      },
+      "app_rules": [
+        {"rule_id": "app-block", "action": "BLOCK", "app_ref": "com.example.video"},
+        {"rule_id": "app-limit", "action": "LIMIT", "app_ref": "com.example.game", "daily_minutes": 30}
+      ],
+      "domain_rules": [
+        {"rule_id": "domain-block", "action": "BLOCK", "domain": "blocked.example", "match": "SUBDOMAINS"}
+      ],
+      "category_rules": [],
+      "routines": [
+        {
+          "routine_id": "routine-manual",
+          "name": "Manual focus",
+          "window": {"days": [1, 2, 3, 4, 5, 6, 7], "start": "00:00", "end": "23:59"},
+          "blocked_apps": ["com.example.video"]
+        },
+        {
+          "routine_id": "routine-school",
+          "name": "School",
+          "window": {"days": [1, 2, 3, 4, 5], "start": "08:00", "end": "15:30"},
+          "blocked_categories": ["GAMES"]
+        }
+      ],
+      "temporary_overrides": [
+        {
+          "rule_id": "override-video",
+          "target_kind": "APP",
+          "target_ref": "com.example.video",
+          "action": "ALLOW",
+          "starts_at": "2026-01-05T09:00:00Z",
+          "expires_at": "2026-01-05T10:00:00Z"
+        }
+      ],
+      "communication_safety": {
+        "enabled": true,
+        "severity_threshold": "HIGH",
+        "android_notification_signals": true,
+        "android_accessibility_signals": false
+      },
+      "signature": "fixture-signature"
+    },
+    "young": {
+      "schema_version": 1,
+      "policy_version": 2,
+      "family_id": "fam_fixture",
+      "child_profile_id": "child_young",
+      "issued_at": "2026-01-01T00:00:00Z",
+      "expires_soft_at": "2026-01-08T00:00:00Z",
+      "age_band": "YOUNG_CHILD",
+      "base_policy": {
+        "timezone": "America/New_York",
+        "unknown_domain_policy": "BLOCK_WHILE_CLASSIFYING",
+        "unknown_app_policy": "LIMIT_AND_NOTIFY",
+        "hard_category_rules": [],
+        "default_category_rules": [],
+        "safety_allowlist": []
+      },
+      "app_rules": [],
+      "domain_rules": [],
+      "category_rules": [],
+      "routines": [],
+      "temporary_overrides": [],
+      "communication_safety": {
+        "enabled": true,
+        "severity_threshold": "HIGH",
+        "android_notification_signals": true,
+        "android_accessibility_signals": false
+      },
+      "signature": "fixture-signature"
+    },
+    "preteen": {
+      "schema_version": 1,
+      "policy_version": 3,
+      "family_id": "fam_fixture",
+      "child_profile_id": "child_preteen",
+      "issued_at": "2026-01-01T00:00:00Z",
+      "expires_soft_at": "2026-01-08T00:00:00Z",
+      "age_band": "PRETEEN",
+      "base_policy": {
+        "timezone": "America/New_York",
+        "unknown_domain_policy": "BLOCK_WHILE_CLASSIFYING",
+        "unknown_app_policy": "LIMIT_AND_NOTIFY",
+        "hard_category_rules": [],
+        "default_category_rules": [],
+        "safety_allowlist": []
+      },
+      "app_rules": [],
+      "domain_rules": [],
+      "category_rules": [],
+      "routines": [],
+      "temporary_overrides": [],
+      "communication_safety": {
+        "enabled": true,
+        "severity_threshold": "HIGH",
+        "android_notification_signals": true,
+        "android_accessibility_signals": false
+      },
+      "signature": "fixture-signature"
+    },
+    "teen": {
+      "schema_version": 1,
+      "policy_version": 4,
+      "family_id": "fam_fixture",
+      "child_profile_id": "child_teen",
+      "issued_at": "2026-01-01T00:00:00Z",
+      "expires_soft_at": "2026-01-08T00:00:00Z",
+      "age_band": "TEEN",
+      "base_policy": {
+        "timezone": "America/New_York",
+        "unknown_domain_policy": "ALLOW_WHILE_CLASSIFYING",
+        "unknown_app_policy": "ALLOW_AND_NOTIFY",
+        "hard_category_rules": [],
+        "default_category_rules": [],
+        "safety_allowlist": []
+      },
+      "app_rules": [],
+      "domain_rules": [],
+      "category_rules": [],
+      "routines": [],
+      "temporary_overrides": [],
+      "communication_safety": {
+        "enabled": true,
+        "severity_threshold": "HIGH",
+        "android_notification_signals": true,
+        "android_accessibility_signals": false
+      },
+      "signature": "fixture-signature"
+    },
+    "older-teen": {
+      "schema_version": 1,
+      "policy_version": 5,
+      "family_id": "fam_fixture",
+      "child_profile_id": "child_older",
+      "issued_at": "2026-01-01T00:00:00Z",
+      "expires_soft_at": "2026-01-08T00:00:00Z",
+      "age_band": "OLDER_TEEN",
+      "base_policy": {
+        "timezone": "America/New_York",
+        "unknown_domain_policy": "ALLOW_AND_NOTIFY",
+        "unknown_app_policy": "ALLOW",
+        "hard_category_rules": [],
+        "default_category_rules": [],
+        "safety_allowlist": []
+      },
+      "app_rules": [],
+      "domain_rules": [],
+      "category_rules": [],
+      "routines": [],
+      "temporary_overrides": [],
+      "communication_safety": {
+        "enabled": true,
+        "severity_threshold": "HIGH",
+        "android_notification_signals": true,
+        "android_accessibility_signals": false
+      },
+      "signature": "fixture-signature"
+    },
+    "time": {
+      "schema_version": 1,
+      "policy_version": 6,
+      "family_id": "fam_fixture",
+      "child_profile_id": "child_time",
+      "issued_at": "2026-01-01T00:00:00Z",
+      "expires_soft_at": "2026-01-08T00:00:00Z",
+      "age_band": "PRETEEN",
+      "base_policy": {
+        "timezone": "America/New_York",
+        "unknown_domain_policy": "BLOCK",
+        "unknown_app_policy": "BLOCK",
+        "hard_category_rules": [],
+        "default_category_rules": [],
+        "safety_allowlist": []
+      },
+      "app_rules": [
+        {
+          "rule_id": "night-app",
+          "action": "ALLOW",
+          "app_ref": "com.example.night",
+          "schedule": {"days": [1, 2, 3, 4, 5, 6, 7], "start": "23:00", "end": "01:00"}
+        },
+        {
+          "rule_id": "dst-app",
+          "action": "ALLOW",
+          "app_ref": "com.example.dst",
+          "schedule": {"days": [7], "start": "01:30", "end": "03:30"}
+        },
+        {"rule_id": "rollback-limit", "action": "LIMIT", "app_ref": "com.example.rollback", "daily_minutes": 30}
+      ],
+      "domain_rules": [],
+      "category_rules": [],
+      "routines": [],
+      "temporary_overrides": [
+        {
+          "rule_id": "expires-at-noon",
+          "target_kind": "APP",
+          "target_ref": "com.example.expiry",
+          "action": "ALLOW",
+          "starts_at": "2026-01-05T09:00:00Z",
+          "expires_at": "2026-01-05T12:00:00Z"
+        }
+      ],
+      "communication_safety": {
+        "enabled": true,
+        "severity_threshold": "HIGH",
+        "android_notification_signals": true,
+        "android_accessibility_signals": false
+      },
+      "signature": "fixture-signature"
+    },
+    "domains": {
+      "schema_version": 1,
+      "policy_version": 7,
+      "family_id": "fam_fixture",
+      "child_profile_id": "child_domains",
+      "issued_at": "2026-01-01T00:00:00Z",
+      "expires_soft_at": "2026-01-08T00:00:00Z",
+      "age_band": "TEEN",
+      "base_policy": {
+        "timezone": "UTC",
+        "unknown_domain_policy": "BLOCK",
+        "unknown_app_policy": "BLOCK",
+        "hard_category_rules": [],
+        "default_category_rules": [],
+        "safety_allowlist": []
+      },
+      "app_rules": [],
+      "domain_rules": [
+        {"rule_id": "idn-block", "action": "BLOCK", "domain": "xn--bcher-kva.example", "match": "SUBDOMAINS"},
+        {"rule_id": "public-suffix-no-shadow", "action": "BLOCK", "domain": "co.uk", "match": "SUBDOMAINS"}
+      ],
+      "category_rules": [],
+      "routines": [],
+      "temporary_overrides": [],
+      "communication_safety": {
+        "enabled": true,
+        "severity_threshold": "HIGH",
+        "android_notification_signals": true,
+        "android_accessibility_signals": false
+      },
+      "signature": "fixture-signature"
+    },
+    "soft-expired": {
+      "schema_version": 1,
+      "policy_version": 8,
+      "family_id": "fam_fixture",
+      "child_profile_id": "child_expired",
+      "issued_at": "2025-12-01T00:00:00Z",
+      "expires_soft_at": "2025-12-08T00:00:00Z",
+      "age_band": "YOUNG_CHILD",
+      "base_policy": {
+        "timezone": "UTC",
+        "unknown_domain_policy": "ALLOW_AND_NOTIFY",
+        "unknown_app_policy": "ALLOW",
+        "hard_category_rules": [],
+        "default_category_rules": [],
+        "safety_allowlist": []
+      },
+      "app_rules": [
+        {"rule_id": "expired-still-blocks", "action": "BLOCK", "app_ref": "com.example.expired"}
+      ],
+      "domain_rules": [],
+      "category_rules": [],
+      "routines": [],
+      "temporary_overrides": [],
+      "communication_safety": {
+        "enabled": true,
+        "severity_threshold": "HIGH",
+        "android_notification_signals": true,
+        "android_accessibility_signals": false
+      },
+      "signature": "fixture-signature"
+    }
+  },
+  "cases": [
+    {"id": "precedence-safety", "description": "Safety allowlist wins over every lower level", "bundle_ref": "precedence", "context": {"target": {"kind": "APP", "ref": "com.guardian.emergency"}, "timestamp": "2026-01-05T09:30:00Z"}, "expected": {"action": "ALLOW", "reason_code": "SAFETY_ALLOWLIST", "policy_rule_id": null}},
+    {"id": "precedence-temporary", "description": "Temporary parent override wins over routine and explicit rule", "bundle_ref": "precedence", "context": {"target": {"kind": "APP", "ref": "com.example.video"}, "timestamp": "2026-01-05T09:30:00Z", "current_manual_routine_id": "routine-manual"}, "expected": {"action": "ALLOW", "reason_code": "TEMPORARY_PARENT_OVERRIDE", "policy_rule_id": "override-video"}},
+    {"id": "precedence-manual", "description": "Manual routine wins over scheduled routine and explicit rule", "bundle_ref": "precedence", "context": {"target": {"kind": "APP", "ref": "com.example.video"}, "timestamp": "2026-01-05T11:00:00Z", "current_manual_routine_id": "routine-manual"}, "expected": {"action": "BLOCK", "reason_code": "MANUAL_ROUTINE", "policy_rule_id": "routine-manual"}},
+    {"id": "precedence-scheduled", "description": "Scheduled routine wins over explicit rule", "bundle_ref": "precedence", "context": {"target": {"kind": "CATEGORY", "ref": "GAMES"}, "timestamp": "2026-01-05T10:00:00Z"}, "expected": {"action": "BLOCK", "reason_code": "SCHEDULED_ROUTINE", "policy_rule_id": "routine-school"}},
+    {"id": "precedence-explicit", "description": "Explicit target rule wins over age and default rules", "bundle_ref": "precedence", "context": {"target": {"kind": "APP", "ref": "com.example.game", "category": "GAMES"}, "timestamp": "2026-01-05T20:00:00Z", "elapsed_usage_seconds": 0}, "expected": {"action": "ALLOW_WITH_BUDGET", "reason_code": "BUDGET_AVAILABLE", "policy_rule_id": "app-limit"}},
+    {"id": "precedence-hard-category", "description": "Hard category rule wins over default category rule", "bundle_ref": "precedence", "context": {"target": {"kind": "CATEGORY", "ref": "ADULT_PORNOGRAPHY"}, "timestamp": "2026-01-05T20:00:00Z"}, "expected": {"action": "BLOCK", "reason_code": "AGE_BAND_HARD_CATEGORY", "policy_rule_id": "hard-adult"}},
+    {"id": "precedence-default-category", "description": "Default category rule wins over unknown policy", "bundle_ref": "precedence", "context": {"target": {"kind": "CATEGORY", "ref": "GAMES"}, "timestamp": "2026-01-05T20:00:00Z", "elapsed_usage_seconds": 0}, "expected": {"action": "ALLOW_WITH_BUDGET", "reason_code": "BUDGET_AVAILABLE", "policy_rule_id": "default-games"}},
+    {"id": "unknown-app-young", "description": "Young child unknown app is restricted", "bundle_ref": "young", "context": {"target": {"kind": "APP", "ref": "com.unknown.app"}, "timestamp": "2026-01-05T12:00:00Z"}, "expected": {"action": "BLOCK", "reason_code": "UNKNOWN_APP_POLICY", "policy_rule_id": null}},
+    {"id": "unknown-domain-young", "description": "Young child unknown domain is blocked while classifying", "bundle_ref": "young", "context": {"target": {"kind": "DOMAIN", "ref": "unknown.example"}, "timestamp": "2026-01-05T12:00:00Z"}, "expected": {"action": "BLOCK", "reason_code": "UNKNOWN_DOMAIN_POLICY", "policy_rule_id": null}},
+    {"id": "unknown-app-preteen", "description": "Preteen unknown app is restricted", "bundle_ref": "preteen", "context": {"target": {"kind": "APP", "ref": "com.unknown.app"}, "timestamp": "2026-01-05T12:00:00Z"}, "expected": {"action": "BLOCK", "reason_code": "UNKNOWN_APP_POLICY", "policy_rule_id": null}},
+    {"id": "unknown-domain-preteen", "description": "Preteen unknown domain is blocked while classifying", "bundle_ref": "preteen", "context": {"target": {"kind": "DOMAIN", "ref": "unknown.example"}, "timestamp": "2026-01-05T12:00:00Z"}, "expected": {"action": "BLOCK", "reason_code": "UNKNOWN_DOMAIN_POLICY", "policy_rule_id": null}},
+    {"id": "unknown-app-teen", "description": "Teen unknown app follows allow-and-notify posture", "bundle_ref": "teen", "context": {"target": {"kind": "APP", "ref": "com.unknown.app"}, "timestamp": "2026-01-05T12:00:00Z"}, "expected": {"action": "ALLOW", "reason_code": "UNKNOWN_APP_POLICY", "policy_rule_id": null}},
+    {"id": "unknown-domain-teen", "description": "Teen neutral unknown domain is allowed", "bundle_ref": "teen", "context": {"target": {"kind": "DOMAIN", "ref": "unknown.example"}, "timestamp": "2026-01-05T12:00:00Z"}, "expected": {"action": "ALLOW", "reason_code": "UNKNOWN_DOMAIN_POLICY", "policy_rule_id": null}},
+    {"id": "unknown-app-older-teen", "description": "Older teen unknown app is allowed", "bundle_ref": "older-teen", "context": {"target": {"kind": "APP", "ref": "com.unknown.app"}, "timestamp": "2026-01-05T12:00:00Z"}, "expected": {"action": "ALLOW", "reason_code": "UNKNOWN_APP_POLICY", "policy_rule_id": null}},
+    {"id": "unknown-domain-older-teen", "description": "Older teen unknown domain is allowed", "bundle_ref": "older-teen", "context": {"target": {"kind": "DOMAIN", "ref": "unknown.example"}, "timestamp": "2026-01-05T12:00:00Z"}, "expected": {"action": "ALLOW", "reason_code": "UNKNOWN_DOMAIN_POLICY", "policy_rule_id": null}},
+    {"id": "override-before-expiry", "description": "Temporary override applies before expiry", "bundle_ref": "time", "context": {"target": {"kind": "APP", "ref": "com.example.expiry"}, "timestamp": "2026-01-05T11:59:59Z"}, "expected": {"action": "ALLOW", "reason_code": "TEMPORARY_PARENT_OVERRIDE", "policy_rule_id": "expires-at-noon"}},
+    {"id": "override-at-expiry", "description": "Temporary override expires at its exact exclusive boundary", "bundle_ref": "time", "context": {"target": {"kind": "APP", "ref": "com.example.expiry"}, "timestamp": "2026-01-05T12:00:00Z"}, "expected": {"action": "BLOCK", "reason_code": "UNKNOWN_APP_POLICY", "policy_rule_id": null}},
+    {"id": "midnight-rollover", "description": "Cross-midnight schedule remains active after midnight", "bundle_ref": "time", "context": {"target": {"kind": "APP", "ref": "com.example.night"}, "timestamp": "2026-01-06T05:30:00Z"}, "expected": {"action": "ALLOW", "reason_code": "EXPLICIT_TARGET_RULE", "policy_rule_id": "night-app"}},
+    {"id": "dst-spring-forward", "description": "Spring-forward instant is evaluated in local child time", "bundle_ref": "time", "context": {"target": {"kind": "APP", "ref": "com.example.dst"}, "timestamp": "2026-03-08T07:00:00Z"}, "expected": {"action": "ALLOW", "reason_code": "EXPLICIT_TARGET_RULE", "policy_rule_id": "dst-app"}},
+    {"id": "dst-fall-back", "description": "Fall-back repeated hour is evaluated without ambiguity", "bundle_ref": "time", "context": {"target": {"kind": "APP", "ref": "com.example.dst"}, "timestamp": "2026-11-01T06:30:00Z"}, "expected": {"action": "ALLOW", "reason_code": "EXPLICIT_TARGET_RULE", "policy_rule_id": "dst-app"}},
+    {"id": "clock-rollback", "description": "Usage counter remains exhausted when wall clock moves backward", "bundle_ref": "time", "context": {"target": {"kind": "APP", "ref": "com.example.rollback", "category": "GAMES"}, "timestamp": "2026-01-05T08:00:00Z", "elapsed_usage_seconds": 1800}, "expected": {"action": "LIMIT_REACHED", "reason_code": "BUDGET_EXHAUSTED", "policy_rule_id": "rollback-limit"}},
+    {"id": "domain-case-trailing-dot", "description": "Domain matching normalizes case and trailing dot", "bundle_ref": "precedence", "context": {"target": {"kind": "DOMAIN", "ref": "SUB.BLOCKED.EXAMPLE."}, "timestamp": "2026-01-05T20:00:00Z"}, "expected": {"action": "BLOCK", "reason_code": "EXPLICIT_TARGET_RULE", "policy_rule_id": "domain-block"}},
+    {"id": "domain-idn", "description": "IDN domain matching uses ASCII/punycode normalization", "bundle_ref": "domains", "context": {"target": {"kind": "DOMAIN", "ref": "BÜCHER.EXAMPLE."}, "timestamp": "2026-01-05T20:00:00Z"}, "expected": {"action": "BLOCK", "reason_code": "EXPLICIT_TARGET_RULE", "policy_rule_id": "idn-block"}},
+    {"id": "public-suffix-not-rule", "description": "A public suffix rule cannot shadow a registrable domain", "bundle_ref": "domains", "context": {"target": {"kind": "DOMAIN", "ref": "evil.co.uk"}, "timestamp": "2026-01-05T20:00:00Z"}, "expected": {"action": "BLOCK", "reason_code": "UNKNOWN_DOMAIN_POLICY", "policy_rule_id": null}},
+    {"id": "soft-expired", "description": "Soft expiry does not silently unblock a known block", "bundle_ref": "soft-expired", "context": {"target": {"kind": "APP", "ref": "com.example.expired"}, "timestamp": "2026-01-01T00:00:00Z"}, "expected": {"action": "BLOCK", "reason_code": "EXPLICIT_TARGET_RULE", "policy_rule_id": "expired-still-blocks"}},
+    {"id": "tampered-signature", "description": "Tampered signature fails closed before evaluation", "bundle_ref": "precedence", "context": {"target": {"kind": "APP", "ref": "com.example.video"}, "timestamp": "2026-01-05T20:00:00Z", "signature_valid": false}, "expected": {"action": "BLOCK", "reason_code": "TAMPERED_SIGNATURE", "policy_rule_id": null}}
+  ]
+}
