@@ -1799,6 +1799,36 @@ forwards it as the API request ID. A focused propagation test covers supplied
 and generated request IDs. Structured log correlation and a native-to-API
 end-to-end test remain follow-up verification.
 
+The root setup and run guide is `README.md`. It was followed from a clean
+shell with Node `v22.12.0`, pnpm `10.14.0`, uv `0.7.9`, frozen installs,
+Alembic migration, root lint/typecheck/tests, PostgreSQL and backend
+readiness. Compose uses `backend/docker-compose.yml` and the clean-shell PATH
+includes `$HOME/.local/bin` for uv.
+
+The §26/§27 interaction audit is archived at
+`.scratch/emulator/interaction-audit/README.md`. It contains all 15 matrix
+rows with actual tap counts where reachable, explicit gap/not-verified
+statuses elsewhere, and screenshots for authenticated Home, Rules, Activity,
+Health and Quick Control. Quick Control now exposes direct app block, website
+block and bedtime-editor surfaces. The §26 inventory records every listed
+parent and child destination and identifies partial or missing routes without
+claiming them as implemented.
+
+The emulator edge-case probe is
+`.scratch/emulator/interaction-audit/edge-case-probes.txt`. It verified three
+connected AVDs, no third-party competing VPN package, process kill/relaunch,
+and the clock/timezone capability probes. The emulator rejected timezone
+property mutation and exposed no captive-portal control; multi-device,
+guardian #2, reinstall/re-pair and populated child edge fixtures remain
+unverified.
+
+The connected Android suite is counted in
+`.scratch/emulator/interaction-audit/connected-test-count.txt`: two test
+methods passed on each of the phone, child and tablet AVDs (six executions).
+The pairing → signed policy → app block → child request → parent approval
+sequence is exercised by the expanded instrumentation flow, with XML results
+under `apps/mobile/modules/guardian-protection/android/build/outputs/androidTest-results/connected/debug/`.
+
 The static OWASP MASVS v2.1.0/MASTG review is recorded at
 `.scratch/owasp-mobile-code-review.md`, covering STORAGE, CRYPTO, AUTH,
 NETWORK, PLATFORM, CODE, RESILIENCE (static-only), and PRIVACY (runtime
@@ -1848,12 +1878,15 @@ includes policy apply, usage refresh, bridge events, startup and VPN/DNS
 decision counters after synchronization. Emulator `dumpsys batterystats`
 exposed no usable package energy value, so no mAh estimate is claimed.
 
-Remaining externally gated work: iPad hardware/simulator and native
-split-view (Mac-only), iOS compilation/entitlements, APNs/FCM provider
-delivery, physical-device performance/battery/accessibility, Play reviewer
-credentials/store approval, and independent production communication-safety
-accuracy. Runtime OWASP/privacy checks and the complete local final
-verification sweep are recorded below; only those external gates remain.
+Remaining work is split between local product gaps and external gates.
+Locally identified gaps are the parent add-time and pause-internet operations,
+several PRD §26 dedicated destinations (family/device/notification/help,
+detail/editor routes), and populated child/push fixtures for the remaining
+§27 rows. External gates are iPad hardware/simulator and native split-view
+(Mac/Xcode), iOS compilation and Family Controls/Network Extension
+entitlements, APNs/FCM provider credentials and delivery, physical-device
+performance/battery/accessibility, Play reviewer credentials/store approval,
+and an independent production-labelled communication-safety evaluation.
 
 ## Final reconciliation sweep
 
@@ -1880,7 +1913,6 @@ seven matches are numeric comparisons containing the word “placeholder”, an
 iOS storyboard framework placeholder, or PRD/checkpoint documentation
 discussing placeholders; none is executable Guardian product logic.
 Ruff unused-import/unused-assignment checks passed as the dead-code smoke
-check. No root README exists; the checked-in `backend/README.md` startup
-instructions were followed through dependency-backed migration/readiness
-validation, and the Android Gradle build plus live Metro/emulator readiness
-were verified.
+check. The checked-in root `README.md` setup/build/run instructions were
+followed from a clean shell; Android Gradle builds, connected tests, live
+Metro, backend readiness and all three emulator connections were verified.
