@@ -2,6 +2,11 @@
   "name": "guardian-mobile",
   "version": "1.0.0",
   "main": "expo-router/entry",
+  "expo": {
+    "autolinking": {
+      "nativeModulesDir": "../../modules"
+    }
+  },
   "dependencies": {
     "@guardian/contracts": "workspace:*",
     "@guardian/design-tokens": "workspace:*",

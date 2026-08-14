@@ -1,0 +1,26 @@
+plugins {
+  id 'com.android.library'
+  id 'expo-module-gradle-plugin'
+}
+
+group = 'com.guardian'
+version = '0.1.0'
+
+android {
+  namespace "expo.modules.guardianprotection"
+  buildFeatures {
+    buildConfig true
+  }
+  defaultConfig {
+    versionCode 1
+    versionName '0.1.0'
+    def trustedKeys = project.findProperty("guardianPolicyTrustedPublicKeys")
+      ?: System.getenv("GUARDIAN_POLICY_TRUSTED_PUBLIC_KEYS")
+      ?: "{}"
+    buildConfigField "String", "GUARDIAN_POLICY_TRUSTED_PUBLIC_KEYS", "\"${trustedKeys.replace("\\", "\\\\").replace("\"", "\\\"")}\""
+  }
+}
+
+dependencies {
+  testImplementation 'junit:junit:4.13.2'
+}
