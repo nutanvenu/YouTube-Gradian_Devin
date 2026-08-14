@@ -2,11 +2,10 @@
 
 ## Current phase
 
-Phase 1, Slice 1.8 implementation is present but emulator acceptance remains
-open. Slice 1.7 was accepted under the prior full-route implementation; the
-accepted replacement is now Option B selective routing with dynamic
-blocked-destination routes. The old hand-rolled TCP proxy has been removed from
-the service and the architecture decision is recorded in
+Phase 1, Slice 1.8 implementation is present and the emulator acceptance run is
+partially complete. Slice 1.7 is accepted on the emulator with Option B selective routing
+and dynamic blocked-destination routes. The old hand-rolled TCP proxy has been
+removed from the service and the architecture decision is recorded in
 `docs/VPN_ARCHITECTURE_RESEARCH.md`.
 
 The repository is on local `main`. No GitHub remote is configured and no PR has
@@ -247,6 +246,95 @@ routes are not a substitute. Reboot, VPN-consent revocation/re-consent,
 backend-down, and no-policy cases also require a fresh post-fix run rather
 than relying on older evidence.
 
+## Fresh post-DNS selective-routing evidence
+
+The correctly trusted-key-configured debug APK applied real signed policy
+version 7:
+
+```text
+DOMAIN_BLOCK example.org
+DOMAIN_ALLOW example.com
+GUARDIAN_BRIDGE_EVENT {"type":"POLICY_APPLIED","version":7}
+```
+
+Chrome was used for all network attempts. A blocked `example.org` navigation
+failed and delivered exactly one semantic event with responsible-app
+attribution:
+
+```text
+.scratch/emulator/option-b-v7-blocked-example-org.png
+.scratch/emulator/option-b-v7-blocked-logcat.txt
+WEB_BLOCKED {"domain":"example.org","category":null,
+  "appRef":"com.android.chrome","reasonCode":"EXPLICIT_TARGET_RULE"}
+```
+
+The route dump after upstream A/AAAA learning contained both public IPv6
+answers:
+
+```text
+.scratch/emulator/option-b-v7-routes-settled.txt
+2606:4700:10::6814:1a88/128
+2606:4700:10::ac42:9ded/128
+```
+
+Direct navigation to
+`https://[2606:4700:10::6814:1a88]/` also failed through Chrome and produced
+one attributed semantic event:
+
+```text
+.scratch/emulator/option-b-v7-direct-ipv6-final.png
+.scratch/emulator/option-b-v7-direct-ipv6-final-logcat.txt
+count=1
+WEB_BLOCKED {"domain":"example.org","appRef":"com.android.chrome",
+  "reasonCode":"EXPLICIT_TARGET_RULE"}
+```
+
+No packet-level bridge event appeared in the filtered logcat. The allowed
+`https://example.com` navigation succeeded on the protected run:
+
+```text
+.scratch/emulator/option-b-v7-allowed-example-com.png
+.scratch/emulator/option-b-v7-allowed-logcat.txt
+```
+
+The first route rebuild caused a transient Chrome `ERR_NETWORK_CHANGED`;
+retrying after the rebuild settled produced the final evidence. With the
+backend stopped, ordinary allowed traffic remained available:
+
+```text
+.scratch/emulator/option-b-v7-backend-down-allowed.png
+```
+
+With VPN unavailable and no active VPN route, ordinary traffic also remained
+available (`vpn_route_present=0`):
+
+```text
+.scratch/emulator/option-b-v7-no-policy-allowed-final.png
+```
+
+VPN consent degradation was exercised with Android app-ops:
+
+```text
+ACTIVATE_VPN: ignore
+ESTABLISH_VPN_SERVICE: ignore
+capability:"vpn_filtering","state":"UNAVAILABLE"
+```
+
+Evidence:
+
+```text
+.scratch/emulator/option-b-v7-vpn-revoked.png
+.scratch/emulator/option-b-v7-vpn-revoked-logcat.txt
+.scratch/emulator/option-b-v7-vpn-reconsent-final.png
+.scratch/emulator/option-b-v7-vpn-reconsent-final-logcat.txt
+```
+
+Restoring both app-ops returned `vpn_filtering` to `FULL` and re-established
+the VPN. The first reboot after this run exposed a transient Android TUN race:
+`failed to add interface tun1 to VPN netId 102`. The service now retries TUN
+establishment four times with a 250 ms delay; the rebuilt APK must be
+installed and the reboot case repeated before this slice is finally closed.
+
 ## Slice 1.8 implementation status
 
 Implemented in the local module, but not yet accepted on the emulator:
@@ -291,6 +379,123 @@ The earlier connected-test signing-key failure is resolved. The backend now
 validates its key through the FastAPI lifespan, and the running local process
 uses the generated ignored `backend/.env` key. The current backend endpoint
 check returned HTTP 200 as recorded above.
+
+## Fresh Slice 1.8 acceptance evidence
+
+The live emulator run used child `83ff7aee-b11a-43ca-9432-b868a9d055c2`,
+Chrome (`com.android.chrome`) as the real app under control, the local signed
+backend policy, Usage Access, and the real bound Guardian AccessibilityService.
+The backend process was running with the generated ignored signing key; policy
+mutations produced versions 9 through 13.
+
+An applied zero-minute Chrome limit (policy version 9) produced a real semantic
+event:
+
+```text
+POLICY_APPLIED {"version":9}
+APP_BLOCKED {"appRef":"com.android.chrome","reasonCode":"BUDGET_EXHAUSTED"}
+```
+
+Evidence:
+
+```text
+.scratch/emulator/slice18-policy9-restart-logcat.txt
+.scratch/emulator/slice18-app-blocked-logcat.txt
+.scratch/emulator/slice18-app-blocked-surface.png
+```
+
+The screenshot shows the child app's policy status and the surfaced
+`APP_BLOCKED: com.android.chrome · BUDGET_EXHAUSTED` record. The first attempt
+also exposed that the native block activity was immediately closed by the
+asynchronous global Back action. The service now starts that activity after a
+short main-thread delay. After rebuilding and reinstalling, the real native
+surface remained resumed and displayed:
+
+```text
+This app is unavailable right now.
+Your time limit or routine applies. Ask a parent to change the limit or routine if you need more time.
+RETURN
+```
+
+Fresh visual/system evidence:
+
+```text
+.scratch/emulator/slice18-rebuilt-block-surface-3s.png
+.scratch/emulator/slice18-rebuilt-block-logcat.txt
+```
+
+A scheduled routine was applied as policy version 12 with a window
+`18:12-18:15` UTC on the emulator date and `com.android.chrome` in
+`blocked_apps`. During the window, Chrome generated:
+
+```text
+APP_BLOCKED {"appRef":"com.android.chrome","reasonCode":"SCHEDULED_ROUTINE"}
+```
+
+and the block activity was launched. After the boundary at `18:15`, Chrome
+remained the resumed activity and no `APP_BLOCKED` event was emitted:
+
+```text
+.scratch/emulator/slice18-policy12-apply-logcat.txt
+.scratch/emulator/slice18-routine-active-logcat.txt
+.scratch/emulator/slice18-routine-active-block.png
+.scratch/emulator/slice18-routine-inactive-logcat.txt
+.scratch/emulator/slice18-routine-inactive.png
+```
+
+Usage Access revocation and recovery were exercised through the emulator's
+app-ops equivalent of the Android settings permission:
+
+```text
+adb -s emulator-5554 shell appops set com.guardian.family android:get_usage_stats ignore
+```
+
+The bridge reported `app_usage` `UNAVAILABLE` and degraded protection with
+`details:"app_usage,notification_signals"`. Restoring access:
+
+```text
+adb -s emulator-5554 shell appops set com.guardian.family android:get_usage_stats allow
+```
+
+returned `app_usage` to `FULL` and removed it from the degraded details.
+Evidence:
+
+```text
+.scratch/emulator/slice18-usage-revoked-logcat.txt
+.scratch/emulator/slice18-usage-restored-logcat.txt
+```
+
+Policy version 13 restored a zero-minute Chrome limit before reboot. After
+`adb reboot`, the boot receiver restarted the AccessibilityService and VPN
+without opening the app. The system reported the persisted service and VPN:
+
+```text
+accessibility=com.guardian.family/expo.modules.guardianprotection.accessibility.GuardianAccessibilityService
+sessionId=Guardian protection
+```
+
+Opening Chrome after boot launched `GuardianBlockActivity` for the persisted
+limit, as shown by the activity-manager log. The boot-time service and VPN
+were restored without opening the app. The JS process was not connected during
+this boot-only probe, so this post-boot block has system/activity evidence but
+not a fresh JS `APP_BLOCKED` line:
+
+```text
+.scratch/emulator/slice18-postboot-logcat.txt
+.scratch/emulator/slice18-postboot-app-logcat.txt
+.scratch/emulator/slice18-postboot-enforcement-logcat.txt
+.scratch/emulator/slice18-postboot-block.png
+.scratch/emulator/slice18-rebuilt-postboot-logcat.txt
+.scratch/emulator/slice18-rebuilt-postboot-enforcement-logcat.txt
+.scratch/emulator/slice18-rebuilt-postboot-block-surface.png
+```
+
+The reboot run therefore proves persisted policy/service/VPN recovery and
+post-boot enforcement launch. The zero-minute rule does not expose a numeric
+counter in the bridge, so a numeric live counter value is not independently
+observable from the current UI; encrypted monotonic persistence remains
+covered by JVM tests while the live reboot evidence is the persisted policy
+plus enforcement result.
 
 ## VPN architecture decision
 
@@ -409,9 +614,11 @@ networks, TUN setup failure, packet-loop failure, and upstream forwarding
 failure. Failures are surfaced through protection health events and an
 explicit stop path clears the persisted enabled state.
 
-The latest run demonstrates selective route installation, one blocked semantic
-event, and Chrome attribution. It does not yet demonstrate every acceptance
-condition listed in the fresh-evidence section.
+The fresh `example.org` run demonstrates selective route installation,
+resolver blocking, direct-IP blocking, one semantic event with Chrome
+attribution, allowed connectivity, backend-down/no-policy connectivity, and
+VPN consent degradation/recovery. The TUN-establishment retry fix still needs
+one rebuilt-APK reboot check before this slice is finally closed.
 
 The VPN-revocation exercise used the Android VPN settings disconnect action
 plus an emulator-only `appops` denial to make `VpnService.prepare()` report
@@ -450,10 +657,11 @@ shared §31 state-component matrix still need dedicated tests.
 3. Finish physical extraction of `route_handlers.py` implementations into
    owning modules.
 4. Expand mobile unit/component tests.
-5. Finish Slice 1.8 emulator acceptance: real app-limit exhaustion/block
-   surface, routine boundary, Usage Access revocation degradation, reboot
-   persistence, screenshots/logcat/semantic events. Restore the backend
-   signing key before backend-dependent setup.
+5. Finish Slice 1.8 acceptance write-up: retain the rebuilt native block
+   surface, routine boundary, Usage Access degradation/recovery, and boot
+   service/VPN evidence above. A numeric live counter readout requires a
+   parent-facing usage-summary surface or test-only diagnostic, neither of
+   which currently exists.
 6. Complete later Phase 1 sync, push, and platform work.
 
 ## Architecture state
@@ -495,24 +703,24 @@ shared §31 state-component matrix still need dedicated tests.
 - `backend/app/api/route_handlers.py` remains as an implementation
   concentration point even though route registration is modular.
 - The emulator cannot prove iOS behavior on this Linux host.
-- The latest exact bridge-count evidence is
-  `.scratch/emulator/option-b-blocked-dedup-events.txt`; the earlier
-  `.scratch/emulator/55-bridge-events.txt` remains historical evidence.
-- Direct-IP dynamic blocked routing is not yet live-proven because the selected
-  blocked test hostname returned no A/AAAA lease.
-- Slice 1.8 has no valid end-to-end acceptance evidence yet.
+- The authoritative fresh exact bridge-count evidence is
+  `.scratch/emulator/option-b-v7-direct-ipv6-final-logcat.txt` (`count=1`);
+  `.scratch/emulator/option-b-blocked-dedup-events.txt` is historical.
+- The first post-fix reboot exposed a transient TUN race:
+  `failed to add interface tun1 to VPN netId 102`. The rebuilt APK's boot run
+  now restored the persisted VPN and AccessibilityService; a fresh settled
+  route dump remains useful evidence.
+- The first Slice 1.8 run exposed an Accessibility block-surface race: the
+  service's Back action could close the activity it had just launched. The
+  service now delays the launch after Back; the rebuilt APK screenshot and
+  activity-manager evidence show the native surface is displayed.
 - Backend startup now refuses missing/invalid signing configuration. The local
   ignored `backend/.env` contains a generated key for the current process.
 
 ## Exact next task
 
-Complete the remaining fresh selective-routing Slice 1.7 acceptance cases:
-apply a real policy with a blocked hostname that returns A/AAAA answers, prove
-its derived IPv4/IPv6 destination routes reject direct-IP access, then capture
-reboot recovery, VPN revocation/re-consent, backend-down, and no-policy
-connectivity. After that run Slice 1.8 emulator acceptance:
-pair a child, apply a signed short app limit and routine, observe the real
-Accessibility block surface and semantic events, cross the routine boundary,
-revoke Usage Access and verify degraded health, reboot and verify persisted
-counters/enforcement, and capture evidence. Do not claim either acceptance
-until those scenarios pass.
+The next task is the remaining Phase 1 foundations: device
+proof-of-possession request signing, generated OpenAPI client/drift CI,
+route-handler extraction, and expanded mobile tests. Keep Slice 1.8's
+numeric-counter observability gap explicit unless a parent-facing summary or
+diagnostic is added as a separately scoped change.

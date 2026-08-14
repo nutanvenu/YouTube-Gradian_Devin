@@ -1,6 +1,8 @@
 package expo.modules.guardianprotection.accessibility
 
 import android.accessibilityservice.AccessibilityService
+import android.os.Handler
+import android.os.Looper
 import android.view.accessibility.AccessibilityEvent
 import android.content.Intent
 import expo.modules.guardianprotection.inventory.PackageInventory
@@ -15,6 +17,7 @@ class GuardianAccessibilityService : AccessibilityService() {
   private lateinit var usage: UsageCollector
   private lateinit var inventory: PackageInventory
   private val lastBlockedAt = ConcurrentHashMap<String, Long>()
+  private val mainHandler = Handler(Looper.getMainLooper())
 
   override fun onServiceConnected() {
     super.onServiceConnected()
@@ -48,12 +51,14 @@ class GuardianAccessibilityService : AccessibilityService() {
       if (previous != null && now - previous < BLOCK_DEDUP_MS) return
       GuardianPolicyRuntime.reportAppBlocked(packageName, decision.reasonCode)
       performGlobalAction(GLOBAL_ACTION_BACK)
-      startActivity(
-        Intent(this, GuardianBlockActivity::class.java)
-          .addFlags(Intent.FLAG_ACTIVITY_NEW_TASK or Intent.FLAG_ACTIVITY_CLEAR_TOP)
-          .putExtra(GuardianBlockActivity.EXTRA_APP, packageName)
-          .putExtra(GuardianBlockActivity.EXTRA_REASON, decision.reasonCode),
-      )
+      mainHandler.postDelayed({
+        startActivity(
+          Intent(this, GuardianBlockActivity::class.java)
+            .addFlags(Intent.FLAG_ACTIVITY_NEW_TASK or Intent.FLAG_ACTIVITY_CLEAR_TOP)
+            .putExtra(GuardianBlockActivity.EXTRA_APP, packageName)
+            .putExtra(GuardianBlockActivity.EXTRA_REASON, decision.reasonCode),
+        )
+      }, BLOCK_SURFACE_DELAY_MS)
     }
   }
 
@@ -68,6 +73,7 @@ class GuardianAccessibilityService : AccessibilityService() {
 
   companion object {
     private const val BLOCK_DEDUP_MS = 2_000L
+    private const val BLOCK_SURFACE_DELAY_MS = 300L
     @Volatile private var running = false
 
     fun isRunning(): Boolean = running

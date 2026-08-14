@@ -12,6 +12,7 @@ import android.net.NetworkCapabilities
 import android.net.VpnService
 import android.os.Build
 import android.os.ParcelFileDescriptor
+import android.os.SystemClock
 import expo.modules.guardianprotection.BuildConfig
 import expo.modules.guardianprotection.flow.AndroidFlowAttribution
 import expo.modules.guardianprotection.policy.GuardianPolicyRuntime
@@ -163,42 +164,55 @@ class GuardianVpnService : VpnService() {
     val responsibleApp = attribution.packageNamesForFlow(key.attributionKey()).firstOrNull()
     val upstream = if (ip.isIpv6) InetAddress.getByName("2606:4700:4700::1111")
     else InetAddress.getByName("1.1.1.1")
-    runCatching {
+    val decision = GuardianPolicyRuntime.evaluateDomain(query.domain, ip.destination.hostAddress)
+    val primaryResponse = queryUpstream(datagram.payload, upstream)
+    if (decision.blocked) {
+      val leases = buildList {
+        primaryResponse?.let { addAll(dnsCache.record(query.domain, it)) }
+        query.supplementalAddressQueries().forEach { supplementalQuery ->
+          queryUpstream(supplementalQuery, upstream)?.let {
+            addAll(dnsCache.record(query.domain, it))
+          }
+        }
+      }
+      val routesChanged = leases.any { blockedRoutes.add(it.address, it.expiresAtMillis) }
+      reportBlocked(query.domain, decision, responsibleApp)
+      write(PacketCodec.buildUdp(
+        ip,
+        ip.destination,
+        ip.source,
+        datagram.destinationPort,
+        datagram.sourcePort,
+        query.blockedResponse(),
+      ))
+      if (routesChanged) restartInterface()
+    } else if (primaryResponse != null) {
+      dnsCache.record(query.domain, primaryResponse)
+      write(PacketCodec.buildUdp(
+        ip,
+        ip.destination,
+        ip.source,
+        datagram.destinationPort,
+        datagram.sourcePort,
+        primaryResponse,
+      ))
+    } else {
+      fail("DNS_UPSTREAM_UNAVAILABLE")
+    }
+  }
+
+  private fun queryUpstream(query: ByteArray, upstream: InetAddress): ByteArray? {
+    return runCatching {
       DatagramSocket().use { socket ->
         protect(socket)
         socket.soTimeout = DNS_TIMEOUT_MS
-        socket.send(DatagramPacket(datagram.payload, datagram.payload.size, upstream, DNS_PORT))
+        socket.send(DatagramPacket(query, query.size, upstream, DNS_PORT))
         val received = ByteArray(4096)
         val response = DatagramPacket(received, received.size)
         socket.receive(response)
-        val payload = response.data.copyOf(response.length)
-        val decision = GuardianPolicyRuntime.evaluateDomain(query.domain, ip.destination.hostAddress)
-        if (decision.blocked) {
-          val leases = dnsCache.record(query.domain, payload)
-          val routesChanged = leases.any { blockedRoutes.add(it.address, it.expiresAtMillis) }
-          reportBlocked(query.domain, decision, responsibleApp)
-          write(PacketCodec.buildUdp(
-            ip,
-            ip.destination,
-            ip.source,
-            datagram.destinationPort,
-            datagram.sourcePort,
-            query.blockedResponse(),
-          ))
-          if (routesChanged) restartInterface()
-        } else {
-          dnsCache.record(query.domain, payload)
-          write(PacketCodec.buildUdp(
-            ip,
-            ip.destination,
-            ip.source,
-            datagram.destinationPort,
-            datagram.sourcePort,
-            payload,
-          ))
-        }
+        response.data.copyOf(response.length)
       }
-    }.onFailure { fail("DNS_UPSTREAM_UNAVAILABLE") }
+    }.getOrNull()
   }
 
   private fun write(packet: ByteArray) {
@@ -231,28 +245,36 @@ class GuardianVpnService : VpnService() {
   }
 
   private fun establishInterface(): Boolean {
-    val builder = Builder()
-      .setSession("Guardian protection")
-      .setMtu(1500)
-      .addAddress("10.0.0.2", 32)
-      .addAddress("fd00:0:0:0:0:0:0:2", 128)
-    dnsServers.ifEmpty { listOf(InetAddress.getByName("10.0.0.1")) }.forEach { dns ->
-      runCatching {
-        builder.addDnsServer(dns)
-        builder.addRoute(dns, if (dns.address.size == 4) 32 else 128)
-      }.onFailure { failOnce("DNS_ROUTE_CONFIGURATION_FAILED") }
+    repeat(MAX_INTERFACE_ESTABLISH_ATTEMPTS) { attempt ->
+      val builder = Builder()
+        .setSession("Guardian protection")
+        .setMtu(1500)
+        .addAddress("10.0.0.2", 32)
+        .addAddress("fd00:0:0:0:0:0:0:2", 128)
+      dnsServers.ifEmpty { listOf(InetAddress.getByName("10.0.0.1")) }.forEach { dns ->
+        runCatching {
+          builder.addDnsServer(dns)
+          builder.addRoute(dns, if (dns.address.size == 4) 32 else 128)
+        }.onFailure { failOnce("DNS_ROUTE_CONFIGURATION_FAILED") }
+      }
+      blockedRoutes.addresses().forEach { address ->
+        runCatching {
+          builder.addRoute(address, if (address.address.size == 4) 32 else 128)
+        }.onFailure { failOnce("BLOCKED_ROUTE_CONFIGURATION_FAILED") }
+      }
+      val established = runCatching { builder.establish() }.getOrNull()
+      if (established != null) {
+        synchronized(stateLock) {
+          interfaceFd?.close()
+          interfaceFd = established
+        }
+        return true
+      }
+      if (attempt + 1 < MAX_INTERFACE_ESTABLISH_ATTEMPTS) {
+        SystemClock.sleep(INTERFACE_ESTABLISH_RETRY_DELAY_MS)
+      }
     }
-    blockedRoutes.addresses().forEach { address ->
-      runCatching {
-        builder.addRoute(address, if (address.address.size == 4) 32 else 128)
-      }.onFailure { failOnce("BLOCKED_ROUTE_CONFIGURATION_FAILED") }
-    }
-    val established = runCatching { builder.establish() }.getOrNull()
-    synchronized(stateLock) {
-      interfaceFd?.close()
-      interfaceFd = established
-    }
-    return established != null
+    return false
   }
 
   private fun restartInterface() {
@@ -356,74 +378,11 @@ class GuardianVpnService : VpnService() {
     fun attributionKey(): String = "$protocol|$source:$sourcePort|$destination:$destinationPort|$sourcePort|$destinationPort"
   }
 
-  private class DnsCache {
-    data class Lease(val address: InetAddress, val expiresAtMillis: Long)
-    private data class CachedDomain(val domain: String, val expiresAtMillis: Long)
-    private val namesByAddress = linkedMapOf<String, CachedDomain>()
-
-    @Synchronized
-    fun record(domain: String, response: ByteArray): List<Lease> {
-      if (response.size < 12) return emptyList()
-      val leases = mutableListOf<Lease>()
-      var offset = skipName(response, 12) + 4
-      val answers = ((response[6].toInt() and 0xff) shl 8) or (response[7].toInt() and 0xff)
-      repeat(answers) {
-        val answer = skipName(response, offset)
-        if (answer + 10 > response.size) return@repeat
-        val type = ((response[answer].toInt() and 0xff) shl 8) or (response[answer + 1].toInt() and 0xff)
-        val ttl = ((response[answer + 4].toLong() and 0xff) shl 24) or
-          ((response[answer + 5].toLong() and 0xff) shl 16) or
-          ((response[answer + 6].toLong() and 0xff) shl 8) or
-          (response[answer + 7].toLong() and 0xff)
-        val dataLength = ((response[answer + 8].toInt() and 0xff) shl 8) or
-          (response[answer + 9].toInt() and 0xff)
-        val dataOffset = answer + 10
-        if (dataOffset + dataLength > response.size) return@repeat
-        if ((type == 1 && dataLength == 4) || (type == 28 && dataLength == 16)) {
-          runCatching {
-            val address = InetAddress.getByAddress(response.copyOfRange(dataOffset, dataOffset + dataLength))
-            val expiresAt = System.currentTimeMillis() + ttl * 1000
-            val key = address.hostAddress ?: return@runCatching
-            namesByAddress[key] = CachedDomain(domain, expiresAt)
-            leases += Lease(address, expiresAt)
-          }
-        }
-        offset = dataOffset + dataLength
-      }
-      if (namesByAddress.size > MAX_DNS_CACHE_ENTRIES) {
-        namesByAddress.entries.take(namesByAddress.size - MAX_DNS_CACHE_ENTRIES).forEach {
-          namesByAddress.remove(it.key)
-        }
-      }
-      return leases
-    }
-
-    @Synchronized
-    fun domainFor(address: InetAddress): String? {
-      val key = address.hostAddress ?: return null
-      val cached = namesByAddress[key] ?: return null
-      if (cached.expiresAtMillis <= System.currentTimeMillis()) {
-        namesByAddress.remove(key)
-        return null
-      }
-      return cached.domain
-    }
-
-    private fun skipName(packet: ByteArray, start: Int): Int {
-      var offset = start
-      while (offset < packet.size) {
-        val length = packet[offset].toInt() and 0xff
-        if (length == 0) return offset + 1
-        if (length and 0xc0 == 0xc0) return offset + 2
-        offset += length + 1
-      }
-      return packet.size
-    }
-  }
-
   private class DnsMessage private constructor(
     val domain: String,
     private val original: ByteArray,
+    private val questionTypeOffset: Int,
+    private val questionType: Int,
   ) {
     fun blockedResponse(): ByteArray {
       val response = original.copyOf()
@@ -436,6 +395,20 @@ class GuardianVpnService : VpnService() {
       response[10] = 0
       response[11] = 0
       return response
+    }
+
+    fun supplementalAddressQueries(): List<ByteArray> {
+      val types = when (questionType) {
+        1 -> listOf(28)
+        28 -> listOf(1)
+        else -> listOf(1, 28)
+      }
+      return types.map { type ->
+        original.copyOf().also {
+          it[questionTypeOffset] = (type ushr 8).toByte()
+          it[questionTypeOffset + 1] = type.toByte()
+        }
+      }
     }
 
     companion object {
@@ -451,7 +424,10 @@ class GuardianVpnService : VpnService() {
           cursor += length
         }
         if (labels.isEmpty()) return null
-        return DnsMessage(labels.joinToString(".").lowercase(), payload)
+        if (cursor + 4 > payload.size) return null
+        val questionType = ((payload[cursor].toInt() and 0xff) shl 8) or
+          (payload[cursor + 1].toInt() and 0xff)
+        return DnsMessage(labels.joinToString(".").lowercase(), payload, cursor, questionType)
       }
     }
   }
@@ -464,7 +440,8 @@ class GuardianVpnService : VpnService() {
     private const val TCP = 6
     private const val DNS_TIMEOUT_MS = 2000
     private const val MAX_BLOCKED_DESTINATIONS = 1024
-    private const val MAX_DNS_CACHE_ENTRIES = 1024
+    private const val MAX_INTERFACE_ESTABLISH_ATTEMPTS = 4
+    private const val INTERFACE_ESTABLISH_RETRY_DELAY_MS = 250L
     private const val KNOWN_ENDPOINT_TTL_MS = 24 * 60 * 60 * 1000L
     private val KNOWN_DOH_DOT_ENDPOINTS = listOf("1.1.1.1", "1.0.0.1", "8.8.8.8", "8.8.4.4", "9.9.9.9")
     @Volatile private var runningState = false

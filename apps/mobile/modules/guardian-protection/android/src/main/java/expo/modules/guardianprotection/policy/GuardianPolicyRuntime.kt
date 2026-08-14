@@ -14,7 +14,6 @@ object GuardianPolicyRuntime {
 
   fun install(policyManager: PolicyManager) {
     manager = policyManager
-    listeners.clear()
     lastBlockedAt.clear()
     thresholds.clear()
   }
