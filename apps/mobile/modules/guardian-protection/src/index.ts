@@ -28,6 +28,7 @@ export const GuardianProtection: GuardianProtectionNative = {
   openAccessibilitySettings: () => native.openAccessibilitySettings(),
   openNotificationAccessSettings: () => native.openNotificationAccessSettings(),
   startProtection: () => native.startProtection(),
+  stopProtection: () => native.stopProtection(),
   applyPolicyBundle: (bundle: unknown): Promise<ApplyResult> => native.applyPolicyBundle(bundle),
   getUsageSummary: (range: TimeRange): Promise<UsageSummary> => native.getUsageSummary(range),
   getObservedApps: (): Promise<ObservedApp[]> => native.getObservedApps(),

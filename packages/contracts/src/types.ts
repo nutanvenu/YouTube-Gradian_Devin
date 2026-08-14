@@ -189,6 +189,7 @@ export interface GuardianProtectionNative {
   openAccessibilitySettings(): Promise<void>;
   openNotificationAccessSettings(): Promise<void>;
   startProtection(): Promise<void>;
+  stopProtection(): Promise<void>;
   applyPolicyBundle(bundle: unknown): Promise<ApplyResult>;
   getUsageSummary(range: TimeRange): Promise<UsageSummary>;
   getObservedApps(): Promise<ObservedApp[]>;
@@ -202,6 +203,7 @@ export type GuardianNativeEvent =
       type: "WEB_BLOCKED";
       domain?: string;
       category?: string;
+      appRef?: string;
       reasonCode: PolicyReasonCode;
     }
   | { type: "TIME_WARNING"; targetRef: string; remainingSeconds: number }

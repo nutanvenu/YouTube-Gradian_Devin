@@ -51,6 +51,19 @@ class GuardianProtectionModule : Module() {
         "status" to policyManager.protectionStatus(reportCapabilityChanges(capabilities.getCapabilities())),
       ))
     }
+    AsyncFunction("stopProtection") {
+      GuardianVpnService.stop(requireNotNull(appContext.reactContext))
+      sendEvent("onGuardianEvent", mapOf(
+        "type" to "PROTECTION_STATUS_CHANGED",
+        "status" to mapOf(
+          "active" to false,
+          "health" to "DEGRADED",
+          "policyVersion" to policyManager.activeSnapshot()?.policyVersion,
+          "observedAt" to Instant.now().toString(),
+          "details" to "STOPPED_BY_PARENT",
+        ),
+      ))
+    }
     AsyncFunction("applyPolicyBundle") { bundle: Map<String, Any?> ->
       GuardianPolicyRuntime.install(policyManager)
       val result = policyManager.apply(bundle)
@@ -71,10 +84,12 @@ class GuardianProtectionModule : Module() {
   }
 
   private val eventListener = object : GuardianPolicyRuntime.Listener {
-    override fun onWebBlocked(domain: String, reasonCode: String) {
+    override fun onWebBlocked(domain: String, category: String?, appRef: String?, reasonCode: String) {
       sendEvent("onGuardianEvent", mapOf(
         "type" to "WEB_BLOCKED",
         "domain" to domain,
+        "category" to category,
+        "appRef" to appRef,
         "reasonCode" to reasonCode,
       ))
     }
@@ -82,7 +97,13 @@ class GuardianProtectionModule : Module() {
     override fun onVpnFailure(reason: String) {
       sendEvent("onGuardianEvent", mapOf(
         "type" to "PROTECTION_STATUS_CHANGED",
-        "status" to mapOf("active" to false, "health" to "DEGRADED", "details" to reason),
+        "status" to mapOf(
+          "active" to false,
+          "health" to "DEGRADED",
+          "policyVersion" to policyManager.activeSnapshot()?.policyVersion,
+          "observedAt" to Instant.now().toString(),
+          "details" to reason,
+        ),
       ))
     }
   }

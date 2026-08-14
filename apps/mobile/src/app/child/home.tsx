@@ -1,9 +1,17 @@
+import { useEffect, useState } from "react";
 import { useQuery } from "@tanstack/react-query";
 import { useRouter } from "expo-router";
-import { Text } from "react-native";
+import { AppState, Text } from "react-native";
 import { ApiError, api } from "@/api/client";
 import { useNetworkStatus } from "@/state/network";
-import { DataState, ProtectionRemovedState, ScreenScaffold, SectionSurface } from "@/design-system";
+import {
+  DataState,
+  PrimaryButton,
+  ProtectionRemovedState,
+  ScreenScaffold,
+  SectionSurface,
+} from "@/design-system";
+import { GuardianProtection } from "../../../modules/guardian-protection/src";
 
 function isRevokedDeviceError(error: unknown): boolean {
   if (error instanceof ApiError) return error.status === 401 || error.status === 403;
@@ -17,6 +25,39 @@ export default function ChildHomeRoute() {
   const policy = useQuery({ queryKey: ["device-policy"], queryFn: () => api.policy() });
   const { isOffline } = useNetworkStatus();
   const revoked = isRevokedDeviceError(policy.error);
+  const [protectionMessage, setProtectionMessage] = useState("Checking web protection…");
+
+  useEffect(() => {
+    if (!policy.data?.bundle || revoked) return;
+    let cancelled = false;
+    const syncProtection = async () => {
+      const result = await GuardianProtection.applyPolicyBundle(policy.data.bundle);
+      if (cancelled) return;
+      if (!result.applied && result.reason !== "POLICY_VERSION_NOT_MONOTONIC") {
+        setProtectionMessage("Protection policy could not be applied.");
+        return;
+      }
+      const capabilities = await GuardianProtection.getCapabilities();
+      if (cancelled) return;
+      if (capabilities.vpn_filtering.level !== "FULL") {
+        setProtectionMessage("Web protection permission is required.");
+        return;
+      }
+      await GuardianProtection.startProtection();
+      if (!cancelled) setProtectionMessage("Web protection is active.");
+    };
+    void syncProtection().catch(() => {
+      if (!cancelled) setProtectionMessage("Web protection is unavailable.");
+    });
+    const subscription = AppState.addEventListener("change", (state) => {
+      if (state === "active") void syncProtection();
+    });
+    return () => {
+      cancelled = true;
+      subscription.remove();
+    };
+  }, [policy.data, revoked]);
+
   return (
     <ScreenScaffold title="My time">
       {revoked ? (
@@ -41,6 +82,13 @@ export default function ChildHomeRoute() {
                 ? "Waiting for device acknowledgement."
                 : "Policy acknowledged by this device."}
             </Text>
+            <Text>{protectionMessage}</Text>
+            {protectionMessage === "Web protection permission is required." ? (
+              <PrimaryButton
+                label="Enable web protection"
+                onPress={() => void GuardianProtection.requestVpnPermission()}
+              />
+            ) : null}
           </SectionSurface>
         </DataState>
       )}
