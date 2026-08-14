@@ -32,6 +32,8 @@ export const GuardianProtection: GuardianProtectionNative = {
   applyPolicyBundle: (bundle: unknown): Promise<ApplyResult> => native.applyPolicyBundle(bundle),
   getUsageSummary: (range: TimeRange): Promise<UsageSummary> => native.getUsageSummary(range),
   getObservedApps: (): Promise<ObservedApp[]> => native.getObservedApps(),
+  markObservedAppReviewed: (platformAppId: string): Promise<void> =>
+    native.markObservedAppReviewed(platformAppId),
   subscribe: (listener: (event: GuardianNativeEvent) => void) =>
     native.addListener("onGuardianEvent", listener),
 };

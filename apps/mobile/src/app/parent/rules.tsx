@@ -79,6 +79,12 @@ export default function ParentRulesRoute() {
     mutate.mutate(input);
   };
 
+  const reviewApp = async (platformAppId: string) => {
+    await GuardianProtection.markObservedAppReviewed(platformAppId);
+    setMessage("App reviewed. Its inventory status is now up to date.");
+    await inventory.refetch();
+  };
+
   return (
     <ScreenScaffold title="Rules">
       <DataState state={children.isLoading || inventory.isLoading ? "loading" : children.isError || inventory.isError ? "error" : isOffline ? "offline" : children.isStale || inventory.isStale ? "stale" : "loaded"} onRetry={() => { void children.refetch(); void inventory.refetch(); }}>
@@ -95,6 +101,12 @@ export default function ParentRulesRoute() {
               <CardSurface key={app.platformAppId}>
                 {app.iconUri ? <Image source={{ uri: app.iconUri }} accessibilityLabel={`${app.displayName} icon`} style={{ width: 36, height: 36 }} /> : null}
                 <ListRow label={app.displayName} value={`${rule?.action ?? "No rule"}${app.newlyObserved ? " · New app" : ""}`} />
+                {app.newlyObserved ? (
+                  <>
+                    <Text>This app was newly observed on the child device. Review it before treating it as trusted.</Text>
+                    <SecondaryButton label="Mark app reviewed" onPress={() => { void reviewApp(app.platformAppId); }} />
+                  </>
+                ) : null}
                 <SecondaryButton label="Allow" onPress={() => save({ operation: "APP_ALLOW", target: app.platformAppId })} />
                 <SecondaryButton label="Block" onPress={() => save({ operation: "APP_BLOCK", target: app.platformAppId })} />
                 <SecondaryButton label={`Limit to ${minutes || "30"} minutes`} onPress={() => save({ operation: "APP_DAILY_MINUTES", target: app.platformAppId, value: Number(minutes) || 30 })} />

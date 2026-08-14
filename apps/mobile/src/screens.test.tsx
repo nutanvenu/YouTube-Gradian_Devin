@@ -4,6 +4,7 @@ import { Text } from "react-native";
 const mockQueryState = new Map<string, Record<string, unknown>>();
 const mockMutatePolicy = jest.fn();
 const mockDecideRequest = jest.fn();
+const mockReviewApp = jest.fn();
 let mockOffline = false;
 
 jest.mock("react-native-safe-area-context", () => ({
@@ -35,7 +36,11 @@ jest.mock("@/api/client", () => ({
 jest.mock("@/hooks/use-family-sync", () => ({ useFamilySync: jest.fn() }));
 jest.mock("../modules/guardian-protection/src", () => ({
   GuardianProtection: {
-    getObservedApps: () => Promise.resolve([]),
+  getObservedApps: () => Promise.resolve([]),
+  markObservedAppReviewed: (...args: unknown[]) => {
+    mockReviewApp(...args);
+    return Promise.resolve();
+  },
     getCapabilities: () => Promise.resolve({}),
     getProtectionStatus: () => Promise.resolve({ active: false, health: "UNKNOWN" }),
     getUsageSummary: () => Promise.resolve({ byTarget: {} }),
@@ -79,6 +84,7 @@ beforeEach(() => {
   mockQueryState.clear();
   mockMutatePolicy.mockReset();
   mockDecideRequest.mockReset();
+  mockReviewApp.mockReset();
   mockOffline = false;
 });
 
@@ -108,6 +114,27 @@ test("Rules renders loading and pending-sync states and submits an app limit", a
     target: "com.example.app",
     value: 30,
   }));
+});
+
+test("Rules keeps a newly observed app in review until the parent marks it reviewed", async () => {
+  setQuery(["children", "family-1"], {
+    data: [{
+      id: "child-1",
+      name: "Alex",
+      policy_document: { app_rules: [], domain_rules: [], base_policy: {} },
+    }],
+  });
+  const refetch = jest.fn();
+  setQuery(["guardian-inventory"], {
+    data: [{ platformAppId: "com.example.new", displayName: "New app", newlyObserved: true, iconUri: null }],
+    refetch,
+  });
+  setQuery(["health", "family-1"], { data: [] });
+  const screen = render(<RulesScreen />);
+  expect(screen.getByText("This app was newly observed on the child device. Review it before treating it as trusted.")).toBeTruthy();
+  fireEvent.press(screen.getByLabelText("Mark app reviewed"));
+  await waitFor(() => expect(mockReviewApp).toHaveBeenCalledWith("com.example.new"));
+  expect(refetch).toHaveBeenCalled();
 });
 
 test("Requests renders retry and terminal approval states", async () => {

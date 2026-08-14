@@ -5,9 +5,11 @@ import org.junit.Test
 
 class AppInventoryTest {
   @Test
-  fun newlyObservedPackagesAreReportedOnce() {
+  fun newlyObservedPackagesRemainPendingUntilReviewed() {
     val detector = NewAppDetector()
     assertEquals(listOf("com.one", "com.two"), detector.newPackages(listOf("com.one", "com.two")))
-    assertEquals(listOf("com.three"), detector.newPackages(listOf("com.one", "com.three")))
+    assertEquals(listOf("com.one", "com.two", "com.three"), detector.newPackages(listOf("com.one", "com.two", "com.three")))
+    detector.markReviewed("com.one")
+    assertEquals(listOf("com.two", "com.three"), detector.newPackages(listOf("com.one", "com.two", "com.three")))
   }
 }

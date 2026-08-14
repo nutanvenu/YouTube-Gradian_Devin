@@ -196,6 +196,7 @@ export interface GuardianProtectionNative {
   applyPolicyBundle(bundle: unknown): Promise<ApplyResult>;
   getUsageSummary(range: TimeRange): Promise<UsageSummary>;
   getObservedApps(): Promise<ObservedApp[]>;
+  markObservedAppReviewed(platformAppId: string): Promise<void>;
   subscribe(listener: (event: GuardianNativeEvent) => void): { remove: () => void };
 }
 

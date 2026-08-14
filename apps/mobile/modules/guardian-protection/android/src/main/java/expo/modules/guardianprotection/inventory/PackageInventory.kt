@@ -17,9 +17,13 @@ class PackageInventory(private val context: Context) {
       .sortedBy { packageManager.getApplicationLabel(it).toString().lowercase() }
     val newDetector = NewAppDetector(
       preferences.getStringSet("known-packages", emptySet()).orEmpty().toMutableSet(),
+      preferences.getStringSet("pending-packages", emptySet()).orEmpty().toMutableSet(),
     )
     val newlyObserved = newDetector.newPackages(apps.map { it.packageName })
-    preferences.edit().putStringSet("known-packages", apps.map { it.packageName }.toSet()).apply()
+    preferences.edit()
+      .putStringSet("known-packages", newDetector.knownPackages())
+      .putStringSet("pending-packages", newDetector.pendingPackages())
+      .apply()
     val observedAt = Instant.now().toString()
     return apps.map { application ->
       val icon = application.icon.takeIf { it != 0 }?.let {
@@ -39,6 +43,17 @@ class PackageInventory(private val context: Context) {
         "observedAt" to observedAt,
       )
     }
+  }
+
+  fun markReviewed(packageName: String) {
+    val known = preferences.getStringSet("known-packages", emptySet()).orEmpty().toMutableSet()
+    val pending = preferences.getStringSet("pending-packages", emptySet()).orEmpty().toMutableSet()
+    val detector = NewAppDetector(known, pending)
+    detector.markReviewed(packageName)
+    preferences.edit()
+      .putStringSet("known-packages", detector.knownPackages())
+      .putStringSet("pending-packages", detector.pendingPackages())
+      .apply()
   }
 
   fun category(packageName: String): String =

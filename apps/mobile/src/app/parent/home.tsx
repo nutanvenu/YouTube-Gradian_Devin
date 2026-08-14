@@ -24,6 +24,11 @@ export default function ParentHomeRoute() {
   const state = !activeFamilyId ? "empty" : children.isLoading || health.isLoading ? "loading" : isOffline ? "offline" : children.isError || health.isError ? "error" : children.data?.length ? "loaded" : "empty";
   return (
     <ScreenScaffold title="Parent home">
+      {!activeFamilyId ? (
+        <SectionSurface>
+          <PrimaryButton label="Set up your family" onPress={() => router.push("/parent/setup")} />
+        </SectionSurface>
+      ) : null}
       <DataState state={state} onRetry={() => { void children.refetch(); void health.refetch(); }}>
         <SectionSurface>
           {children.data?.map((child) => <CardSurface key={child.id}><Text>{child.name}</Text><ListRow label="Age band" value={child.age_band} /><PrimaryButton label="Generate pairing code" onPress={() => router.push({ pathname: "/parent/pairing", params: { familyId: activeFamilyId, childId: child.id } })} /><SecondaryButton label="Rules" onPress={() => router.push({ pathname: "/parent/rules", params: { familyId: activeFamilyId, childId: child.id } })} /><SecondaryButton label="Requests" onPress={() => router.push({ pathname: "/parent/requests", params: { familyId: activeFamilyId } })} /><SecondaryButton label="Activity" onPress={() => router.push({ pathname: "/parent/activity", params: { familyId: activeFamilyId } })} /><SecondaryButton label="Protection health" onPress={() => router.push({ pathname: "/parent/health", params: { familyId: activeFamilyId } })} /><SecondaryButton label="Quick control" onPress={() => router.push({ pathname: "/parent/quick-control", params: { familyId: activeFamilyId, childId: child.id } })} /></CardSurface>)}

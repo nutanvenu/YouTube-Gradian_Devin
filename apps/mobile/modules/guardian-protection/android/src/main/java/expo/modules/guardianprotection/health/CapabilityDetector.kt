@@ -56,6 +56,10 @@ class CapabilityDetector(private val context: Context) {
 
   fun observedApps(): List<Map<String, Any?>> = PackageInventory(context).observedApps()
 
+  fun markObservedAppReviewed(packageName: String) {
+    PackageInventory(context).markReviewed(packageName)
+  }
+
   private fun usageAccessGranted(): Boolean {
     val appOps = context.getSystemService(Context.APP_OPS_SERVICE) as AppOpsManager
     return appOps.checkOpNoThrow(AppOpsManager.OPSTR_GET_USAGE_STATS, Process.myUid(), context.packageName) == AppOpsManager.MODE_ALLOWED

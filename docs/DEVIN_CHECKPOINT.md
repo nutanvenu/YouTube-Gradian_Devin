@@ -1358,3 +1358,33 @@ The test posts a real device-authenticated `WEB_BLOCKED` event and an
 endpoints. Dedicated two-emulator visual Activity evidence has not yet been
 captured; no visual claim is made until the parent Activity surface is
 exercised against live emulator data.
+
+## Phase 2 app-controls review slice
+
+Android package inventory now persists both the known package set and a
+pending-review set in the device's Guardian inventory preferences. Newly
+observed packages remain pending across repeated inventory reads until the
+parent explicitly marks the package reviewed. The parent Rules screen shows
+an explicit review warning and action before presenting the app as trusted;
+Allow, Block, Limit, Schedule, and Unlimited remain separate signed-policy
+mutations. The native bridge and shared contract expose the review action.
+
+The no-family parent home state also keeps the `Set up your family` action
+visible outside the empty `DataState`, preventing a dead end when no active
+family has been selected.
+
+Automated evidence:
+
+```text
+guardian-mobile typecheck                                  passed
+guardian-mobile lint                                       passed
+guardian-mobile Jest                                       7 suites, 26 tests passed
+guardian-protection AppInventoryTest                       BUILD SUCCESSFUL
+uv lock --check                                             Resolved 54 packages
+```
+
+The current review state is device-persisted. A backend child-inventory
+upload/read path and parent-side server persistence are still required before
+this can be treated as complete cross-device inventory synchronization; the
+current parent Rules screen must not be interpreted as reading the child
+device's package manager inventory.

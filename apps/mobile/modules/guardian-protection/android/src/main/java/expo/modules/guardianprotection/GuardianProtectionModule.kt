@@ -89,6 +89,9 @@ class GuardianProtectionModule : Module() {
     AsyncFunction("getObservedApps") {
       capabilities.observedApps()
     }
+    AsyncFunction("markObservedAppReviewed") { packageName: String ->
+      capabilities.markObservedAppReviewed(packageName)
+    }
   }
 
   private val eventListener = object : GuardianPolicyRuntime.Listener {
