@@ -1633,14 +1633,28 @@ content-free, and expose permission-revocation recovery; iOS UI says
 `Not available on iPhone/iPad`. Communication routing uses immediate critical,
 high-priority, summary medium, and trend-only low dispositions.
 
-The detector measurement uses 132 labelled fixtures (22 seeds repeated six
-times), including benign risk-word uses, quoted lyrics, news, homework,
-medical, recipe/photo, school/sports/security contexts, and ambiguous
-single-word notifications. The focused native test reported precision and
-recall of 1.0 for each category:
-`SELF_HARM`, `SEXUAL_CONTENT`, `SEXUAL_SOLICITATION`, `GROOMING`,
-`HARASSMENT`, and `PHISHING_CREDENTIAL_THEFT`. Runtime was
-`12,572,544` nanoseconds for 132 fixtures. Battery measurement is
+The detector measurement now uses 120 genuinely unique labelled fixtures:
+60 hard negatives and 60 positives, including benign risk-word uses, quoted
+lyrics, news, homework, medical, recipe/photo, school/sports/security
+contexts, ambiguous single-word notifications, and two adversarial positives
+per category that are intentionally expected to expose false negatives. The
+focused native test reported:
+
+```text
+SELF_HARM precision=1.0 recall=0.9 falsePositives=0 falseNegatives=1 adversarialMisses=self-harm-010
+SEXUAL_CONTENT precision=0.9090909090909091 recall=1.0 falsePositives=1 falseNegatives=0 adversarialMisses=none
+SEXUAL_SOLICITATION precision=1.0 recall=0.9 falsePositives=0 falseNegatives=1 adversarialMisses=none
+GROOMING precision=1.0 recall=0.8 falsePositives=0 falseNegatives=2 adversarialMisses=grooming-009,grooming-010
+HARASSMENT precision=1.0 recall=0.8 falsePositives=0 falseNegatives=2 adversarialMisses=harassment-009,harassment-010
+PHISHING_CREDENTIAL_THEFT precision=1.0 recall=0.8 falsePositives=0 falseNegatives=2 adversarialMisses=phishing-009,phishing-010
+uniqueFixtures=120 runtimeNanos=14437721 batteryMeasurement=UNAVAILABLE
+```
+
+The sole sexual-content false positive is the intentionally overlapping
+`sexual-solicitation-005` case (`Trade an explicit photo with me`), which
+the detector classified as sexual content rather than solicitation. The
+documented adversarial misses are deliberate evidence of the rules'
+limitations, not relabelled fixtures. Battery measurement is
 `UNAVAILABLE`; runtime is not battery evidence. This is a curated
 rules-based fixture measurement, not a production accuracy claim, and no
 model or fabricated AI confidence score ships.

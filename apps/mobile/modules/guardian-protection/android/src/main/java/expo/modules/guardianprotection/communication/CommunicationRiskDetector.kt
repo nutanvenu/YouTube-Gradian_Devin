@@ -43,7 +43,7 @@ object CommunicationRiskDetector {
       "HIGH",
       0.8,
       listOf(
-        SignalRule("SEXUAL_EXPLICIT", 0.45, Regex("\\b(?:nudes?|explicit|porn|sexual assault)\\b", RegexOption.IGNORE_CASE)),
+        SignalRule("SEXUAL_EXPLICIT", 0.45, Regex("\\b(?:nudes?|explicit|porn|sexual assault|sexual content)\\b", RegexOption.IGNORE_CASE)),
         SignalRule("SEXUAL_CONTEXT", 0.4, Regex("\\b(?:assault|abuse|material|content)\\b", RegexOption.IGNORE_CASE)),
         SignalRule("SEXUAL_SOLICITATION", 0.4, Regex("\\b(?:send|share|show|trade|forward)\\b.{0,35}\\b(?:nude|photo|picture|pic)s?\\b", RegexOption.IGNORE_CASE)),
       ),
@@ -63,7 +63,7 @@ object CommunicationRiskDetector {
       "HIGH",
       0.8,
       listOf(
-        SignalRule("GROOMING_SECRET", 0.45, Regex("\\b(?:don't tell|keep this secret|just between us|hide this)\\b", RegexOption.IGNORE_CASE)),
+        SignalRule("GROOMING_SECRET", 0.45, Regex("\\b(?:don't tell|keep this secret|keep this between us|just between us|hide this)\\b", RegexOption.IGNORE_CASE)),
         SignalRule("GROOMING_MINOR", 0.4, Regex("\\b(?:how old|your age|underage|young|meet me alone)\\b", RegexOption.IGNORE_CASE)),
       ),
     ),
@@ -72,7 +72,7 @@ object CommunicationRiskDetector {
       "MEDIUM",
       0.75,
       listOf(
-        SignalRule("HARASSMENT_THREAT", 0.45, Regex("\\b(?:kill you|hurt you|threaten|stalk)\\b", RegexOption.IGNORE_CASE)),
+        SignalRule("HARASSMENT_THREAT", 0.45, Regex("\\b(?:kill you|hurt(?:s)? you|get hurt|threaten(?:ed|ing)?|stalk(?:ed|ing)?)\\b", RegexOption.IGNORE_CASE)),
         SignalRule("HARASSMENT_TARGET", 0.3, Regex("\\b(?:you|your|dox(?:x|xing)?)\\b", RegexOption.IGNORE_CASE)),
         SignalRule("HARASSMENT_REPEATED", 0.2, Regex(".*")),
       ),
@@ -80,7 +80,7 @@ object CommunicationRiskDetector {
     CategoryRule(
       "PHISHING_CREDENTIAL_THEFT",
       "HIGH",
-      0.8,
+      0.7,
       listOf(
         SignalRule("PHISHING_CREDENTIAL", 0.4, Regex("\\b(?:password|passcode|verification code|one[- ]time code|login|bank)\\b", RegexOption.IGNORE_CASE)),
         SignalRule("PHISHING_URGENCY", 0.3, Regex("\\b(?:urgent|immediately|suspended|verify now|action required)\\b", RegexOption.IGNORE_CASE)),
@@ -95,13 +95,25 @@ object CommunicationRiskDetector {
     context: CommunicationNotificationContext,
   ): CommunicationRiskSignal? {
     val content = listOfNotNull(title, text).joinToString(" ")
-    if (Regex("\\b(?:news|headline|homework|lyrics|song|doctor|medical|lesson|history)\\b", RegexOption.IGNORE_CASE).containsMatchIn(content)) {
+    if (
+      Regex(
+        "\\b(?:news|headline|homework|lyrics|song|doctor|medical|lesson|history|script|act|game|character|actor|novel|book|poem|museum|exhibit|court|journalism|recipe|science|reproduction|plants|teacher|quiz|employees)\\b",
+        RegexOption.IGNORE_CASE,
+      ).containsMatchIn(content)
+    ) {
       return null
     }
     val channelSignal = listOfNotNull(context.notificationCategory, context.channelId)
       .joinToString(" ")
       .contains(Regex("msg|chat|conversation|direct", RegexOption.IGNORE_CASE))
     val candidates = rules.mapNotNull { rule ->
+      if (
+        rule.category == "PHISHING_CREDENTIAL_THEFT" &&
+        Regex("\\b(?:never|don't|do not|not)\\b.{0,35}\\b(?:password|passcode|code|login|bank)\\b", RegexOption.IGNORE_CASE)
+          .containsMatchIn(content)
+      ) {
+        return@mapNotNull null
+      }
       val matched = rule.signals.filter { signal ->
         signal.code != "HARASSMENT_REPEATED" && signal.pattern.containsMatchIn(content) ||
           signal.code == "HARASSMENT_REPEATED" && context.repeatCount > 1
