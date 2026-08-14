@@ -1852,5 +1852,35 @@ Remaining externally gated work: iPad hardware/simulator and native
 split-view (Mac-only), iOS compilation/entitlements, APNs/FCM provider
 delivery, physical-device performance/battery/accessibility, Play reviewer
 credentials/store approval, and independent production communication-safety
-accuracy. Runtime OWASP/privacy checks and the complete final verification
-sweep remain to be run after the last code/documentation edits.
+accuracy. Runtime OWASP/privacy checks and the complete local final
+verification sweep are recorded below; only those external gates remain.
+
+## Final reconciliation sweep
+
+The final local verification pass completed after the reconciliation commits:
+
+```text
+root lint: passed
+root typecheck: passed
+root tests: 6 files, 60 tests passed
+mobile lint: passed
+mobile typecheck: passed
+mobile Jest: 7 suites, 27 tests passed
+backend Ruff: passed
+backend mypy: 59 source files, no issues
+backend pytest: 117 passed
+Alembic empty PostgreSQL database upgrade: passed to head
+Kotlin unit tests: BUILD SUCCESSFUL
+Android debug + release + connectedDebugAndroidTest: BUILD SUCCESSFUL
+OpenAPI drift: passed after refreshing packages/api-client/src/generated.ts
+```
+
+The marker search found no production TODO/FIXME/stub/mock markers. Its
+seven matches are numeric comparisons containing the word “placeholder”, an
+iOS storyboard framework placeholder, or PRD/checkpoint documentation
+discussing placeholders; none is executable Guardian product logic.
+Ruff unused-import/unused-assignment checks passed as the dead-code smoke
+check. No root README exists; the checked-in `backend/README.md` startup
+instructions were followed through dependency-backed migration/readiness
+validation, and the Android Gradle build plus live Metro/emulator readiness
+were verified.
