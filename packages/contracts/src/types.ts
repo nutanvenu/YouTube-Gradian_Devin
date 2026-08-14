@@ -232,8 +232,10 @@ export type GuardianNativeEvent =
       type: "SAFETY_EVENT";
       category: string;
       severity: "LOW" | "MEDIUM" | "HIGH" | "CRITICAL";
+      confidence: number;
       reasonCode?: string;
       appRef?: string;
+      occurredAt: string;
     }
   | { type: "POLICY_APPLIED"; version: number }
   | { type: "PERMISSION_STATE_CHANGED"; capability: string; state: string }

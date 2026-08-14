@@ -173,6 +173,12 @@ async def mutate_policy(
             if not replaced:
                 raise HTTPException(status.HTTP_404_NOT_FOUND, "Routine not found")
         policy["routines"] = routines
+    elif operation == "COMMUNICATION_ENABLED":
+        if not isinstance(body.value, bool):
+            raise HTTPException(status.HTTP_422_UNPROCESSABLE_ENTITY, "Communication setting requires a boolean")
+        communication = policy_mapping(policy, "communication_safety")
+        communication["enabled"] = body.value
+        policy["communication_safety"] = communication
     elif operation == "COMMUNICATION_SENSITIVITY":
         if body.value not in {"LOW", "MEDIUM", "HIGH", "CRITICAL"}:
             raise HTTPException(status.HTTP_422_UNPROCESSABLE_ENTITY, "Invalid sensitivity")

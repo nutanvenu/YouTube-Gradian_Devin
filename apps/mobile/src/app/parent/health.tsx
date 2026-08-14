@@ -22,9 +22,10 @@ export default function ParentHealthRoute() {
         <SectionSurface>
           <Text>On-device capabilities</Text>
           {Object.entries(capabilities.data ?? {}).map(([key, value]) => <CardSurface key={key}><ListRow label={key} value={value.level} /><Text>{value.detail ?? "No degraded reason reported."}</Text></CardSurface>)}
-          <Text>Usage Access lets Guardian measure foreground time. Accessibility lets Guardian identify the foreground app and enforce limits. Communication safety is Android-only best effort with notification-listener consent; raw notification content is processed in memory and discarded. iOS reports this capability as unavailable. Guardian cannot read passwords, messages, or screen content.</Text>
+          <Text>Usage Access lets Guardian measure foreground time. Accessibility lets Guardian identify the foreground app and enforce limits. Communication safety is Android-only best effort with notification-listener consent; raw notification content is processed in memory and discarded. On iPhone/iPad: Not available on iPhone/iPad. Guardian cannot read passwords, messages, or screen content.</Text>
           <PrimaryButton label="Open Usage Access" onPress={() => void GuardianProtection.openUsageAccessSettings()} />
           <PrimaryButton label="Open Accessibility" onPress={() => void GuardianProtection.openAccessibilitySettings()} />
+          <PrimaryButton label="Restore Communication Safety permission" onPress={() => void GuardianProtection.openNotificationAccessSettings()} />
         </SectionSurface>
         <SectionSurface>
           <Text>Protection status</Text>

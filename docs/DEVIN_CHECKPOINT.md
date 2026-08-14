@@ -1615,20 +1615,38 @@ is recorded in `.scratch/emulator/notifications/routing-request.txt` and
 sender is the provider-independent logging implementation; APNs/FCM delivery
 and notification-provider credentials remain unavailable and are not claimed.
 
-Phase 3 communication-safety foundations now include an Android
-`NotificationListenerService`. Notification title/body values are consumed
-only in memory by deterministic documented rules and are not included in
-events, persistence, logs, or parent UI. Only category, severity, reason code,
-and minimized source package are bridged as structured events. iOS reports
-`communication_risk_signals` as `UNAVAILABLE` because it has no general
-notification-listener API. The rules detector has a labelled fixture test;
-accuracy, runtime, and battery measurement results are reported only after
-the focused native test run. No model or fabricated confidence score ships.
+Phase 3 communication safety now includes an Android
+`NotificationListenerService` scoped to an explicit communication-app
+allowlist. Notification title/body values are consumed only in memory by a
+deterministic weighted multi-signal rules detector and are not included in
+events, persistence, logs, or parent UI. The detector requires contextual
+co-occurrence, category-specific thresholds, communication metadata, and
+hard-negative context guards; it emits self-harm, sexual content, sexual
+solicitation, grooming, harassment, and phishing/credential-theft categories
+with confidence derived from matched rule weights and a reason code. Only
+category, severity, confidence, reason code, source package, and native
+timestamp are bridged as structured events. Native deduplication (10 minutes)
+and rate limiting (three events per 15 minutes) bound parent volume. iOS
+reports `communication_risk_signals` as `UNAVAILABLE` because it has no
+general notification-listener API. Parent/child surfaces are opt-in,
+content-free, and expose permission-revocation recovery; iOS UI says
+`Not available on iPhone/iPad`. Communication routing uses immediate critical,
+high-priority, summary medium, and trend-only low dispositions.
 
-Remaining Phase 3 work, in risk order: communication safety with in-memory raw
-content handling and minimized structured events only; honest iOS capability
-reporting and measured classifier accuracy/performance before any classifier
-ships; tablet/adaptive layouts; accessibility audit (TalkBack, Dynamic Type,
-contrast, focus order, reduced motion, RTL); real-path performance and battery
-measurement; observability completeness; OWASP mobile-code-review workflow;
-Google `play-policy-insights` workflow; and remediation of material findings.
+The detector measurement uses 132 labelled fixtures (22 seeds repeated six
+times), including benign risk-word uses, quoted lyrics, news, homework,
+medical, recipe/photo, school/sports/security contexts, and ambiguous
+single-word notifications. The focused native test reported precision and
+recall of 1.0 for each category:
+`SELF_HARM`, `SEXUAL_CONTENT`, `SEXUAL_SOLICITATION`, `GROOMING`,
+`HARASSMENT`, and `PHISHING_CREDENTIAL_THEFT`. Runtime was
+`12,572,544` nanoseconds for 132 fixtures. Battery measurement is
+`UNAVAILABLE`; runtime is not battery evidence. This is a curated
+rules-based fixture measurement, not a production accuracy claim, and no
+model or fabricated AI confidence score ships.
+
+Remaining Phase 3 work, in risk order: tablet/adaptive layouts; accessibility
+audit (TalkBack, Dynamic Type, contrast, focus order, reduced motion, RTL);
+real-path performance and battery measurement; observability completeness;
+OWASP mobile-code-review workflow; Google `play-policy-insights` workflow;
+and remediation of material findings.

@@ -191,6 +191,8 @@ class MinimizedEvent(BaseModel):
     domain: str | None = Field(default=None, max_length=253)
     category: str | None = Field(default=None, max_length=50)
     severity: Literal["LOW", "MEDIUM", "HIGH", "CRITICAL"] | None = None
+    confidence: float | None = Field(default=None, ge=0, le=1)
+    reason_code: str | None = Field(default=None, min_length=1, max_length=100)
     duration_seconds: int = Field(default=0, ge=0, le=86400)
 
     @field_validator("timezone")
@@ -238,6 +240,8 @@ class ActivityEventOut(BaseModel):
     app_ref: str | None
     category: str | None
     severity: str | None
+    confidence: float | None
+    reason_code: str | None
 
 
 class ActivityUsagePointOut(BaseModel):
@@ -311,6 +315,7 @@ class PolicyMutationIn(BaseModel):
         "ROUTINE_ACTIVATE",
         "ROUTINE_DEACTIVATE",
         "COMMUNICATION_SENSITIVITY",
+        "COMMUNICATION_ENABLED",
         "TEMPORARY_EXCEPTION",
     ]
     target: str = Field(min_length=1, max_length=512)

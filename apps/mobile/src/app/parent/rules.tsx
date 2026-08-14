@@ -99,6 +99,39 @@ export default function ParentRulesRoute() {
           {message ? <Text accessibilityLiveRegion="polite">{message}</Text> : null}
         </SectionSurface>
         <SectionSurface>
+          <Text>Communication Safety</Text>
+          <Text>
+            Optional Android notification signals. Message text is analyzed in memory and discarded;
+            parents receive only category, severity, source app, time, confidence, and reason.
+          </Text>
+          <SecondaryButton
+            label={Boolean(record(policy.communication_safety).enabled) ? "Disable Communication Safety" : "Enable Communication Safety"}
+            onPress={() => save({
+              operation: "COMMUNICATION_ENABLED",
+              target: "communication_safety",
+              value: !Boolean(record(policy.communication_safety).enabled),
+            })}
+          />
+          <Text>
+            Alert sensitivity: {String(record(policy.communication_safety).severity_threshold ?? "HIGH")}
+          </Text>
+          {(["HIGH", "MEDIUM", "LOW"] as const).map((threshold) => (
+            <SecondaryButton
+              key={threshold}
+              label={`Use ${threshold} alert threshold`}
+              onPress={() => save({
+                operation: "COMMUNICATION_SENSITIVITY",
+                target: "communication_safety",
+                value: threshold,
+              })}
+            />
+          ))}
+          <Text>
+            iPhone/iPad: Not available on iPhone/iPad. Android requires notification-listener consent;
+            if permission is revoked, signals stop and access can be restored in Settings.
+          </Text>
+        </SectionSurface>
+        <SectionSurface>
           <Text>App controls</Text>
           {apps.map((app) => {
             const rule = appRules.find((candidate) => candidate.app_ref === app.platform_app_id);

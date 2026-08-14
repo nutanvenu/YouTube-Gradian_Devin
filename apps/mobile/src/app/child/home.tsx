@@ -90,10 +90,12 @@ export default function ChildHomeRoute() {
       if (event.type === "SAFETY_EVENT") {
         void api.ingestEvents([{
           event_type: `SAFETY_${event.category}`,
-          occurred_at: new Date().toISOString(),
+          occurred_at: event.occurredAt,
           app_ref: event.appRef ?? null,
           category: event.category,
           severity: event.severity,
+          confidence: event.confidence,
+          reason_code: event.reasonCode,
         }]).catch(() => undefined);
       }
       console.info("GUARDIAN_BRIDGE_EVENT", JSON.stringify(event));
@@ -124,6 +126,10 @@ export default function ChildHomeRoute() {
       if (capabilities.vpn_filtering.level !== "FULL") {
         setProtectionMessage("Web protection permission is required.");
         return;
+      }
+      const communication = policy.data.bundle as { communication_safety?: { enabled?: boolean } };
+      if (communication.communication_safety?.enabled && capabilities.communication_risk_signals?.level === "UNAVAILABLE") {
+        setProtectionMessage("Communication safety permission is required.");
       }
       await GuardianProtection.startProtection();
       await syncReputation();
@@ -203,6 +209,12 @@ export default function ChildHomeRoute() {
                 : "Policy acknowledged by this device."}
             </Text>
             <Text>{protectionMessage}</Text>
+            <Text>
+              Communication Safety checks notification signals from supported communication apps.
+              Guardian analyzes notification text briefly on this device, discards it, and sends
+              only category, severity, confidence, source app, time, and reason. Guardian cannot
+              read message history, passwords, or content outside notifications.
+            </Text>
             {blockedEvent ? (
               <Text>
                 WEB_BLOCKED events: {blockedEventCount} · {blockedEvent.domain} ·{" "}
@@ -216,6 +228,12 @@ export default function ChildHomeRoute() {
               <PrimaryButton
                 label="Enable web protection"
                 onPress={() => void GuardianProtection.requestVpnPermission()}
+              />
+            ) : null}
+            {protectionMessage === "Communication safety permission is required." ? (
+              <PrimaryButton
+                label="Restore communication safety permission"
+                onPress={() => void GuardianProtection.openNotificationAccessSettings()}
               />
             ) : null}
             <PrimaryButton label="My time" onPress={() => router.push("/child/time")} />

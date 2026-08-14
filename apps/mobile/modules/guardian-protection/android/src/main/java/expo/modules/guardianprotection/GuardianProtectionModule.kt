@@ -85,6 +85,8 @@ class GuardianProtectionModule : Module() {
       GuardianPolicyRuntime.install(policyManager)
       val result = policyManager.apply(bundle)
       if (result["applied"] == true) {
+        val communication = bundle["communication_safety"] as? Map<*, *>
+        CommunicationSafetyRuntime.setEnabled(communication?.get("enabled") == true)
         sendEvent("onGuardianEvent", mapOf(
           "type" to "POLICY_APPLIED",
           "version" to result["policyVersion"],
@@ -192,8 +194,10 @@ class GuardianProtectionModule : Module() {
         "type" to "SAFETY_EVENT",
         "category" to signal.category,
         "severity" to signal.severity,
+        "confidence" to signal.confidence,
         "reasonCode" to signal.reasonCode,
         "appRef" to packageName,
+        "occurredAt" to Instant.now().toString(),
       ))
     }
   }

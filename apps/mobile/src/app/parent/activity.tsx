@@ -1,4 +1,4 @@
-import { Text } from "react-native";
+import { Platform, Text } from "react-native";
 import { useLocalSearchParams } from "expo-router";
 import { useQuery } from "@tanstack/react-query";
 import { ApiError, api } from "@/api/client";
@@ -90,6 +90,9 @@ export default function ParentActivityRoute() {
         </SectionSurface>
         <SectionSurface>
           <Text>Web and safety events</Text>
+          <Text>
+            Communication Safety: {Platform.OS === "ios" ? "Not available on iPhone/iPad." : "Android notification signals only."}
+          </Text>
           {activityEvents.length ? activityEvents.map((event) => (
             <CardSurface key={event.id}>
               <ListRow label={event.kind === "WEB" ? "Web event" : "Safety event"} value={event.event_type} />

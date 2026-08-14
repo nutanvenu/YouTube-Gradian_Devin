@@ -22,6 +22,8 @@ class SafetyEvent(TimestampMixin, Base):
     domain: Mapped[str | None] = mapped_column(String(253))
     category: Mapped[str | None] = mapped_column(String(50))
     severity: Mapped[str | None] = mapped_column(String(20))
+    confidence: Mapped[float | None] = mapped_column()
+    reason_code: Mapped[str | None] = mapped_column(String(100))
 
 
 class WebEvent(TimestampMixin, Base):

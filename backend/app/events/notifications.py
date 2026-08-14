@@ -17,6 +17,9 @@ from .models import SafetyEvent, SafetyNotification
 _QUIET_START = 21
 _QUIET_END = 7
 _RATE_LIMIT = 5
+_IMMEDIATE_SEVERITIES = {"HIGH", "CRITICAL"}
+_SUMMARY_SEVERITY = "MEDIUM"
+_SEVERITY_RANK = {"LOW": 0, "MEDIUM": 1, "HIGH": 2, "CRITICAL": 3}
 
 
 def safety_severity(event: SafetyEvent) -> str:
@@ -61,6 +64,19 @@ def _dedupe_key(event: SafetyEvent, severity: str) -> str:
     return hashlib.sha256(raw.encode()).hexdigest()
 
 
+def notification_body(event: SafetyEvent, severity: str) -> str:
+    if event.category == "SELF_HARM" and severity in {"HIGH", "CRITICAL"}:
+        return (
+            "Guardian detected a high-risk self-harm signal in a notification on your "
+            "child's Android device. The message text was analyzed on the device and "
+            "wasn't stored. Consider checking in with your child."
+        )
+    return (
+        f"Guardian detected a {severity.lower()} {event.category or 'safety'} signal "
+        f"from {event.app_ref or 'a communication app'}."
+    )
+
+
 async def route_safety_notifications(
     session: AsyncSession,
     events: Iterable[SafetyEvent],
@@ -68,7 +84,6 @@ async def route_safety_notifications(
     *,
     now: datetime | None = None,
 ) -> list[tuple[UUID, dict[str, object]]]:
-    del sender
     now = now or datetime.now(UTC)
     deliveries: list[tuple[UUID, dict[str, object]]] = []
     for event in events:
@@ -80,6 +95,12 @@ async def route_safety_notifications(
         )
         if child is None or not age_band_allows(child.age_band, severity):
             continue
+        communication = child.policy_document.get("communication_safety", {})
+        if not isinstance(communication, dict) or communication.get("enabled") is not True:
+            continue
+        threshold = communication.get("severity_threshold", "HIGH")
+        if threshold not in _SEVERITY_RANK:
+            threshold = "HIGH"
         parent_ids = set(
             (
                 await session.scalars(
@@ -112,6 +133,16 @@ async def route_safety_notifications(
                 status = "SUPPRESSED_RATE"
             elif quiet and severity != "CRITICAL":
                 status = "SUPPRESSED_QUIET"
+            elif severity == "LOW":
+                status = "SUPPRESSED_TREND"
+            elif severity == _SUMMARY_SEVERITY:
+                status = (
+                    "QUEUED_SUMMARY"
+                    if _SEVERITY_RANK[threshold] <= _SEVERITY_RANK[severity]
+                    else "SUPPRESSED_SUMMARY"
+                )
+            elif _SEVERITY_RANK[severity] < _SEVERITY_RANK[threshold]:
+                status = "SUPPRESSED_THRESHOLD"
             else:
                 status = "QUEUED"
             session.add(
@@ -124,6 +155,8 @@ async def route_safety_notifications(
                     status=status,
                 )
             )
+            if status == "QUEUED_SUMMARY":
+                continue
             if status == "QUEUED":
                 token_exists = await session.scalar(
                     select(PushToken.id).where(
@@ -139,6 +172,7 @@ async def route_safety_notifications(
                                 "severity": severity,
                                 "event_type": event.event_type,
                                 "category": event.category,
+                                "body": notification_body(event, severity),
                                 "child_profile_id": str(child.id),
                             },
                         )

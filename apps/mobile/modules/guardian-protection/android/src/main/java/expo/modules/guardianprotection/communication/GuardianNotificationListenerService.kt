@@ -9,6 +9,12 @@ class GuardianNotificationListenerService : NotificationListenerService() {
     val extras = notification.extras ?: return
     val title = extras.getCharSequence("android.title")?.toString()
     val text = extras.getCharSequence("android.text")?.toString()
-    CommunicationSafetyRuntime.processNotification(sbn.packageName, title, text)
+    CommunicationSafetyRuntime.processNotification(
+      sbn.packageName,
+      title,
+      text,
+      notification.category,
+      notification.channelId,
+    )
   }
 }

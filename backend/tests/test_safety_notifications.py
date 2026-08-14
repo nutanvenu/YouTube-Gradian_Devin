@@ -4,7 +4,8 @@ from datetime import UTC, datetime
 import pytest
 from sqlalchemy import select
 
-from app.events.models import SafetyNotification
+from app.children.models import ChildProfile
+from app.events.models import SafetyEvent, SafetyNotification
 
 
 @pytest.mark.asyncio
@@ -12,6 +13,16 @@ async def test_safety_event_routes_structured_alert_and_deduplicates(
     client, parent_a, paired_device, database_session
 ):
     auth = {"Authorization": f"Bearer {parent_a.token}"}
+    child = await database_session.get(ChildProfile, paired_device.parent.child_id)
+    assert child is not None
+    child.policy_document = {
+        **child.policy_document,
+        "communication_safety": {
+            **child.policy_document["communication_safety"],
+            "enabled": True,
+        },
+    }
+    await database_session.commit()
     token_response = await client.post(
         "/v1/me/push-tokens",
         json={"platform": "ANDROID", "token": "parent-device-token-" + "x" * 20},
@@ -25,6 +36,8 @@ async def test_safety_event_routes_structured_alert_and_deduplicates(
                 "occurred_at": datetime(2024, 1, 2, 12, tzinfo=UTC).isoformat(),
                 "category": "CONTACT",
                 "severity": "HIGH",
+                "confidence": 0.91,
+                "reason_code": "RULE_CONTACT_CONTEXT",
             },
             {
                 "event_type": "SAFETY_RISK",
@@ -50,6 +63,9 @@ async def test_safety_event_routes_structured_alert_and_deduplicates(
     assert len(rows) == 2
     assert {row.severity for row in rows} == {"HIGH"}
     assert {row.status for row in rows} == {"QUEUED", "SUPPRESSED_DEDUPE"}
+    safety_events = list((await database_session.scalars(select(SafetyEvent))).all())
+    assert {event.confidence for event in safety_events} == {0.91, None}
+    assert {event.reason_code for event in safety_events} == {"RULE_CONTACT_CONTEXT", None}
 
 
 @pytest.mark.asyncio
@@ -57,6 +73,16 @@ async def test_safety_routing_persists_quiet_dedupe_and_rate_outcomes(
     client, parent_a, paired_device, database_session
 ):
     auth = {"Authorization": f"Bearer {parent_a.token}"}
+    child = await database_session.get(ChildProfile, paired_device.parent.child_id)
+    assert child is not None
+    child.policy_document = {
+        **child.policy_document,
+        "communication_safety": {
+            **child.policy_document["communication_safety"],
+            "enabled": True,
+        },
+    }
+    await database_session.commit()
     token_response = await client.post(
         "/v1/me/push-tokens",
         json={"platform": "ANDROID", "token": "parent-routing-token-" + "x" * 20},

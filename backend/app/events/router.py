@@ -77,6 +77,8 @@ async def family_activity(
             "app_ref": event.app_ref,
             "category": event.category,
             "severity": None,
+            "confidence": None,
+            "reason_code": None,
         }
         for event in web_events
     ]
@@ -90,6 +92,8 @@ async def family_activity(
             "app_ref": event.app_ref,
             "category": event.category,
             "severity": event.severity,
+            "confidence": event.confidence,
+            "reason_code": event.reason_code,
         }
         for event in safety_events
     )

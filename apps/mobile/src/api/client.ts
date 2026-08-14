@@ -31,7 +31,9 @@ export type PolicyMutationInput = {
     | "ROUTINE_UPDATE"
     | "ROUTINE_DELETE"
     | "ROUTINE_ACTIVATE"
-    | "ROUTINE_DEACTIVATE";
+    | "ROUTINE_DEACTIVATE"
+    | "COMMUNICATION_SENSITIVITY"
+    | "COMMUNICATION_ENABLED";
   target: string;
   value?: unknown;
   expires_at?: string;
@@ -74,6 +76,8 @@ export type ActivityEvent = {
   app_ref: string | null;
   category: string | null;
   severity: "LOW" | "MEDIUM" | "HIGH" | "CRITICAL" | null;
+  confidence: number | null;
+  reason_code: string | null;
 };
 export type ActivityUsagePoint = {
   app_ref: string | null;
@@ -99,6 +103,8 @@ export type DeviceEvent = {
   domain?: string | null;
   category?: string | null;
   severity?: "LOW" | "MEDIUM" | "HIGH" | "CRITICAL" | null;
+  confidence?: number | null;
+  reason_code?: string | null;
   timezone?: string;
   duration_seconds?: number;
 };

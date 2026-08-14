@@ -179,7 +179,7 @@ def default_policy(
         "routines": [_bedtime(band)],
         "temporary_overrides": [],
         "communication_safety": {
-            "enabled": True,
+            "enabled": False,
             "severity_threshold": "HIGH",
             "android_notification_signals": True,
             "android_accessibility_signals": band in {"YOUNG_CHILD", "PRETEEN"},
