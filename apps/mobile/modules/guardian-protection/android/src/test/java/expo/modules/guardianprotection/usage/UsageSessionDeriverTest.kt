@@ -47,4 +47,22 @@ class UsageSessionDeriverTest {
     assertEquals(300_000, slices.first { it.packageName == "com.one" }.durationMs)
     assertEquals(120_000, slices.first { it.packageName == "com.two" }.durationMs)
   }
+
+  @Test
+  fun carriesForegroundSessionIntoRangeStart() {
+    val beforeRange = Instant.parse("2026-01-01T09:55:00Z")
+    val start = Instant.parse("2026-01-01T10:00:00Z")
+    val end = Instant.parse("2026-01-01T10:07:00Z")
+    val slices = UsageSessionDeriver.derive(
+      events = listOf(
+        UsageEvent("com.example.app", beforeRange, UsageEventType.RESUMED),
+        UsageEvent("com.example.app", end, UsageEventType.PAUSED),
+      ),
+      rangeStart = start,
+      rangeEnd = end,
+      zone = ZoneId.of("UTC"),
+    )
+
+    assertEquals(420_000, slices.single().durationMs)
+  }
 }

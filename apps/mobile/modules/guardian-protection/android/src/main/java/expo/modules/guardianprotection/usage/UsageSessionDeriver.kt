@@ -46,7 +46,7 @@ object UsageSessionDeriver {
 
     events
       .asSequence()
-      .filter { !it.timestamp.isBefore(rangeStart) && !it.timestamp.isAfter(rangeEnd) }
+      .filter { !it.timestamp.isAfter(rangeEnd) }
       .sortedBy { it.timestamp }
       .forEach { event ->
         when (event.type) {
@@ -54,7 +54,7 @@ object UsageSessionDeriver {
             if (activePackage != event.packageName) close(event.timestamp)
             if (activePackage == null) {
               activePackage = event.packageName
-              activeSince = event.timestamp
+              activeSince = event.timestamp.coerceAtLeast(rangeStart)
             }
           }
           UsageEventType.PAUSED, UsageEventType.STOPPED -> {

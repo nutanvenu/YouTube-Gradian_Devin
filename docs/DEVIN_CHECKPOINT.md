@@ -198,6 +198,9 @@ Implemented in the local module, but not yet accepted on the emulator:
 - Local-midnight splitting using the selected `ZoneId`, daily app/category/device
   aggregation, encrypted daily snapshots, max-on-merge monotonicity, and
   summary date filtering.
+- Usage collection queries a preceding event window so a foreground session
+  already active at local midnight/range start is carried into the day rather
+  than undercounted.
 - Warning/expiry threshold tracking and runtime event hooks for app/category/
   device daily limits. Threshold state is reset when a new policy is installed.
 - `PackageManager.getInstalledApplications()` inventory with launcher-query
@@ -215,6 +218,9 @@ Focused JVM verification after these edits:
 ./gradlew :guardian-protection:testDebugUnitTest --no-daemon
 BUILD SUCCESSFUL in 26s
 ```
+
+The usage-session suite includes a regression case for a foreground session
+that began before the collection range and passed as part of that run.
 
 TypeScript verification:
 

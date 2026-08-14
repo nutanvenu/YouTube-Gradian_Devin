@@ -20,7 +20,7 @@ class UsageCollector(
     val zone = ZoneId.of(timezone ?: ZoneId.systemDefault().id)
     val localNow = now.atZone(zone)
     val dayStart = localNow.toLocalDate().atStartOfDay(zone).toInstant()
-    val events = query(dayStart, now)
+    val events = query(dayStart.minusSeconds(24 * 60 * 60), now)
     val slices = UsageSessionDeriver.derive(events, dayStart, now, zone)
     val appTotals = slices.groupBy { it.packageName }.mapValues { (_, values) -> values.sumOf { it.durationMs } }
     val categoryTotals = appTotals.entries.groupBy { inventory.categoryFor(it.key) }
