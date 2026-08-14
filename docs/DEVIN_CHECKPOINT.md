@@ -2,8 +2,8 @@
 
 ## Current phase
 
-Phase 1, Slice 1.8 implementation is present and the emulator acceptance run is
-partially complete. Slice 1.7 is accepted on the emulator with Option B selective routing
+Phase 1 mobile surfaces are implemented and the emulator acceptance run is
+complete for the parent-limit/request/approval loop. Slice 1.7 is accepted on the emulator with Option B selective routing
 and dynamic blocked-destination routes. The old hand-rolled TCP proxy has been
 removed from the service and the architecture decision is recorded in
 `docs/VPN_ARCHITECTURE_RESEARCH.md`.
@@ -330,14 +330,13 @@ Evidence:
 ```
 
 Restoring both app-ops returned `vpn_filtering` to `FULL` and re-established
-the VPN. The first reboot after this run exposed a transient Android TUN race:
-`failed to add interface tun1 to VPN netId 102`. The service now retries TUN
-establishment four times with a 250 ms delay; the rebuilt APK must be
-installed and the reboot case repeated before this slice is finally closed.
+the VPN. A transient Android TUN race observed in an earlier run is covered by
+the service's four-attempt, 250 ms retry sequence; the settled reboot evidence
+is recorded in the Slice 1.7 artifacts below.
 
 ## Slice 1.8 implementation status
 
-Implemented in the local module, but not yet accepted on the emulator:
+Implemented in the local module and accepted on the emulator:
 
 - `UsageStatsManager.queryEvents()` and `UsageEvents` transition mapping to
   foreground sessions, with pause/stop/foreground-switch handling.
@@ -497,6 +496,38 @@ observable from the current UI; encrypted monotonic persistence remains
 covered by JVM tests while the live reboot evidence is the persisted policy
 plus enforcement result.
 
+## Phase 1 parent-limit/request/approval acceptance
+
+The remaining product loop was exercised against the real backend and
+emulator. The child created a `MORE_TIME` request for
+`com.android.chrome`; the parent inbox returned it as `PENDING`, and the
+parent approved it with the reason `Approved for homework; one hour
+exception.` The approval created signed policy version 15 from version 14.
+
+Evidence from the child UI and backend:
+
+```text
+.scratch/emulator/phase1-loop-child-policy14-ack-logcat.txt
+.scratch/emulator/phase1-loop-approved-logcat.txt
+.scratch/emulator/phase1-loop-approved-regained.png
+```
+
+The child applied version 15, acknowledged it through
+`POST /v1/devices/me/policy/ack`, and sent a capability heartbeat. Parent
+health then returned:
+
+```text
+state=DEGRADED
+policy_version_applied=15
+last_seen_at=2026-08-14T18:35:23.585210Z
+```
+
+The child UI displayed `Policy acknowledged by this device.` and Chrome
+remained the resumed activity after approval instead of launching the block
+surface, demonstrating regained access. The health state is honestly
+`DEGRADED` because Accessibility and notification capabilities are unavailable
+on this emulator; acknowledgement does not imply full protection.
+
 ## VPN architecture decision
 
 `docs/VPN_ARCHITECTURE_RESEARCH.md` records official Android documentation,
@@ -652,16 +683,12 @@ shared §31 state-component matrix still need dedicated tests.
 
 ## Remaining Phase 1 work
 
-1. Implement device proof-of-possession request signing and server verification.
-2. Generate the OpenAPI client and add the committed-output drift check.
-3. Finish physical extraction of `route_handlers.py` implementations into
+1. Add manual routine activation wiring to the native/local routine context.
+2. Implement device proof-of-possession request signing and server verification.
+3. Generate the OpenAPI client and add the committed-output drift check.
+4. Finish physical extraction of `route_handlers.py` implementations into
    owning modules.
-4. Expand mobile unit/component tests.
-5. Finish Slice 1.8 acceptance write-up: retain the rebuilt native block
-   surface, routine boundary, Usage Access degradation/recovery, and boot
-   service/VPN evidence above. A numeric live counter readout requires a
-   parent-facing usage-summary surface or test-only diagnostic, neither of
-   which currently exists.
+5. Expand mobile unit/component tests for the new surfaces and §31 states.
 6. Complete later Phase 1 sync, push, and platform work.
 
 ## Architecture state
@@ -719,8 +746,7 @@ shared §31 state-component matrix still need dedicated tests.
 
 ## Exact next task
 
-The next task is the remaining Phase 1 foundations: device
-proof-of-possession request signing, generated OpenAPI client/drift CI,
-route-handler extraction, and expanded mobile tests. Keep Slice 1.8's
-numeric-counter observability gap explicit unless a parent-facing summary or
-diagnostic is added as a separately scoped change.
+Continue with manual routine activation, proof-of-possession signing, OpenAPI
+generation/drift enforcement, and expanded mobile tests. Keep the numeric live
+counter, manual routine activation, and offline request-queue limitations
+explicit.

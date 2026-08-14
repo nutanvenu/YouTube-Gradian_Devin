@@ -126,17 +126,19 @@ export function PrimaryButton({
   );
 }
 
-export function SecondaryButton({ label, onPress }: { label: string; onPress: () => void }) {
+export function SecondaryButton({ label, onPress, disabled }: { label: string; onPress: () => void; disabled?: boolean }) {
   const palette = usePalette();
   return (
     <Pressable
       accessibilityRole="button"
       accessibilityLabel={label}
+      disabled={disabled}
       onPress={onPress}
       style={({ pressed }) => [
         styles.button,
         { borderColor: palette.border, backgroundColor: palette.surface },
         pressed && styles.pressed,
+        disabled && styles.disabled,
       ]}
     >
       <Text style={[styles.buttonText, { color: palette.text }]}>{label}</Text>

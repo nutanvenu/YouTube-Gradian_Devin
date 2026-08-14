@@ -31,6 +31,7 @@ export default function ChildHomeRoute() {
   const [blockedEventCount, setBlockedEventCount] = useState(0);
   const [appBlockedMessage, setAppBlockedMessage] = useState<string | null>(null);
   const [timeMessage, setTimeMessage] = useState<string | null>(null);
+  const [acknowledgedVersion, setAcknowledgedVersion] = useState<number | null>(null);
 
   useEffect(() => {
     const subscription = GuardianProtection.subscribe((event) => {
@@ -68,6 +69,14 @@ export default function ChildHomeRoute() {
         return;
       }
       await GuardianProtection.startProtection();
+      await api.acknowledgePolicy(policy.data.policy_version);
+      const protectionStatus = await GuardianProtection.getProtectionStatus();
+      const currentCapabilities = await GuardianProtection.getCapabilities();
+      await api.heartbeat({
+        protection_state: protectionStatus.health,
+        capabilities: currentCapabilities,
+      });
+      setAcknowledgedVersion(policy.data.policy_version);
       setProtectionMessage("Web protection is active for DNS and known blocked destinations. Other traffic may bypass Guardian.");
     };
     void syncProtection().catch(() => {
@@ -102,7 +111,7 @@ export default function ChildHomeRoute() {
           <SectionSurface>
             <Text>Policy version: {policy.data?.policy_version ?? "Unknown"}</Text>
             <Text>
-              {policy.data?.version_mismatch
+              {policy.data?.version_mismatch && acknowledgedVersion !== policy.data.policy_version
                 ? "Waiting for device acknowledgement."
                 : "Policy acknowledged by this device."}
             </Text>
@@ -122,6 +131,8 @@ export default function ChildHomeRoute() {
                 onPress={() => void GuardianProtection.requestVpnPermission()}
               />
             ) : null}
+            <PrimaryButton label="My time" onPress={() => router.push("/child/time")} />
+            <PrimaryButton label="Ask for help" onPress={() => router.push("/child/requests")} />
           </SectionSurface>
         </DataState>
       )}

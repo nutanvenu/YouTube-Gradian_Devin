@@ -2,10 +2,12 @@ import { useState } from "react";
 import { useRouter } from "expo-router";
 import { Text } from "react-native";
 import { ApiError, api } from "@/api/client";
+import { useSession } from "@/auth/session";
 import { PrimaryButton, ScreenScaffold, SectionSurface, TextField } from "@/design-system";
 
 export default function ParentSetupRoute() {
   const router = useRouter();
+  const { setFamilyId } = useSession();
   const [family, setFamily] = useState("");
   const [child, setChild] = useState("");
   const [dob, setDob] = useState("");
@@ -15,6 +17,7 @@ export default function ParentSetupRoute() {
     try {
       const createdFamily = await api.createFamily(family);
       const createdChild = await api.createChild(createdFamily.id, { name: child, date_of_birth: dob, timezone });
+      await setFamilyId(createdFamily.id);
       setMessage(`Age band: ${createdChild.age_band}`);
       router.replace({ pathname: "/parent/home", params: { familyId: createdFamily.id } });
     } catch (error) { setMessage(error instanceof ApiError ? error.message : "Setup failed."); }

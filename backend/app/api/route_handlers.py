@@ -283,6 +283,23 @@ async def create_family(
     return family
 
 
+@app.get("/v1/families", response_model=list[FamilyOut])
+async def list_families(
+    parent: Parent = Depends(current_parent),
+    session: AsyncSession = Depends(get_session),
+) -> list[Family]:
+    return list(
+        (
+            await session.scalars(
+                select(Family)
+                .join(FamilyGuardian, FamilyGuardian.family_id == Family.id)
+                .where(FamilyGuardian.parent_id == parent.id)
+                .order_by(Family.created_at.asc())
+            )
+        ).all()
+    )
+
+
 @app.get("/v1/families/{family_id}", response_model=FamilyOut)
 async def read_family(
     family_id: UUID,
@@ -1054,6 +1071,54 @@ async def family_health(
                 }
             )
     return result
+
+
+@app.get("/v1/families/{family_id}/activity")
+async def family_activity(
+    family_id: UUID,
+    parent: Parent = Depends(current_parent),
+    session: AsyncSession = Depends(get_session),
+) -> list[dict[str, object]]:
+    await family_for_parent(session, parent, family_id)
+    device_ids = select(Device.id).join(
+        ChildProfile, ChildProfile.id == Device.child_profile_id
+    ).where(ChildProfile.family_id == family_id)
+    web_rows = list(
+        (
+            await session.scalars(
+                select(WebEvent).where(WebEvent.device_id.in_(device_ids)).order_by(WebEvent.occurred_at.desc()).limit(100)
+            )
+        ).all()
+    )
+    safety_rows = list(
+        (
+            await session.scalars(
+                select(SafetyEvent).where(SafetyEvent.device_id.in_(device_ids)).order_by(SafetyEvent.occurred_at.desc()).limit(100)
+            )
+        ).all()
+    )
+    events = [
+        {
+            "id": str(row.id),
+            "kind": "WEB",
+            "event_type": row.event_type,
+            "occurred_at": row.occurred_at,
+            "domain": row.domain,
+            "app_ref": row.app_ref,
+        }
+        for row in web_rows
+    ] + [
+        {
+            "id": str(row.id),
+            "kind": "SAFETY",
+            "event_type": row.event_type,
+            "occurred_at": row.occurred_at,
+            "domain": row.domain,
+            "app_ref": row.app_ref,
+        }
+        for row in safety_rows
+    ]
+    return sorted(events, key=lambda event: event["occurred_at"], reverse=True)[:100]
 
 
 @app.websocket("/v1/ws/sync")

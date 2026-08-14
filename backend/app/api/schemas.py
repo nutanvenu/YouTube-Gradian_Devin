@@ -6,7 +6,7 @@ from uuid import UUID
 from pydantic import BaseModel, ConfigDict, EmailStr, Field, field_validator, model_validator
 
 PASSWORD_WORDS = re.compile(r"\S+")
-CAPABILITY_LEVELS = {"FULL", "BEST_EFFORT", "UNAVAILABLE", "REGION_LIMITED"}
+CAPABILITY_LEVELS = {"FULL", "LIMITED", "BEST_EFFORT", "UNAVAILABLE", "REGION_LIMITED"}
 CAPABILITY_KEYS = {
     "app_usage",
     "app_blocking",
@@ -162,7 +162,7 @@ class DeviceAckIn(BaseModel):
 class CapabilityStatusIn(BaseModel):
     model_config = ConfigDict(extra="forbid", populate_by_name=True)
 
-    level: Literal["FULL", "BEST_EFFORT", "UNAVAILABLE", "REGION_LIMITED"]
+    level: Literal["FULL", "LIMITED", "BEST_EFFORT", "UNAVAILABLE", "REGION_LIMITED"]
     detail: str | None = None
     updated_at: datetime = Field(alias="updatedAt")
 
