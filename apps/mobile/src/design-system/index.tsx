@@ -188,7 +188,7 @@ export function DataState({
   state,
   onRetry,
   children,
-}: PropsWithChildren<{ state: "initial" | "loading" | "loaded" | "empty" | "offline" | "stale" | "permission-denied" | "platform-unavailable" | "error" | "pending-sync"; onRetry?: () => void }>) {
+}: PropsWithChildren<{ state: "initial" | "loading" | "loaded" | "empty" | "offline" | "stale" | "permission-denied" | "platform-unavailable" | "error" | "revoked" | "pending-sync"; onRetry?: () => void }>) {
   const palette = usePalette();
   if (state === "loaded") return <>{children}</>;
   if (state === "loading" || state === "initial") return <ActivityIndicator accessibilityLabel="Loading" />;
@@ -199,12 +199,29 @@ export function DataState({
     "permission-denied": "Permission is required to continue.",
     "platform-unavailable": "This feature is unavailable on this platform.",
     error: "We couldn't load this data.",
+    revoked: "Protection removed. This device is no longer linked to the family.",
     "pending-sync": "Changes are waiting to sync.",
   }[state];
   return (
     <View style={styles.state}>
       <Text style={[styles.body, { color: palette.text }]}>{message}</Text>
       {onRetry && state === "error" ? <SecondaryButton label="Retry" onPress={onRetry} /> : null}
+    </View>
+  );
+}
+
+export function ProtectionRemovedState({ onRecover }: { onRecover: () => void }) {
+  const palette = usePalette();
+  return (
+    <View style={styles.state}>
+      <Text style={[styles.body, { color: palette.text }]}>Protection removed</Text>
+      <Text style={[styles.body, { color: palette.text }]}>
+        This device is no longer linked to the family.
+      </Text>
+      <Text style={[styles.caption, { color: palette.secondaryText }]}>
+        Ask a parent to pair this device again.
+      </Text>
+      <SecondaryButton label="Return to setup" onPress={onRecover} />
     </View>
   );
 }

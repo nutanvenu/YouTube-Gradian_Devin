@@ -51,12 +51,13 @@ export class GuardianApiClient {
   private async request<T>(path: string, init: RequestInit = {}, retry = true): Promise<T> {
     const accessToken = await sessionStorage.getAccessToken();
     const deviceToken = await sessionStorage.getDeviceToken();
+    const deviceAuthenticated = Boolean(deviceToken && path.startsWith("/v1/devices"));
     const headers = new Headers(init.headers);
     headers.set("Content-Type", "application/json");
-    if (deviceToken && path.startsWith("/v1/devices")) headers.set("Authorization", `Bearer ${deviceToken}`);
+    if (deviceAuthenticated) headers.set("Authorization", `Bearer ${deviceToken}`);
     else if (accessToken) headers.set("Authorization", `Bearer ${accessToken}`);
     const response = await fetch(`${this.baseUrl}${path}`, { ...init, headers });
-    if (response.status === 401 && retry && accessToken) {
+    if (response.status === 401 && retry && accessToken && !deviceAuthenticated) {
       const refreshToken = await sessionStorage.getRefreshToken();
       if (refreshToken) {
         const refreshed = await fetch(`${this.baseUrl}/v1/auth/refresh`, { method: "POST", headers: { "Content-Type": "application/json" }, body: JSON.stringify({ refresh_token: refreshToken }) });
