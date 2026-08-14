@@ -61,6 +61,41 @@ The filtered artifact reports `count=1` and contains no packet-level event.
 The route dump also contains only resolver and learned blocked-destination
 routes; no default route is installed.
 
+## Fresh re-confirmation
+
+The same behavior was re-run against policy version 17 after the mobile
+surface work. The parent mutation output was:
+
+```text
+DOMAIN_BLOCK example.org -> policy_version=16
+DOMAIN_ALLOW example.com -> policy_version=17
+```
+
+The clean Chrome run produced a learned route and exactly one attributed
+semantic event:
+
+```text
+2606:4700:10::6814:1a88/128 -> tun0
+WEB_BLOCKED {"domain":"example.org","category":null,
+  "appRef":"com.android.chrome","reasonCode":"EXPLICIT_TARGET_RULE"}
+web_blocked_count=1
+```
+
+Evidence:
+
+```text
+.scratch/emulator/slice17-final2-blocked-resolver.png
+.scratch/emulator/slice17-final2-direct-ip.png
+.scratch/emulator/slice17-final2-allowed.png
+.scratch/emulator/slice17-final2-routes-after-resolve.txt
+.scratch/emulator/slice17-final2-semantic-events.txt
+.scratch/emulator/slice17-final2-event-count.txt
+```
+
+The filtered capture contained no packet-level bridge event. The lifecycle
+and connectivity evidence remains in the `option-b-v7-*` artifacts listed
+above.
+
 ## Limitations
 
 The direct-IP assertion was captured against the learned public IPv6 address.

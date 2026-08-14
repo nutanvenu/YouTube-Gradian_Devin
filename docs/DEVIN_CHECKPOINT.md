@@ -744,6 +744,59 @@ shared §31 state-component matrix still need dedicated tests.
 - Backend startup now refuses missing/invalid signing configuration. The local
   ignored `backend/.env` contains a generated key for the current process.
 
+## Fresh direct-IP re-confirmation
+
+The upstream-resolve-then-route implementation was re-confirmed on the
+currently installed debug APK with signed policy version 17. The parent
+mutation sequence was:
+
+```text
+DOMAIN_BLOCK example.org -> policy_version=16
+DOMAIN_ALLOW example.com -> policy_version=17
+```
+
+Chrome was used as the sandboxed network client. In one clean logcat capture:
+
+- `https://example.org` failed at the resolver;
+- the upstream response learned
+  `2606:4700:10::6814:1a88` and installed
+  `2606:4700:10::6814:1a88/128` in the VPN route set;
+- direct navigation to
+  `https://[2606:4700:10::6814:1a88]/` failed through the same Chrome
+  process;
+- `https://example.com` succeeded;
+- exactly one semantic event crossed the JS bridge:
+
+```text
+WEB_BLOCKED {"domain":"example.org","category":null,
+  "appRef":"com.android.chrome","reasonCode":"EXPLICIT_TARGET_RULE"}
+web_blocked_count=1
+```
+
+The filtered capture contained no packet-level bridge event:
+
+```text
+.scratch/emulator/slice17-final2-blocked-resolver.png
+.scratch/emulator/slice17-final2-direct-ip.png
+.scratch/emulator/slice17-final2-allowed.png
+.scratch/emulator/slice17-final2-routes-after-resolve.txt
+.scratch/emulator/slice17-final2-semantic-events.txt
+.scratch/emulator/slice17-final2-event-count.txt
+```
+
+The existing post-change lifecycle artifacts remain valid for this
+implementation: VPN revocation reported `vpn_filtering=UNAVAILABLE`,
+restored consent returned it to `FULL`, backend-down traffic remained
+available, and ordinary traffic remained available with no active VPN/no
+policy:
+
+```text
+.scratch/emulator/option-b-v7-vpn-revoked-logcat.txt
+.scratch/emulator/option-b-v7-vpn-reconsent-final-logcat.txt
+.scratch/emulator/option-b-v7-backend-down-allowed.png
+.scratch/emulator/option-b-v7-no-policy-allowed-final.png
+```
+
 ## Exact next task
 
 Continue with manual routine activation, proof-of-possession signing, OpenAPI
