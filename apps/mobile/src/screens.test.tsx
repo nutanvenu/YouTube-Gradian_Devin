@@ -16,6 +16,13 @@ jest.mock("expo-router", () => ({
 }));
 
 jest.mock("@/api/client", () => ({
+  ApiError: class ApiError extends Error {
+    status: number;
+    constructor(message: string, status: number) {
+      super(message);
+      this.status = status;
+    }
+  },
   api: {
     mutatePolicy: (...args: unknown[]) => {
       mockMutatePolicy(...args);
@@ -60,6 +67,7 @@ jest.mock("@tanstack/react-query", () => ({
     const state = mockQueryState.get(JSON.stringify(queryKey));
     return {
       data: state?.data,
+      error: state?.error,
       isLoading: state?.isLoading ?? false,
       isError: state?.isError ?? false,
       isStale: state?.isStale ?? false,
@@ -212,6 +220,16 @@ test("Activity renders empty data distinctly from endpoint errors", () => {
   expect(loaded.getByText("Unknown · this family has not reported activity yet.")).toBeTruthy();
   expect(loaded.getByText("Unknown · no backend events are available for this family.")).toBeTruthy();
   expect(loaded.getByText("Unknown · no usage aggregates are available for this family.")).toBeTruthy();
+});
+
+test("Activity renders permission-denied for an expired session", () => {
+  const ApiError = jest.requireMock("@/api/client").ApiError as new (message: string, status: number) => Error & { status: number };
+  setQuery(["activity", "family-1"], { error: new ApiError("Unauthorized", 401), isError: true });
+  setQuery(["activity-usage", "family-1"], { data: [] });
+  setQuery(["usage-summary"], { data: { byTarget: {} } });
+  const screen = render(<ActivityScreen />);
+  expect(screen.getByText("Permission is required to continue.")).toBeTruthy();
+  expect(screen.queryByText("We couldn't load this data.")).toBeNull();
 });
 
 test("screen test harness can render a state marker", () => {

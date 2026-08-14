@@ -1,7 +1,7 @@
 import { Text } from "react-native";
 import { useLocalSearchParams } from "expo-router";
 import { useQuery } from "@tanstack/react-query";
-import { api } from "@/api/client";
+import { ApiError, api } from "@/api/client";
 import { useNetworkStatus } from "@/state/network";
 import { GuardianProtection } from "../../../modules/guardian-protection/src";
 import { CardSurface, DataState, ListRow, ScreenScaffold, SectionSurface } from "@/design-system";
@@ -25,8 +25,14 @@ export default function ParentActivityRoute() {
   const activityUsagePoints = activityUsage.data ?? [];
   const usageTargets = usage.data?.byTarget ?? {};
   const hasData = activityEvents.length > 0 || activityUsagePoints.length > 0 || Object.keys(usageTargets).length > 0;
+  const permissionDenied =
+    [activity.error, activityUsage.error, usage.error].some(
+      (error) => error instanceof ApiError && error.status === 401,
+    );
   const state = activity.isLoading || activityUsage.isLoading || usage.isLoading
     ? "loading"
+    : permissionDenied
+      ? "permission-denied"
     : activity.isError || activityUsage.isError || usage.isError
       ? "error"
       : isOffline
