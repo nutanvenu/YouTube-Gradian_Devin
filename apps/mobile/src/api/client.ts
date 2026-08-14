@@ -81,6 +81,14 @@ export type ActivityUsagePoint = {
   event_type: string;
   occurred_at: string;
 };
+export type DeviceEvent = {
+  event_type: string;
+  occurred_at: string;
+  app_ref?: string | null;
+  domain?: string | null;
+  category?: string | null;
+  duration_seconds?: number;
+};
 
 const configuredApiUrl = typeof process.env.EXPO_PUBLIC_API_URL === "string"
   ? process.env.EXPO_PUBLIC_API_URL.replace(/\/+$/, "")
@@ -195,6 +203,13 @@ export class GuardianApiClient {
     return this.request<undefined>("/v1/devices/me/heartbeat", {
       method: "POST",
       body: JSON.stringify(body),
+    });
+  }
+  ingestEvents(events: DeviceEvent[]) {
+    return this.request<undefined>("/v1/devices/me/events", {
+      method: "POST",
+      headers: { "Idempotency-Key": `event-batch:${Date.now()}:${Math.random().toString(36).slice(2)}` },
+      body: JSON.stringify({ events }),
     });
   }
   mutatePolicy(familyId: string, childId: string, input: PolicyMutationInput) {

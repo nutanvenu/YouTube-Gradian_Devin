@@ -1,4 +1,4 @@
-import { useEffect, useState } from "react";
+import { useEffect, useRef, useState } from "react";
 import { useQuery } from "@tanstack/react-query";
 import { useRouter } from "expo-router";
 import { AppState, Text } from "react-native";
@@ -34,6 +34,7 @@ export default function ChildHomeRoute() {
   const [appBlockedMessage, setAppBlockedMessage] = useState<string | null>(null);
   const [timeMessage, setTimeMessage] = useState<string | null>(null);
   const [acknowledgedVersion, setAcknowledgedVersion] = useState<number | null>(null);
+  const usageUploaded = useRef(false);
 
   useEffect(() => {
     let mounted = true;
@@ -52,6 +53,13 @@ export default function ChildHomeRoute() {
       if (event.type === "WEB_BLOCKED") {
         setBlockedEvent(event);
         setBlockedEventCount((count) => count + 1);
+        void api.ingestEvents([{
+          event_type: event.type,
+          occurred_at: new Date().toISOString(),
+          app_ref: event.appRef ?? null,
+          domain: event.domain,
+          category: event.category ?? null,
+        }]).catch(() => undefined);
       }
       console.info("GUARDIAN_BRIDGE_EVENT", JSON.stringify(event));
       if (event.type === "APP_BLOCKED") {
@@ -92,6 +100,23 @@ export default function ChildHomeRoute() {
       });
       setAcknowledgedVersion(policy.data.policy_version);
       setProtectionMessage("Web protection is active for DNS and known blocked destinations. Other traffic may bypass Guardian.");
+      if (!usageUploaded.current) {
+        usageUploaded.current = true;
+        const usage = await GuardianProtection.getUsageSummary({
+          start: new Date(Date.now() - 24 * 60 * 60 * 1000).toISOString(),
+          end: new Date().toISOString(),
+        });
+        const occurredAt = new Date().toISOString();
+        const events = Object.entries(usage.byTarget)
+          .filter(([, seconds]) => seconds > 0)
+          .map(([appRef, seconds]) => ({
+            event_type: "APP_USAGE",
+            occurred_at: occurredAt,
+            app_ref: appRef,
+            duration_seconds: Math.min(Math.round(seconds), 86400),
+          }));
+        if (events.length) await api.ingestEvents(events);
+      }
     };
     void syncProtection().catch(() => {
       if (!cancelled) setProtectionMessage("Web protection is unavailable.");
