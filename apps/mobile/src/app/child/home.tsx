@@ -29,13 +29,25 @@ export default function ChildHomeRoute() {
   const [protectionMessage, setProtectionMessage] = useState("Checking web protection…");
   const [blockedEvent, setBlockedEvent] = useState<Extract<GuardianNativeEvent, { type: "WEB_BLOCKED" }> | null>(null);
   const [blockedEventCount, setBlockedEventCount] = useState(0);
+  const [appBlockedMessage, setAppBlockedMessage] = useState<string | null>(null);
+  const [timeMessage, setTimeMessage] = useState<string | null>(null);
 
   useEffect(() => {
     const subscription = GuardianProtection.subscribe((event) => {
-      if (event.type !== "WEB_BLOCKED") return;
-      setBlockedEvent(event);
-      setBlockedEventCount((count) => count + 1);
+      if (event.type === "WEB_BLOCKED") {
+        setBlockedEvent(event);
+        setBlockedEventCount((count) => count + 1);
+      }
       console.info("GUARDIAN_BRIDGE_EVENT", JSON.stringify(event));
+      if (event.type === "APP_BLOCKED") {
+        setAppBlockedMessage(`${event.appRef} · ${event.reasonCode}`);
+      }
+      if (event.type === "TIME_WARNING") {
+        setTimeMessage(`${event.targetRef} · ${event.remainingSeconds}s remaining`);
+      }
+      if (event.type === "TIME_EXPIRED") {
+        setTimeMessage(`${event.targetRef} · time expired`);
+      }
     });
     return () => subscription.remove();
   }, []);
@@ -51,13 +63,12 @@ export default function ChildHomeRoute() {
         return;
       }
       const capabilities = await GuardianProtection.getCapabilities();
-      if (cancelled) return;
       if (capabilities.vpn_filtering.level !== "FULL") {
         setProtectionMessage("Web protection permission is required.");
         return;
       }
       await GuardianProtection.startProtection();
-      if (!cancelled) setProtectionMessage("Web protection is active.");
+      setProtectionMessage("Web protection is active.");
     };
     void syncProtection().catch(() => {
       if (!cancelled) setProtectionMessage("Web protection is unavailable.");
@@ -103,6 +114,8 @@ export default function ChildHomeRoute() {
                 {blockedEvent.appRef ?? "UNKNOWN_APP"}
               </Text>
             ) : null}
+            {appBlockedMessage ? <Text>APP_BLOCKED: {appBlockedMessage}</Text> : null}
+            {timeMessage ? <Text>TIME: {timeMessage}</Text> : null}
             {protectionMessage === "Web protection permission is required." ? (
               <PrimaryButton
                 label="Enable web protection"

@@ -64,6 +64,38 @@ class EncryptedPolicyStore(
     )
   }
 
+  @Synchronized
+  fun mergeUsageSnapshot(date: String, totals: Map<String, Long>) {
+    require(date.isNotBlank()) { "Usage date cannot be blank" }
+    require(totals.values.all { it >= 0 }) { "Usage totals cannot be negative" }
+    val root = usageSnapshots().toMutableMap()
+    val current = root[date].orEmpty().toMutableMap()
+    totals.forEach { (target, value) ->
+      if (target.isNotBlank()) current[target] = maxOf(current[target] ?: 0L, value)
+    }
+    root[date] = current
+    val json = JSONObject().apply {
+      root.toSortedMap().forEach { (day, values) ->
+        put(day, JSONObject().apply {
+          values.toSortedMap().forEach { (target, total) -> put(target, total) }
+        })
+      }
+    }
+    preferences.edit().putString("usage-snapshots", encrypt(json.toString())).commit()
+  }
+
+  fun usageSnapshots(): Map<String, Map<String, Long>> {
+    val encoded = preferences.getString("usage-snapshots", null) ?: return emptyMap()
+    val decoded = runCatching { JSONObject(decrypt(encoded)) }.getOrElse {
+      corruptState.set(true)
+      return emptyMap()
+    }
+    return decoded.keys().asSequence().associateWith { day ->
+      val values = decoded.getJSONObject(day)
+      values.keys().asSequence().associateWith { target -> values.getLong(target) }
+    }
+  }
+
   private fun read(key: String): String? {
     val encoded = preferences.getString(key, null) ?: return null
     return runCatching { decrypt(encoded) }.getOrElse {

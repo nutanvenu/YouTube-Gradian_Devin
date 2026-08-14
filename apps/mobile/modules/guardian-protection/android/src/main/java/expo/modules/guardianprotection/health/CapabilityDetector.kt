@@ -7,6 +7,8 @@ import android.content.pm.ApplicationInfo
 import android.net.VpnService
 import android.provider.Settings
 import android.os.Process
+import expo.modules.guardianprotection.accessibility.GuardianAccessibilityService
+import expo.modules.guardianprotection.inventory.PackageInventory
 import expo.modules.guardianprotection.vpn.GuardianVpnService
 import java.time.Instant
 
@@ -18,7 +20,11 @@ class CapabilityDetector(private val context: Context) {
       "app_usage" to status(if (usageAccessGranted()) "FULL" else "UNAVAILABLE", now, "Usage Access"),
       "accessibility_signals" to status(if (accessibilityGranted()) "FULL" else "UNAVAILABLE", now, "Accessibility"),
       "notification_signals" to status(if (notificationAccessGranted()) "FULL" else "UNAVAILABLE", now, "Notification access"),
-      "app_blocking" to status("UNAVAILABLE", now, "Native evaluator is available; enforcement service is not started"),
+      "app_blocking" to status(
+        if (accessibilityGranted() && GuardianAccessibilityService.isRunning()) "FULL" else "UNAVAILABLE",
+        now,
+        if (accessibilityGranted()) "Accessibility app blocking" else "Accessibility permission",
+      ),
       "web_filtering" to status(
         if (GuardianVpnService.isRunning()) "FULL" else "UNAVAILABLE",
         now,
@@ -48,20 +54,7 @@ class CapabilityDetector(private val context: Context) {
     context.startActivity(Intent("android.settings.ACTION_NOTIFICATION_LISTENER_SETTINGS").addFlags(Intent.FLAG_ACTIVITY_NEW_TASK))
   }
 
-  fun observedApps(): List<Map<String, Any?>> =
-    context.packageManager.getInstalledApplications(0)
-      .filter { it.packageName != context.packageName }
-      .map {
-        mapOf(
-          "platformAppId" to it.packageName,
-          "displayName" to context.packageManager.getApplicationLabel(it).toString(),
-          "category" to category(it),
-          "observedAt" to Instant.now().toString(),
-        )
-      }
-
-  private fun category(application: ApplicationInfo): String =
-    if ((application.flags and ApplicationInfo.FLAG_SYSTEM) != 0) "SYSTEM" else "UNKNOWN"
+  fun observedApps(): List<Map<String, Any?>> = PackageInventory(context).observedApps()
 
   private fun usageAccessGranted(): Boolean {
     val appOps = context.getSystemService(Context.APP_OPS_SERVICE) as AppOpsManager

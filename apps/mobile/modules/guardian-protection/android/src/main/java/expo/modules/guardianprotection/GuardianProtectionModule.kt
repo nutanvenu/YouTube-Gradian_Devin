@@ -6,6 +6,7 @@ import expo.modules.guardianprotection.health.CapabilityDetector
 import expo.modules.guardianprotection.policy.PolicyManager
 import expo.modules.guardianprotection.policy.GuardianPolicyRuntime
 import expo.modules.guardianprotection.storage.EncryptedPolicyStore
+import expo.modules.guardianprotection.usage.UsageCollector
 import expo.modules.guardianprotection.vpn.GuardianVpnService
 import java.time.Instant
 import java.util.concurrent.atomic.AtomicReference
@@ -14,6 +15,7 @@ class GuardianProtectionModule : Module() {
   private val store by lazy { EncryptedPolicyStore(requireNotNull(appContext.reactContext)) }
   private val policyManager by lazy { PolicyManager(store, BuildConfig.GUARDIAN_POLICY_TRUSTED_PUBLIC_KEYS) }
   private val capabilities by lazy { CapabilityDetector(requireNotNull(appContext.reactContext)) }
+  private val usage by lazy { UsageCollector(requireNotNull(appContext.reactContext), store) }
   private val lastCapabilities = AtomicReference<Map<String, Map<String, Any?>>?>()
 
   override fun definition() = ModuleDefinition {
@@ -45,6 +47,9 @@ class GuardianProtectionModule : Module() {
       GuardianPolicyRuntime.install(policyManager)
       GuardianPolicyRuntime.addListener(eventListener)
       policyManager.start()
+      if (capabilities.getCapabilities()["app_usage"]?.get("level") == "FULL") {
+        usage.refresh()
+      }
       GuardianVpnService.start(requireNotNull(appContext.reactContext))
       sendEvent("onGuardianEvent", mapOf(
         "type" to "PROTECTION_STATUS_CHANGED",
@@ -76,7 +81,10 @@ class GuardianProtectionModule : Module() {
       result
     }
     AsyncFunction("getUsageSummary") { range: Map<String, Any?> ->
-      store.usageSummary(range)
+      if (capabilities.getCapabilities()["app_usage"]?.get("level") == "FULL") {
+        usage.refresh()
+      }
+      usage.summary(range)
     }
     AsyncFunction("getObservedApps") {
       capabilities.observedApps()
@@ -104,6 +112,29 @@ class GuardianProtectionModule : Module() {
           "observedAt" to Instant.now().toString(),
           "details" to reason,
         ),
+      ))
+    }
+
+    override fun onAppBlocked(packageName: String, reasonCode: String) {
+      sendEvent("onGuardianEvent", mapOf(
+        "type" to "APP_BLOCKED",
+        "appRef" to packageName,
+        "reasonCode" to reasonCode,
+      ))
+    }
+
+    override fun onTimeWarning(targetRef: String, remainingSeconds: Long) {
+      sendEvent("onGuardianEvent", mapOf(
+        "type" to "TIME_WARNING",
+        "targetRef" to targetRef,
+        "remainingSeconds" to remainingSeconds,
+      ))
+    }
+
+    override fun onTimeExpired(targetRef: String) {
+      sendEvent("onGuardianEvent", mapOf(
+        "type" to "TIME_EXPIRED",
+        "targetRef" to targetRef,
       ))
     }
   }

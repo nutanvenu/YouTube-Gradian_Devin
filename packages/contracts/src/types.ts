@@ -170,6 +170,8 @@ export interface ObservedApp {
   platformAppId: string;
   displayName: string;
   category: string;
+  iconUri?: string | null;
+  newlyObserved?: boolean;
   observedAt: string;
 }
 

@@ -1,0 +1,3 @@
+<resources>
+  <string name="guardian_accessibility_description">Guardian uses foreground app names to enforce the limits and routines chosen by a parent. It cannot read passwords, messages, or screen content.</string>
+</resources>

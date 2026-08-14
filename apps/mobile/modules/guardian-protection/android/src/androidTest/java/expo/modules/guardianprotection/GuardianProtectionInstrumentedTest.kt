@@ -1,10 +1,13 @@
 package expo.modules.guardianprotection
 
 import android.content.Context
+import android.app.AppOpsManager
+import android.os.Process
 import android.util.Base64
 import androidx.test.core.app.ApplicationProvider
 import androidx.test.ext.junit.runners.AndroidJUnit4
 import expo.modules.guardianprotection.health.CapabilityDetector
+import expo.modules.guardianprotection.inventory.PackageInventory
 import expo.modules.guardianprotection.policy.CanonicalJson
 import expo.modules.guardianprotection.policy.PolicyManager
 import expo.modules.guardianprotection.storage.EncryptedPolicyStore
@@ -96,6 +99,22 @@ class GuardianProtectionInstrumentedTest {
 
     assertEquals(result.toString(), true, result["applied"])
     assertEquals(policyResponse.getLong("policy_version"), result["policyVersion"])
+  }
+
+  @Test
+  fun inventoryUsesRealPackageManagerDataAndCapabilityLevelsAreTruthful() {
+    val context = ApplicationProvider.getApplicationContext<Context>()
+    val inventory = PackageInventory(context).observedApps()
+    assertTrue("Package manager inventory should contain visible apps", inventory.isNotEmpty())
+    assertTrue(inventory.all { it["platformAppId"] is String && it["displayName"] is String })
+    val capabilities = CapabilityDetector(context).getCapabilities()
+    val appOps = context.getSystemService(Context.APP_OPS_SERVICE) as AppOpsManager
+    val granted = appOps.checkOpNoThrow(
+      AppOpsManager.OPSTR_GET_USAGE_STATS,
+      Process.myUid(),
+      context.packageName,
+    ) == AppOpsManager.MODE_ALLOWED
+    assertEquals(if (granted) "FULL" else "UNAVAILABLE", capabilities.getValue("app_usage").getValue("level"))
   }
 
   private fun request(

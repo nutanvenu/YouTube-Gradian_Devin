@@ -2,6 +2,13 @@
   <uses-permission android:name="android.permission.FOREGROUND_SERVICE" />
   <uses-permission android:name="android.permission.FOREGROUND_SERVICE_SPECIAL_USE" />
   <uses-permission android:name="android.permission.RECEIVE_BOOT_COMPLETED" />
+  <uses-permission android:name="android.permission.PACKAGE_USAGE_STATS" />
+  <queries>
+    <intent>
+      <action android:name="android.intent.action.MAIN" />
+      <category android:name="android.intent.category.LAUNCHER" />
+    </intent>
+  </queries>
   <application>
     <receiver
       android:name=".vpn.GuardianBootReceiver"
@@ -22,6 +29,21 @@
       <intent-filter>
         <action android:name="android.net.VpnService" />
       </intent-filter>
+    </service>
+    <activity
+      android:name=".accessibility.GuardianBlockActivity"
+      android:exported="false"
+      android:theme="@android:style/Theme.Material.Light.NoActionBar" />
+    <service
+      android:name=".accessibility.GuardianAccessibilityService"
+      android:exported="true"
+      android:permission="android.permission.BIND_ACCESSIBILITY_SERVICE">
+      <intent-filter>
+        <action android:name="android.accessibilityservice.AccessibilityService" />
+      </intent-filter>
+      <meta-data
+        android:name="android.accessibilityservice"
+        android:resource="@xml/guardian_accessibility_service" />
     </service>
   </application>
 </manifest>
