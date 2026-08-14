@@ -105,3 +105,25 @@ class PairingRedeemIn(BaseModel):
 class DeviceCredentialOut(BaseModel):
     device_id: UUID
     device_token: str
+
+
+class DeviceAckIn(BaseModel):
+    policy_version: int = Field(ge=1)
+
+
+class DeviceHeartbeatIn(BaseModel):
+    protection_state: str = Field(min_length=1, max_length=30)
+    capabilities: dict[str, object] = Field(default_factory=dict)
+
+
+class MinimizedEvent(BaseModel):
+    model_config = ConfigDict(extra="forbid")
+
+    event_type: str = Field(min_length=1, max_length=50)
+    occurred_at: datetime
+    app_ref: str | None = Field(default=None, max_length=200)
+    domain: str | None = Field(default=None, max_length=253)
+
+
+class EventBatchIn(BaseModel):
+    events: list[MinimizedEvent] = Field(min_length=1, max_length=100)

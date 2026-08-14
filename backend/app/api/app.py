@@ -25,6 +25,7 @@ from ..core.errors import internal_error_handler, validation_error_handler
 from ..core.notifier import LoggingNotifier
 from ..core.rate_limit import InProcessRateLimiter
 from ..devices.models import Device, DeviceCredential
+from ..devices.service import current_device
 from ..families.models import Family, FamilyGuardian, GuardianRole
 from ..pairing.models import PairingSession
 from ..policies.service import age_band_for_dob, default_policy, validate_timezone
@@ -32,7 +33,10 @@ from .schemas import (
     ChildCreate,
     ChildOut,
     ChildUpdate,
+    DeviceAckIn,
     DeviceCredentialOut,
+    DeviceHeartbeatIn,
+    EventBatchIn,
     FamilyCreate,
     FamilyOut,
     GuardianOut,
@@ -339,3 +343,46 @@ async def redeem_pairing(
     )
     await session.commit()
     return DeviceCredentialOut(device_id=device.id, device_token=raw)
+
+
+@app.get("/v1/devices/me/policy")
+async def fetch_policy(
+    device: Device = Depends(current_device),
+    session: AsyncSession = Depends(get_session),
+) -> dict[str, object]:
+    child = await session.get(ChildProfile, device.child_profile_id)
+    if child is None:
+        raise HTTPException(status.HTTP_404_NOT_FOUND, "Child not found")
+    return child.policy_document
+
+
+@app.post("/v1/devices/me/policy/ack", status_code=204)
+async def acknowledge_policy(
+    body: DeviceAckIn,
+    device: Device = Depends(current_device),
+    session: AsyncSession = Depends(get_session),
+) -> None:
+    device.policy_version_applied = body.policy_version
+    await session.commit()
+
+
+@app.post("/v1/devices/me/heartbeat", status_code=204)
+async def heartbeat(
+    body: DeviceHeartbeatIn,
+    device: Device = Depends(current_device),
+    session: AsyncSession = Depends(get_session),
+) -> None:
+    device.protection_state = body.protection_state
+    device.capabilities = body.capabilities
+    device.last_seen_at = datetime.now(UTC)
+    await session.commit()
+
+
+@app.post("/v1/devices/me/events", status_code=202)
+async def ingest_events(
+    body: EventBatchIn,
+    device: Device = Depends(current_device),
+    session: AsyncSession = Depends(get_session),
+) -> None:
+    device.last_seen_at = datetime.now(UTC)
+    await session.commit()
