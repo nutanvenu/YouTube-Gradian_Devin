@@ -1,0 +1,1 @@
+"""Minimized event ingestion module."""
