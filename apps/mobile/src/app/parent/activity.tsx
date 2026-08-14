@@ -4,7 +4,7 @@ import { useQuery } from "@tanstack/react-query";
 import { ApiError, api } from "@/api/client";
 import { useNetworkStatus } from "@/state/network";
 import { GuardianProtection } from "../../../modules/guardian-protection/src";
-import { CardSurface, DataState, ListRow, ScreenScaffold, SectionSurface } from "@/design-system";
+import { CardSurface, DataState, ListRow, ResponsiveColumns, ScreenScaffold, SectionSurface } from "@/design-system";
 
 function startOfDay() {
   const value = new Date();
@@ -62,47 +62,49 @@ export default function ParentActivityRoute() {
   return (
     <ScreenScaffold title="Activity">
       <DataState state={state} onRetry={() => { void activity.refetch(); void activityUsage.refetch(); void usage.refetch(); void report.refetch(); }}>
-        <SectionSurface>
-          <Text>Today’s usage</Text>
-          {Object.keys(usageTargets).length > 0
-            ? Object.entries(usageTargets).map(([target, seconds]) => <ListRow key={target} label={target} value={`${Math.round(seconds / 60)} min`} />)
-            : <Text>Unknown · this device has not provided a usage summary.</Text>}
-        </SectionSurface>
-        <SectionSurface>
-          <Text>Daily usage report</Text>
-          {reportBuckets.length
-            ? reportBuckets.map((bucket) => (
-              <CardSurface key={`${bucket.child_profile_id}-${bucket.period_start}`}>
-                <ListRow label={bucket.period_start} value={`${Math.round(bucket.duration_seconds / 60)} min`} />
-                <Text>{Object.entries(bucket.by_category).map(([category, seconds]) => `${category}: ${Math.round(seconds / 60)} min`).join(" · ")}</Text>
+        <ResponsiveColumns>
+          <SectionSurface>
+            <Text>Today’s usage</Text>
+            {Object.keys(usageTargets).length > 0
+              ? Object.entries(usageTargets).map(([target, seconds]) => <ListRow key={target} label={target} value={`${Math.round(seconds / 60)} min`} />)
+              : <Text>Unknown · this device has not provided a usage summary.</Text>}
+          </SectionSurface>
+          <SectionSurface>
+            <Text>Daily usage report</Text>
+            {reportBuckets.length
+              ? reportBuckets.map((bucket) => (
+                <CardSurface key={`${bucket.child_profile_id}-${bucket.period_start}`}>
+                  <ListRow label={bucket.period_start} value={`${Math.round(bucket.duration_seconds / 60)} min`} />
+                  <Text>{Object.entries(bucket.by_category).map(([category, seconds]) => `${category}: ${Math.round(seconds / 60)} min`).join(" · ")}</Text>
+                </CardSurface>
+              ))
+              : <Text>Unknown · no persisted usage is available for this report.</Text>}
+          </SectionSurface>
+          <SectionSurface>
+            <Text>Usage over time</Text>
+            {activityUsagePoints.length ? activityUsagePoints.map((point) => (
+              <CardSurface key={`${point.occurred_at}-${point.app_ref ?? "unknown"}-${point.event_type}`}>
+                <ListRow label={point.app_ref ?? "Unknown app"} value={`${Math.round(point.duration_seconds / 60)} min`} />
+                <Text>{point.category ?? "Unknown category"} · {new Date(point.occurred_at).toLocaleString()}</Text>
               </CardSurface>
-            ))
-            : <Text>Unknown · no persisted usage is available for this report.</Text>}
-        </SectionSurface>
-        <SectionSurface>
-          <Text>Usage over time</Text>
-          {activityUsagePoints.length ? activityUsagePoints.map((point) => (
-            <CardSurface key={`${point.occurred_at}-${point.app_ref ?? "unknown"}-${point.event_type}`}>
-              <ListRow label={point.app_ref ?? "Unknown app"} value={`${Math.round(point.duration_seconds / 60)} min`} />
-              <Text>{point.category ?? "Unknown category"} · {new Date(point.occurred_at).toLocaleString()}</Text>
-            </CardSurface>
-          )) : <Text>Unknown · no usage aggregates are available for this family.</Text>}
-        </SectionSurface>
-        <SectionSurface>
-          <Text>Web and safety events</Text>
-          <Text>
-            Communication Safety: {Platform.OS === "ios" ? "Not available on iPhone/iPad." : "Android notification signals only."}
-          </Text>
-          {activityEvents.length ? activityEvents.map((event) => (
-            <CardSurface key={event.id}>
-              <ListRow label={event.kind === "WEB" ? "Web event" : "Safety event"} value={event.event_type} />
-              <Text>{event.domain ?? event.app_ref ?? "Unknown target"}</Text>
-            <Text>{event.category ?? "Unknown category"}</Text>
-            {event.kind === "SAFETY" ? <Text>{event.severity ?? "Unknown severity"}</Text> : null}
-              <Text>{new Date(event.occurred_at).toLocaleString()}</Text>
-            </CardSurface>
-          )) : <Text>Unknown · no backend events are available for this family.</Text>}
-        </SectionSurface>
+            )) : <Text>Unknown · no usage aggregates are available for this family.</Text>}
+          </SectionSurface>
+          <SectionSurface>
+            <Text>Web and safety events</Text>
+            <Text>
+              Communication Safety: {Platform.OS === "ios" ? "Not available on iPhone/iPad." : "Android notification signals only."}
+            </Text>
+            {activityEvents.length ? activityEvents.map((event) => (
+              <CardSurface key={event.id}>
+                <ListRow label={event.kind === "WEB" ? "Web event" : "Safety event"} value={event.event_type} />
+                <Text>{event.domain ?? event.app_ref ?? "Unknown target"}</Text>
+                <Text>{event.category ?? "Unknown category"}</Text>
+                {event.kind === "SAFETY" ? <Text>{event.severity ?? "Unknown severity"}</Text> : null}
+                <Text>{new Date(event.occurred_at).toLocaleString()}</Text>
+              </CardSurface>
+            )) : <Text>Unknown · no backend events are available for this family.</Text>}
+          </SectionSurface>
+        </ResponsiveColumns>
       </DataState>
       {state === "empty" ? (
         <SectionSurface>

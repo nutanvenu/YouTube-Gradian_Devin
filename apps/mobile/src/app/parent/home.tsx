@@ -4,7 +4,7 @@ import { useQuery } from "@tanstack/react-query";
 import { api } from "@/api/client";
 import { useSession } from "@/auth/session";
 import { useNetworkStatus } from "@/state/network";
-import { CardSurface, DataState, ListRow, PrimaryButton, ScreenScaffold, SectionSurface, ProtectionStatePill, SecondaryButton } from "@/design-system";
+import { CardSurface, DataState, ListRow, PrimaryButton, ResponsiveColumns, ScreenScaffold, SectionSurface, ProtectionStatePill, SecondaryButton } from "@/design-system";
 import { GuardianProtection } from "../../../modules/guardian-protection/src";
 
 export default function ParentHomeRoute() {
@@ -30,7 +30,7 @@ export default function ParentHomeRoute() {
         </SectionSurface>
       ) : null}
       <DataState state={state} onRetry={() => { void children.refetch(); void health.refetch(); }}>
-        <SectionSurface>
+        <ResponsiveColumns>
           {children.data?.map((child) => <CardSurface key={child.id}><Text>{child.name}</Text><ListRow label="Age band" value={child.age_band} /><PrimaryButton label="Generate pairing code" onPress={() => router.push({ pathname: "/parent/pairing", params: { familyId: activeFamilyId, childId: child.id } })} /><SecondaryButton label="Rules" onPress={() => router.push({ pathname: "/parent/rules", params: { familyId: activeFamilyId, childId: child.id } })} /><SecondaryButton label="Requests" onPress={() => router.push({ pathname: "/parent/requests", params: { familyId: activeFamilyId } })} /><SecondaryButton label="Activity" onPress={() => router.push({ pathname: "/parent/activity", params: { familyId: activeFamilyId } })} /><SecondaryButton label="Protection health" onPress={() => router.push({ pathname: "/parent/health", params: { familyId: activeFamilyId } })} /><SecondaryButton label="Quick control" onPress={() => router.push({ pathname: "/parent/quick-control", params: { familyId: activeFamilyId, childId: child.id } })} /></CardSurface>)}
           {health.data?.map((item) => <CardSurface key={item.device_id}><ListRow label="Protection" value={item.last_seen_at ?? "Unknown"} /><ProtectionStatePill state={item.state} /></CardSurface>)}
           <CardSurface>
@@ -65,7 +65,7 @@ export default function ParentHomeRoute() {
               />
             ))}
           </CardSurface>
-        </SectionSurface>
+        </ResponsiveColumns>
       </DataState>
       <PrimaryButton label="Sign out" onPress={() => { void signOut().then(() => router.replace("/role-selection")); }} />
     </ScreenScaffold>

@@ -1,4 +1,4 @@
-import { PropsWithChildren } from "react";
+import { Children, PropsWithChildren } from "react";
 import {
   ActivityIndicator,
   Pressable,
@@ -6,6 +6,7 @@ import {
   StyleSheet,
   Text,
   TextInput,
+  useWindowDimensions,
   View,
 } from "react-native";
 import { useSafeAreaInsets } from "react-native-safe-area-context";
@@ -30,6 +31,8 @@ export function ScreenScaffold({
 }: PropsWithChildren<{ title?: string }>) {
   const insets = useSafeAreaInsets();
   const palette = usePalette();
+  const { width } = useWindowDimensions();
+  const isRegularWidth = width >= 600;
   return (
     <ScrollView
       contentInsetAdjustmentBehavior="automatic"
@@ -39,9 +42,23 @@ export function ScreenScaffold({
       ]}
       accessibilityLabel={title}
     >
-      {title ? <Text style={[styles.title, { color: palette.text }]}>{title}</Text> : null}
-      {children}
+      <View style={[styles.content, isRegularWidth && styles.contentRegular]}>
+        {title ? <Text style={[styles.title, { color: palette.text }]}>{title}</Text> : null}
+        {children}
+      </View>
     </ScrollView>
+  );
+}
+
+export function ResponsiveColumns({ children }: PropsWithChildren) {
+  const { width } = useWindowDimensions();
+  const isRegularWidth = width >= 600;
+  return (
+    <View style={[styles.columns, isRegularWidth && styles.columnsRegular]}>
+      {Children.map(children, (child) => (
+        <View style={[styles.columnItem, isRegularWidth && styles.columnItemRegular]}>{child}</View>
+      ))}
+    </View>
   );
 }
 
@@ -244,6 +261,12 @@ export function DialogSurface({ children }: PropsWithChildren) {
 
 const styles = StyleSheet.create({
   scaffold: { flexGrow: 1, gap: spacing.lg, paddingHorizontal: spacing.md, paddingBottom: spacing.xxl },
+  content: { width: "100%", gap: spacing.lg },
+  contentRegular: { alignSelf: "center", maxWidth: 720 },
+  columns: { gap: spacing.lg },
+  columnsRegular: { flexDirection: "row", flexWrap: "wrap", alignItems: "flex-start" },
+  columnItem: { width: "100%" },
+  columnItemRegular: { flexBasis: "47%", flexGrow: 1, width: "47%" },
   section: { gap: spacing.md, borderWidth: 1, borderRadius: radii.lg, padding: spacing.md },
   card: { gap: spacing.sm, borderWidth: 1, borderRadius: radii.md, padding: spacing.md },
   title: typography.title,

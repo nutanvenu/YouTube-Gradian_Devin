@@ -1659,8 +1659,30 @@ limitations, not relabelled fixtures. Battery measurement is
 rules-based fixture measurement, not a production accuracy claim, and no
 model or fabricated AI confidence score ships.
 
-Remaining Phase 3 work, in risk order: tablet/adaptive layouts; accessibility
-audit (TalkBack, Dynamic Type, contrast, focus order, reduced motion, RTL);
-real-path performance and battery measurement; observability completeness;
-OWASP mobile-code-review workflow; Google `play-policy-insights` workflow;
-and remediation of material findings.
+Phase 3 tablet/adaptive work now uses the cross-platform React Native
+`useWindowDimensions` breakpoint at 600 points. Regular-width screens center
+content at a maximum width of 720 points and use flexible two-column dashboard
+sections; compact-width screens remain single-column. Parent Home and Activity
+use the responsive dashboard container. A Pixel Tablet API 35 AVD
+(`guardian-tablet-api35`, `emulator-5558`, 2560x1600) was booted and the
+debug development build rendered real Guardian onboarding and parent sign-in
+surfaces in both orientations. Evidence and UI XML are at:
+
+- `.scratch/emulator/tablet-server.png`
+- `.scratch/emulator/tablet-server.xml`
+- `.scratch/emulator/tablet-portrait-parent-signin.png`
+- `.scratch/emulator/tablet-portrait-parent-signin.xml`
+- `.scratch/emulator/tablet-landscape-parent.png`
+- `.scratch/emulator/tablet-landscape-parent.xml`
+
+These captures verify the actual app surface and orientation changes, but do
+not claim an authenticated dashboard rendering on the tablet. iPad hardware
+or simulator evidence and platform-native split-view evidence remain
+unavailable; Expo Router Split View is iOS-only alpha and the shipped layout
+therefore uses standard responsive primitives.
+
+Remaining Phase 3 work, in risk order: complete the tablet screen audit;
+accessibility audit (TalkBack, Dynamic Type, contrast, focus order, reduced
+motion, RTL); real-path performance and battery measurement; observability
+completeness; OWASP mobile-code-review workflow; Google
+`play-policy-insights` workflow; and remediation of material findings.
