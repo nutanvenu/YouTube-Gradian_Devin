@@ -1162,3 +1162,53 @@ mypy app                   Success: no issues found in 51 source files
 pytest                    95 passed
 GET /readiness            200 {"status":"ready"}
 ```
+
+## Phase 2 requests inbox and push actions
+
+The first Phase 2 vertical slice adds interface-driven push notification
+actions for child requests. Child request creation now generates independent
+opaque approve and deny tokens for each active parent push registration,
+persists only SHA-256 token hashes with an expiration, and invokes the
+`PushSender` interface with a real action payload. `LoggingPushSender` remains
+the development implementation because APNs/FCM credentials are external
+configuration, not a reason to fake delivery.
+
+The action endpoints are:
+
+```text
+POST /v1/push/actions/{action_token}/approve
+POST /v1/push/actions/{action_token}/deny
+```
+
+They check the hashed token, action type, expiration, current family
+guardianship, and request state. Repeating the same terminal action is
+idempotent; an opposite action, invalid token, expired token, or revoked
+parent is rejected. Valid actions reuse the authenticated parent
+`decide_request` path, preserving policy mutation and WebSocket behavior.
+
+The generated OpenAPI client now includes both endpoints and the corrected
+`PushTokenIn.token` contract. Mobile push-action state handling routes a
+validated notification payload to the action endpoint without embedding
+approval logic in the UI.
+
+Focused and full backend verification for this slice:
+
+```text
+ruff check app tests                 All checks passed
+mypy app                             Success: no issues found in 51 source files
+pytest                               96 passed in 6.50s
+pytest tests/test_push_actions.py    3 passed
+```
+
+Mobile verification:
+
+```text
+lint                                passed
+typecheck                           passed
+Jest                                7 suites, 25 tests passed
+```
+
+The live development database is at Alembic revision `0011_push_actions`.
+The backend was restarted after applying the migration; APNs/FCM delivery
+itself remains intentionally unclaimed until provider credentials are
+available.

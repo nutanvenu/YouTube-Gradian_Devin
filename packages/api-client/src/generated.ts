@@ -424,6 +424,24 @@ export const openApiDocument = {
         "title": "PolicyMutationIn",
         "type": "object"
       },
+      "PushActionIn": {
+        "properties": {
+          "reason": {
+            "anyOf": [
+              {
+                "maxLength": 1000,
+                "type": "string"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Reason"
+          }
+        },
+        "title": "PushActionIn",
+        "type": "object"
+      },
       "PushTokenIn": {
         "properties": {
           "platform": {
@@ -518,6 +536,91 @@ export const openApiDocument = {
           "reason"
         ],
         "title": "RequestDecisionIn",
+        "type": "object"
+      },
+      "RequestOut": {
+        "properties": {
+          "child_profile_id": {
+            "format": "uuid",
+            "title": "Child Profile Id",
+            "type": "string"
+          },
+          "decision_reason": {
+            "anyOf": [
+              {
+                "type": "string"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Decision Reason"
+          },
+          "device_id": {
+            "format": "uuid",
+            "title": "Device Id",
+            "type": "string"
+          },
+          "expires_at": {
+            "anyOf": [
+              {
+                "format": "date-time",
+                "type": "string"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Expires At"
+          },
+          "id": {
+            "format": "uuid",
+            "title": "Id",
+            "type": "string"
+          },
+          "reason": {
+            "anyOf": [
+              {
+                "type": "string"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Reason"
+          },
+          "request_type": {
+            "title": "Request Type",
+            "type": "string"
+          },
+          "state": {
+            "title": "State",
+            "type": "string"
+          },
+          "subject": {
+            "anyOf": [
+              {
+                "type": "string"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Subject"
+          }
+        },
+        "required": [
+          "id",
+          "child_profile_id",
+          "device_id",
+          "request_type",
+          "subject",
+          "state",
+          "reason",
+          "decision_reason",
+          "expires_at"
+        ],
+        "title": "RequestOut",
         "type": "object"
       },
       "SignupIn": {
@@ -2184,11 +2287,109 @@ export const openApiDocument = {
         },
         "summary": "Policy Public Key"
       }
+    },
+    "/v1/push/actions/{action_token}/approve": {
+      "post": {
+        "operationId": "approve_push_action_v1_push_actions__action_token__approve_post",
+        "parameters": [
+          {
+            "in": "path",
+            "name": "action_token",
+            "required": true,
+            "schema": {
+              "title": "Action Token",
+              "type": "string"
+            }
+          }
+        ],
+        "requestBody": {
+          "content": {
+            "application/json": {
+              "schema": {
+                "$ref": "#/components/schemas/PushActionIn"
+              }
+            }
+          },
+          "required": true
+        },
+        "responses": {
+          "200": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/RequestOut"
+                }
+              }
+            },
+            "description": "Successful Response"
+          },
+          "422": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/HTTPValidationError"
+                }
+              }
+            },
+            "description": "Validation Error"
+          }
+        },
+        "summary": "Approve Push Action"
+      }
+    },
+    "/v1/push/actions/{action_token}/deny": {
+      "post": {
+        "operationId": "deny_push_action_v1_push_actions__action_token__deny_post",
+        "parameters": [
+          {
+            "in": "path",
+            "name": "action_token",
+            "required": true,
+            "schema": {
+              "title": "Action Token",
+              "type": "string"
+            }
+          }
+        ],
+        "requestBody": {
+          "content": {
+            "application/json": {
+              "schema": {
+                "$ref": "#/components/schemas/PushActionIn"
+              }
+            }
+          },
+          "required": true
+        },
+        "responses": {
+          "200": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/RequestOut"
+                }
+              }
+            },
+            "description": "Successful Response"
+          },
+          "422": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/HTTPValidationError"
+                }
+              }
+            },
+            "description": "Validation Error"
+          }
+        },
+        "summary": "Deny Push Action"
+      }
     }
   }
 } as const;
 
-export type GuardianApiPath = "/health" | "/livez" | "/readiness" | "/readyz" | "/v1/auth/login" | "/v1/auth/logout" | "/v1/auth/me" | "/v1/auth/password-reset/confirm" | "/v1/auth/password-reset/request" | "/v1/auth/refresh" | "/v1/auth/signup" | "/v1/auth/verification/confirm" | "/v1/auth/verification/request" | "/v1/devices/me/events" | "/v1/devices/me/heartbeat" | "/v1/devices/me/policy" | "/v1/devices/me/policy/ack" | "/v1/devices/me/push-tokens" | "/v1/devices/me/requests" | "/v1/devices/pair" | "/v1/families" | "/v1/families/guardians/accept" | "/v1/families/{family_id}" | "/v1/families/{family_id}/children" | "/v1/families/{family_id}/children/{child_id}" | "/v1/families/{family_id}/children/{child_id}/pairing" | "/v1/families/{family_id}/children/{child_id}/policy/mutations" | "/v1/families/{family_id}/devices/{device_id}/revoke" | "/v1/families/{family_id}/guardians" | "/v1/families/{family_id}/guardians/invite" | "/v1/families/{family_id}/requests" | "/v1/families/{family_id}/requests/{request_id}/approve" | "/v1/families/{family_id}/requests/{request_id}/deny" | "/v1/me/push-tokens" | "/v1/policy/public-key";
+export type GuardianApiPath = "/health" | "/livez" | "/readiness" | "/readyz" | "/v1/auth/login" | "/v1/auth/logout" | "/v1/auth/me" | "/v1/auth/password-reset/confirm" | "/v1/auth/password-reset/request" | "/v1/auth/refresh" | "/v1/auth/signup" | "/v1/auth/verification/confirm" | "/v1/auth/verification/request" | "/v1/devices/me/events" | "/v1/devices/me/heartbeat" | "/v1/devices/me/policy" | "/v1/devices/me/policy/ack" | "/v1/devices/me/push-tokens" | "/v1/devices/me/requests" | "/v1/devices/pair" | "/v1/families" | "/v1/families/guardians/accept" | "/v1/families/{family_id}" | "/v1/families/{family_id}/children" | "/v1/families/{family_id}/children/{child_id}" | "/v1/families/{family_id}/children/{child_id}/pairing" | "/v1/families/{family_id}/children/{child_id}/policy/mutations" | "/v1/families/{family_id}/devices/{device_id}/revoke" | "/v1/families/{family_id}/guardians" | "/v1/families/{family_id}/guardians/invite" | "/v1/families/{family_id}/requests" | "/v1/families/{family_id}/requests/{request_id}/approve" | "/v1/families/{family_id}/requests/{request_id}/deny" | "/v1/me/push-tokens" | "/v1/policy/public-key" | "/v1/push/actions/{action_token}/approve" | "/v1/push/actions/{action_token}/deny";
 
 export class GeneratedGuardianError extends Error {
   constructor(message: string, readonly status: number) {

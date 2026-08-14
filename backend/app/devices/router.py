@@ -3,6 +3,7 @@ from fastapi import APIRouter
 
 from ..api.handler_support import (
     UTC,
+    UUID,
     AsyncSession,
     ChildProfile,
     Depends,
@@ -10,11 +11,13 @@ from ..api.handler_support import (
     DeviceAckIn,
     DeviceHeartbeatIn,
     EventBatchIn,
+    FamilyGuardian,
     Header,
     HTTPException,
     HTTPRequest,
     PolicyBundle,
     ProtectionHealthEvent,
+    PushAction,
     PushToken,
     PushTokenIn,
     RequestCreateIn,
@@ -28,8 +31,11 @@ from ..api.handler_support import (
     datetime,
     get_session,
     hashlib,
+    issue_action_token,
     payload_hash,
+    push_sender,
     replay_or_conflict,
+    request_action_payload,
     save_result,
     select,
     status,
@@ -85,10 +91,10 @@ async def heartbeat(
             capabilities=device.capabilities,
         )
     )
-    await session.commit()
     family_id = await session.scalar(
         select(ChildProfile.family_id).where(ChildProfile.id == device.child_profile_id)
     )
+    await session.commit()
     if family_id is not None:
         broadcaster.publish(
             family_id,
@@ -174,16 +180,62 @@ async def create_request(
             status.HTTP_201_CREATED,
             result.model_dump(mode="json"),
         )
-    await session.commit()
     family_id = await session.scalar(
         select(ChildProfile.family_id).where(ChildProfile.id == device.child_profile_id)
     )
+    deliveries: list[tuple[UUID, dict[str, object]]] = []
+    if family_id is not None:
+        parent_ids = await session.scalars(
+            select(FamilyGuardian.parent_id)
+            .join(PushToken, PushToken.parent_id == FamilyGuardian.parent_id)
+            .where(
+                FamilyGuardian.family_id == family_id,
+                PushToken.active.is_(True),
+            )
+        )
+        for parent_id in set(parent_ids.all()):
+            approve_token, approve_hash = issue_action_token()
+            deny_token, deny_hash = issue_action_token()
+            expires_at = request_row.expires_at or datetime.now(UTC) + timedelta(hours=1)
+            session.add_all(
+                [
+                    PushAction(
+                        request_id=request_row.id,
+                        parent_id=parent_id,
+                        action="APPROVE",
+                        token_hash=approve_hash,
+                        expires_at=expires_at,
+                    ),
+                    PushAction(
+                        request_id=request_row.id,
+                        parent_id=parent_id,
+                        action="DENY",
+                        token_hash=deny_hash,
+                        expires_at=expires_at,
+                    ),
+                ]
+            )
+            deliveries.append(
+                (
+                    parent_id,
+                    request_action_payload(
+                        request_id=request_row.id,
+                        request_type=request_row.request_type,
+                        subject=request_row.subject,
+                        approve_token=approve_token,
+                        deny_token=deny_token,
+                    ),
+                )
+            )
+    await session.commit()
     if family_id is not None:
         broadcaster.publish(
             family_id,
             {"type": "request-created", "request_id": str(request_row.id)},
             device.child_profile_id,
         )
+    for parent_id, payload in deliveries:
+        await push_sender.send(parent_id, payload)
     return result
 
 async def register_device_push_token(

@@ -221,6 +221,10 @@ class PushTokenIn(BaseModel):
     token: str = Field(min_length=20, max_length=4096)
 
 
+class PushActionIn(BaseModel):
+    reason: str | None = Field(default=None, max_length=1000)
+
+
 class PolicyMutationIn(BaseModel):
     operation: Literal[
         "APP_ALLOW",
