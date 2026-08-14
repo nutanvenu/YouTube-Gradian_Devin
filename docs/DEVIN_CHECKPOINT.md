@@ -1711,6 +1711,21 @@ collection cost, and React Native bridge event volume still need dedicated
 instrumentation; the URL dispatch and warm-start numbers must not be used as
 proxies for them.
 
+The release app manifest was reconciled against the implemented code: camera,
+internet, and vibration remain declared; unused microphone, external-storage,
+and system-overlay permissions were removed. The main activity no longer
+forces portrait orientation, allowing the responsive tablet layout to rotate
+to landscape. Debug-only development manifests still retain the overlay
+permission for the development client and are not release declarations. The
+VPN, Accessibility, notification-listener, usage-access, and launcher-query
+declarations remain because their corresponding native paths are implemented;
+their user-consent and degraded-capability surfaces remain required.
+The release manifest audit is recorded in
+`.scratch/emulator/policy/release-manifest-audit.txt`; `:app:assembleRelease`
+passed, and the packaged release declares only the implemented app/device
+permissions plus the Guardian VPN, boot, usage-access, and biometric
+dependencies. Its `MainActivity` has no fixed `screenOrientation`.
+
 The Android policy audit found a reachable foreground-service failure on
 Android 14+/target SDK 36: the VPN manifest declared the `specialUse`
 foreground-service type, but `GuardianVpnService` used the two-argument
