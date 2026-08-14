@@ -1,6 +1,7 @@
 import asyncio
 import hashlib
 import secrets
+import sys
 from collections.abc import Mapping
 from copy import deepcopy
 from datetime import UTC, datetime, timedelta
@@ -98,7 +99,7 @@ app.add_exception_handler(Exception, internal_error_handler)
 oauth2 = OAuth2PasswordBearer(tokenUrl="/v1/auth/login")
 auth_rate_limiter = InProcessRateLimiter()
 notifier = LoggingNotifier()
-__all__ = ["app", "notifier", "signer"]
+__all__ = ["app", "notifier", "parent_from_access", "signer"]
 
 
 def policy_records(policy: dict[str, object], key: str) -> list[dict[str, object]]:
@@ -136,7 +137,9 @@ def rate_key(request: HTTPRequest, operation: str, principal: str) -> str:
 async def current_parent(
     token: str = Depends(oauth2), session: AsyncSession = Depends(get_session)
 ) -> Parent:
-    return await parent_from_access(session, token)
+    route_module = sys.modules.get("app.api.routes")
+    access_validator = getattr(route_module, "parent_from_access", parent_from_access)
+    return await access_validator(session, token)
 
 
 async def family_for_parent(session: AsyncSession, parent: Parent, family_id: UUID) -> Family:
