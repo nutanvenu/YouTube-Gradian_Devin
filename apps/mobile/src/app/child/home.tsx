@@ -83,6 +83,12 @@ export default function ChildHomeRoute() {
 
   useEffect(() => {
     const subscription = GuardianProtection.subscribe((event) => {
+      if (__DEV__ && Platform.OS === "android") {
+        console.info(
+          "GUARDIAN_EVENT_CORRELATION",
+          JSON.stringify({ type: event.type, correlationId: event.correlationId }),
+        );
+      }
       if (event.type === "WEB_BLOCKED") {
         setBlockedEvent(event);
         setBlockedEventCount((count) => count + 1);
@@ -181,6 +187,10 @@ export default function ChildHomeRoute() {
           })),
         );
         inventoryUploaded.current = true;
+      }
+      if (__DEV__ && Platform.OS === "android") {
+        const metrics = await GuardianProtection.getPerformanceMetrics();
+        console.info("GUARDIAN_PERFORMANCE_METRICS_AFTER_SYNC", JSON.stringify(metrics));
       }
     };
     void syncProtection().catch(() => {

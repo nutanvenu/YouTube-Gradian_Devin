@@ -13,6 +13,7 @@ import expo.modules.guardianprotection.usage.UsageCollector
 import expo.modules.guardianprotection.vpn.GuardianVpnService
 import expo.modules.guardianprotection.communication.CommunicationSafetyRuntime
 import expo.modules.guardianprotection.observability.GuardianPerformanceMetrics
+import android.util.Log
 import android.os.SystemClock
 import java.time.Instant
 import java.util.UUID
@@ -150,7 +151,9 @@ class GuardianProtectionModule : Module() {
 
   private fun emit(event: Map<String, Any?>) {
     GuardianPerformanceMetrics.recordBridgeEvent()
-    sendEvent("onGuardianEvent", event + ("correlationId" to UUID.randomUUID().toString()))
+    val correlationId = UUID.randomUUID().toString()
+    Log.i("GuardianEvents", "event_type=${event["type"]} correlation_id=$correlationId")
+    sendEvent("onGuardianEvent", event + ("correlationId" to correlationId))
   }
 
   private val eventListener = object : GuardianPolicyRuntime.Listener {

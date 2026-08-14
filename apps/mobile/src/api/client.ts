@@ -178,7 +178,7 @@ export class GuardianApiClient {
     const deviceToken = await sessionStorage.getDeviceToken();
     const deviceAuthenticated = Boolean(deviceToken && path.startsWith("/v1/devices"));
     const headers = new Headers(init.headers);
-    const requestId = `guardian-${Date.now()}-${Math.random().toString(36).slice(2)}`;
+    const requestId = headers.get("X-Request-ID") ?? `guardian-${Date.now()}-${Math.random().toString(36).slice(2)}`;
     headers.set("X-Request-ID", requestId);
     headers.set("Content-Type", "application/json");
     if (deviceAuthenticated) headers.set("Authorization", `Bearer ${deviceToken}`);

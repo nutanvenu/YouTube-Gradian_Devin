@@ -1,3 +1,5 @@
+import json
+import logging
 from uuid import uuid4
 
 from fastapi import FastAPI, HTTPException, Request
@@ -19,6 +21,8 @@ from .handler_support import notifier
 from .lifecycle import lifespan
 
 app = FastAPI(title="Guardian API", version="0.1.0", lifespan=lifespan)
+logger = logging.getLogger(__name__)
+logger.setLevel(logging.INFO)
 
 
 @app.middleware("http")
@@ -27,6 +31,25 @@ async def request_id_middleware(request: Request, call_next):
     request.state.request_id = request_id
     response = await call_next(request)
     response.headers["X-Request-ID"] = request_id
+    logger.warning(
+        json.dumps(
+            {
+                "event": "http_request",
+                "request_id": request_id,
+                "method": request.method,
+                "path": request.url.path,
+                "status_code": response.status_code,
+                "response_request_id": response.headers.get("X-Request-ID"),
+            },
+            separators=(",", ":"),
+        ),
+        extra={
+            "request_id": request_id,
+            "method": request.method,
+            "path": request.url.path,
+            "status_code": response.status_code,
+        },
+    )
     return response
 
 

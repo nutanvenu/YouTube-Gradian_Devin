@@ -1823,11 +1823,34 @@ declaration is `docs/DATA_SAFETY_DECLARATION.md`; capability disclosures name
 VPN, Accessibility, notification access, and Usage Access before opening the
 corresponding settings.
 
-Remaining Phase 3 work, in risk order: complete device-level accessibility
-coverage on authenticated product routes (TalkBack traversal, Dynamic
-Type/large text, contrast, focus order, reduced motion, RTL) and fix surfaced
-failures; complete runtime portions of the OWASP and privacy review; add
-structured-log and native-to-API correlation evidence; and finish Play
-reviewer-credential/evidence follow-up. iPad hardware/simulator and native
-split-view remain a documented Mac-only gap. APNs/FCM provider delivery and
-emulator battery energy remain unverified/unavailable.
+Final authenticated accessibility artifacts are captured under
+`.scratch/emulator/accessibility/` for parent Home/Rules/Activity/Health and
+child Home/My Time/block surfaces. The source audit fixes the collapsed
+ScrollView accessibility node, explicit labels/roles, minimum touch targets,
+wrapping at large text, opacity-only press feedback, and no custom motion.
+TalkBack traversal, contrast measurement, and physical-device Dynamic Type
+remain limited to the Android emulator/session evidence; RTL and reduced
+motion source/configuration checks are recorded, while iOS Dynamic Type and
+physical accessibility acceptance remain external.
+
+The end-to-end native → JavaScript → API correlation run is recorded in
+`.scratch/emulator/correlation-webblocked-final.log`: the same
+`WEB_BLOCKED` correlation IDs appear in native `GuardianEvents`, the
+ReactNativeJS payload, and backend `POST /v1/devices/me/events` structured
+logs. Backend lines include both request and response request IDs. The
+request client now preserves a supplied native `X-Request-ID` instead of
+overwriting it.
+
+Non-zero enforcement evidence is recorded in
+`.scratch/emulator/performance/nonzero-enforcement-logcat.txt` and
+`.scratch/emulator/performance/nonzero-enforcement-final.txt`; the run
+includes policy apply, usage refresh, bridge events, startup and VPN/DNS
+decision counters after synchronization. Emulator `dumpsys batterystats`
+exposed no usable package energy value, so no mAh estimate is claimed.
+
+Remaining externally gated work: iPad hardware/simulator and native
+split-view (Mac-only), iOS compilation/entitlements, APNs/FCM provider
+delivery, physical-device performance/battery/accessibility, Play reviewer
+credentials/store approval, and independent production communication-safety
+accuracy. Runtime OWASP/privacy checks and the complete final verification
+sweep remain to be run after the last code/documentation edits.
