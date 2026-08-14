@@ -31,7 +31,7 @@ from ..auth.service import (
     rotate_refresh,
     verify_password,
 )
-from ..children.models import ChildProfile
+from ..children.models import ChildAppInventory, ChildProfile
 from ..core.config import get_settings
 from ..core.db import get_session
 from ..core.errors import (
@@ -92,6 +92,9 @@ from .schemas import (
     GuardianInviteIn,
     GuardianOut,
     LoginIn,
+    ObservedAppBatchIn,
+    ObservedAppIn,
+    ObservedAppOut,
     PairingOut,
     PairingRedeemIn,
     ParentOut,
@@ -117,6 +120,7 @@ __all__ = [
     'Base64Error',
     'ChildCreate',
     'ChildOut',
+    'ChildAppInventory',
     'ChildProfile',
     'ChildUpdate',
     'DUMMY_PASSWORD_HASH',
@@ -128,6 +132,9 @@ __all__ = [
     'DeviceHeartbeatIn',
     'Ed25519PublicKey',
     'EventBatchIn',
+    'ObservedAppBatchIn',
+    'ObservedAppIn',
+    'ObservedAppOut',
     'Family',
     'FamilyCreate',
     'FamilyGuardian',

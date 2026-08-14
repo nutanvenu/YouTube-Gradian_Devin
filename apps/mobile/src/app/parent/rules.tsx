@@ -1,10 +1,9 @@
 import { useMemo, useState } from "react";
-import { Image, Text } from "react-native";
+import { Text } from "react-native";
 import { useLocalSearchParams } from "expo-router";
 import { useMutation, useQuery, useQueryClient } from "@tanstack/react-query";
 import { api, type PolicyMutationInput } from "@/api/client";
 import { useNetworkStatus } from "@/state/network";
-import { GuardianProtection } from "../../../modules/guardian-protection/src";
 import {
   CardSurface,
   DataState,
@@ -44,8 +43,9 @@ export default function ParentRulesRoute() {
     enabled: Boolean(familyId),
   });
   const inventory = useQuery({
-    queryKey: ["guardian-inventory"],
-    queryFn: () => GuardianProtection.getObservedApps(),
+    queryKey: ["child-inventory", familyId, childId],
+    queryFn: () => api.childInventory(familyId, childId),
+    enabled: Boolean(familyId && childId),
   });
   const health = useQuery({
     queryKey: ["health", familyId],
@@ -80,7 +80,7 @@ export default function ParentRulesRoute() {
   };
 
   const reviewApp = async (platformAppId: string) => {
-    await GuardianProtection.markObservedAppReviewed(platformAppId);
+    await api.reviewChildApp(familyId, childId, platformAppId);
     setMessage("App reviewed. Its inventory status is now up to date.");
     await inventory.refetch();
   };
@@ -96,24 +96,23 @@ export default function ParentRulesRoute() {
         <SectionSurface>
           <Text>App controls</Text>
           {apps.map((app) => {
-            const rule = appRules.find((candidate) => candidate.app_ref === app.platformAppId);
+            const rule = appRules.find((candidate) => candidate.app_ref === app.platform_app_id);
             return (
-              <CardSurface key={app.platformAppId}>
-                {app.iconUri ? <Image source={{ uri: app.iconUri }} accessibilityLabel={`${app.displayName} icon`} style={{ width: 36, height: 36 }} /> : null}
-                <ListRow label={app.displayName} value={`${rule?.action ?? "No rule"}${app.newlyObserved ? " · New app" : ""}`} />
-                {app.newlyObserved ? (
+              <CardSurface key={app.platform_app_id}>
+                <ListRow label={app.display_name} value={`${rule?.action ?? "No rule"}${!app.reviewed ? " · New app" : ""}`} />
+                {!app.reviewed ? (
                   <>
                     <Text>This app was newly observed on the child device. Review it before treating it as trusted.</Text>
-                    <SecondaryButton label="Mark app reviewed" onPress={() => { void reviewApp(app.platformAppId); }} />
+                    <SecondaryButton label="Mark app reviewed" onPress={() => { void reviewApp(app.platform_app_id); }} />
                   </>
                 ) : null}
-                <SecondaryButton label="Allow" onPress={() => save({ operation: "APP_ALLOW", target: app.platformAppId })} />
-                <SecondaryButton label="Block" onPress={() => save({ operation: "APP_BLOCK", target: app.platformAppId })} />
-                <SecondaryButton label={`Limit to ${minutes || "30"} minutes`} onPress={() => save({ operation: "APP_DAILY_MINUTES", target: app.platformAppId, value: Number(minutes) || 30 })} />
+                <SecondaryButton label="Allow" onPress={() => save({ operation: "APP_ALLOW", target: app.platform_app_id })} />
+                <SecondaryButton label="Block" onPress={() => save({ operation: "APP_BLOCK", target: app.platform_app_id })} />
+                <SecondaryButton label={`Limit to ${minutes || "30"} minutes`} onPress={() => save({ operation: "APP_DAILY_MINUTES", target: app.platform_app_id, value: Number(minutes) || 30 })} />
                 <TextField label="Schedule start (HH:MM)" value={scheduleStart} onChangeText={setScheduleStart} />
                 <TextField label="Schedule end (HH:MM)" value={scheduleEnd} onChangeText={setScheduleEnd} />
-                <SecondaryButton label="Save weekday schedule" onPress={() => save({ operation: "APP_SCHEDULE", target: app.platformAppId, value: { days: [1, 2, 3, 4, 5], start: scheduleStart, end: scheduleEnd } })} />
-                <SecondaryButton label="Unlimited" onPress={() => save({ operation: "APP_UNLIMITED", target: app.platformAppId })} />
+                <SecondaryButton label="Save weekday schedule" onPress={() => save({ operation: "APP_SCHEDULE", target: app.platform_app_id, value: { days: [1, 2, 3, 4, 5], start: scheduleStart, end: scheduleEnd } })} />
+                <SecondaryButton label="Unlimited" onPress={() => save({ operation: "APP_UNLIMITED", target: app.platform_app_id })} />
               </CardSurface>
             );
           })}

@@ -195,6 +195,27 @@ class EventBatchIn(BaseModel):
     events: list[MinimizedEvent] = Field(min_length=1, max_length=100)
 
 
+class ObservedAppIn(BaseModel):
+    model_config = ConfigDict(extra="forbid")
+
+    platform_app_id: str = Field(min_length=1, max_length=200)
+    display_name: str = Field(min_length=1, max_length=200)
+    category: str | None = Field(default=None, max_length=50)
+    observed_at: datetime
+
+
+class ObservedAppBatchIn(BaseModel):
+    apps: list[ObservedAppIn] = Field(max_length=500)
+
+
+class ObservedAppOut(BaseModel):
+    platform_app_id: str
+    display_name: str
+    category: str | None
+    observed_at: datetime
+    reviewed: bool
+
+
 class ActivityEventOut(BaseModel):
     id: UUID
     kind: Literal["WEB", "SAFETY"]

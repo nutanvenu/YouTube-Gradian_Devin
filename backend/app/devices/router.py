@@ -5,6 +5,7 @@ from ..api.handler_support import (
     UTC,
     UUID,
     AsyncSession,
+    ChildAppInventory,
     ChildProfile,
     Depends,
     Device,
@@ -15,6 +16,7 @@ from ..api.handler_support import (
     Header,
     HTTPException,
     HTTPRequest,
+    ObservedAppBatchIn,
     PolicyBundle,
     ProtectionHealthEvent,
     PushAction,
@@ -147,6 +149,36 @@ async def ingest_events(
         await save_result(session, "event_batch", idempotency_key, digest, 202, {})
     await session.commit()
 
+
+async def ingest_inventory(
+    body: ObservedAppBatchIn,
+    device: Device = Depends(current_device),
+    session: AsyncSession = Depends(get_session),
+) -> None:
+    for app in body.apps:
+        existing = await session.scalar(
+            select(ChildAppInventory).where(
+                ChildAppInventory.child_profile_id == device.child_profile_id,
+                ChildAppInventory.platform_app_id == app.platform_app_id,
+            )
+        )
+        if existing is None:
+            session.add(
+                ChildAppInventory(
+                    child_profile_id=device.child_profile_id,
+                    platform_app_id=app.platform_app_id,
+                    display_name=app.display_name,
+                    category=app.category,
+                    observed_at=app.observed_at,
+                )
+            )
+        else:
+            existing.display_name = app.display_name
+            existing.category = app.category
+            existing.observed_at = app.observed_at
+    device.last_seen_at = datetime.now(UTC)
+    await session.commit()
+
 async def create_request(
     body: RequestCreateIn,
     request: HTTPRequest,
@@ -264,5 +296,6 @@ router.add_api_route("/v1/devices/me/policy", fetch_policy, methods=["GET"], res
 router.add_api_route("/v1/devices/me/policy/ack", acknowledge_policy, methods=["POST"], status_code=204, response_model=None)
 router.add_api_route("/v1/devices/me/heartbeat", heartbeat, methods=["POST"], status_code=204, response_model=None)
 router.add_api_route("/v1/devices/me/events", ingest_events, methods=["POST"], status_code=202, response_model=None)
+router.add_api_route("/v1/devices/me/inventory", ingest_inventory, methods=["POST"], status_code=202, response_model=None)
 router.add_api_route("/v1/devices/me/requests", create_request, methods=["POST"], status_code=201, response_model=None)
 router.add_api_route("/v1/devices/me/push-tokens", register_device_push_token, methods=["POST"], status_code=204, response_model=None)

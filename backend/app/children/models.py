@@ -1,7 +1,7 @@
-from datetime import date
+from datetime import date, datetime
 from uuid import UUID, uuid4
 
-from sqlalchemy import Date, ForeignKey, Index, String, UniqueConstraint
+from sqlalchemy import Date, DateTime, ForeignKey, Index, String, UniqueConstraint
 from sqlalchemy.dialects.postgresql import JSONB
 from sqlalchemy.dialects.postgresql import UUID as PGUUID
 from sqlalchemy.orm import Mapped, mapped_column
@@ -21,3 +21,23 @@ class ChildProfile(TimestampMixin, Base):
     age_band: Mapped[str] = mapped_column(String(30))
     timezone: Mapped[str] = mapped_column(String(64))
     policy_document: Mapped[dict[str, object]] = mapped_column(JSONB)
+
+
+class ChildAppInventory(TimestampMixin, Base):
+    __tablename__ = "child_app_inventory"
+    __table_args__ = (
+        UniqueConstraint("child_profile_id", "platform_app_id"),
+        Index("ix_child_app_inventory_child", "child_profile_id"),
+    )
+    id: Mapped[UUID] = mapped_column(PGUUID(as_uuid=True), primary_key=True, default=uuid4)
+    child_profile_id: Mapped[UUID] = mapped_column(
+        ForeignKey("child_profiles.id", ondelete="CASCADE"), index=True
+    )
+    platform_app_id: Mapped[str] = mapped_column(String(200))
+    display_name: Mapped[str] = mapped_column(String(200))
+    category: Mapped[str | None] = mapped_column(String(50))
+    observed_at: Mapped[datetime] = mapped_column(DateTime(timezone=True))
+    reviewed_at: Mapped[datetime | None] = mapped_column(DateTime(timezone=True))
+    reviewed_by_parent_id: Mapped[UUID | None] = mapped_column(
+        ForeignKey("parents.id", ondelete="SET NULL")
+    )

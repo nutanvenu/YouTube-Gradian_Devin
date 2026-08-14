@@ -430,6 +430,105 @@ export const openApiDocument = {
         "title": "MinimizedEvent",
         "type": "object"
       },
+      "ObservedAppBatchIn": {
+        "properties": {
+          "apps": {
+            "items": {
+              "$ref": "#/components/schemas/ObservedAppIn"
+            },
+            "maxItems": 500,
+            "title": "Apps",
+            "type": "array"
+          }
+        },
+        "required": [
+          "apps"
+        ],
+        "title": "ObservedAppBatchIn",
+        "type": "object"
+      },
+      "ObservedAppIn": {
+        "additionalProperties": false,
+        "properties": {
+          "category": {
+            "anyOf": [
+              {
+                "maxLength": 50,
+                "type": "string"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Category"
+          },
+          "display_name": {
+            "maxLength": 200,
+            "minLength": 1,
+            "title": "Display Name",
+            "type": "string"
+          },
+          "observed_at": {
+            "format": "date-time",
+            "title": "Observed At",
+            "type": "string"
+          },
+          "platform_app_id": {
+            "maxLength": 200,
+            "minLength": 1,
+            "title": "Platform App Id",
+            "type": "string"
+          }
+        },
+        "required": [
+          "platform_app_id",
+          "display_name",
+          "observed_at"
+        ],
+        "title": "ObservedAppIn",
+        "type": "object"
+      },
+      "ObservedAppOut": {
+        "properties": {
+          "category": {
+            "anyOf": [
+              {
+                "type": "string"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Category"
+          },
+          "display_name": {
+            "title": "Display Name",
+            "type": "string"
+          },
+          "observed_at": {
+            "format": "date-time",
+            "title": "Observed At",
+            "type": "string"
+          },
+          "platform_app_id": {
+            "title": "Platform App Id",
+            "type": "string"
+          },
+          "reviewed": {
+            "title": "Reviewed",
+            "type": "boolean"
+          }
+        },
+        "required": [
+          "platform_app_id",
+          "display_name",
+          "category",
+          "observed_at",
+          "reviewed"
+        ],
+        "title": "ObservedAppOut",
+        "type": "object"
+      },
       "PairingRedeemIn": {
         "properties": {
           "child_profile_id": {
@@ -1332,6 +1431,47 @@ export const openApiDocument = {
         "summary": "Heartbeat"
       }
     },
+    "/v1/devices/me/inventory": {
+      "post": {
+        "operationId": "ingest_inventory_v1_devices_me_inventory_post",
+        "requestBody": {
+          "content": {
+            "application/json": {
+              "schema": {
+                "$ref": "#/components/schemas/ObservedAppBatchIn"
+              }
+            }
+          },
+          "required": true
+        },
+        "responses": {
+          "202": {
+            "content": {
+              "application/json": {
+                "schema": {}
+              }
+            },
+            "description": "Successful Response"
+          },
+          "422": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/HTTPValidationError"
+                }
+              }
+            },
+            "description": "Validation Error"
+          }
+        },
+        "security": [
+          {
+            "HTTPBearer": []
+          }
+        ],
+        "summary": "Ingest Inventory"
+      }
+    },
     "/v1/devices/me/policy": {
       "get": {
         "operationId": "fetch_policy_v1_devices_me_policy_get",
@@ -2029,6 +2169,122 @@ export const openApiDocument = {
         "summary": "Update Child"
       }
     },
+    "/v1/families/{family_id}/children/{child_id}/inventory": {
+      "get": {
+        "operationId": "list_inventory_v1_families__family_id__children__child_id__inventory_get",
+        "parameters": [
+          {
+            "in": "path",
+            "name": "family_id",
+            "required": true,
+            "schema": {
+              "format": "uuid",
+              "title": "Family Id",
+              "type": "string"
+            }
+          },
+          {
+            "in": "path",
+            "name": "child_id",
+            "required": true,
+            "schema": {
+              "format": "uuid",
+              "title": "Child Id",
+              "type": "string"
+            }
+          }
+        ],
+        "responses": {
+          "200": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "items": {
+                    "$ref": "#/components/schemas/ObservedAppOut"
+                  },
+                  "title": "Response List Inventory V1 Families  Family Id  Children  Child Id  Inventory Get",
+                  "type": "array"
+                }
+              }
+            },
+            "description": "Successful Response"
+          },
+          "422": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/HTTPValidationError"
+                }
+              }
+            },
+            "description": "Validation Error"
+          }
+        },
+        "security": [
+          {
+            "OAuth2PasswordBearer": []
+          }
+        ],
+        "summary": "List Inventory"
+      }
+    },
+    "/v1/families/{family_id}/children/{child_id}/inventory/{platform_app_id}/review": {
+      "post": {
+        "operationId": "review_inventory_app_v1_families__family_id__children__child_id__inventory__platform_app_id__review_post",
+        "parameters": [
+          {
+            "in": "path",
+            "name": "family_id",
+            "required": true,
+            "schema": {
+              "format": "uuid",
+              "title": "Family Id",
+              "type": "string"
+            }
+          },
+          {
+            "in": "path",
+            "name": "child_id",
+            "required": true,
+            "schema": {
+              "format": "uuid",
+              "title": "Child Id",
+              "type": "string"
+            }
+          },
+          {
+            "in": "path",
+            "name": "platform_app_id",
+            "required": true,
+            "schema": {
+              "title": "Platform App Id",
+              "type": "string"
+            }
+          }
+        ],
+        "responses": {
+          "204": {
+            "description": "Successful Response"
+          },
+          "422": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/HTTPValidationError"
+                }
+              }
+            },
+            "description": "Validation Error"
+          }
+        },
+        "security": [
+          {
+            "OAuth2PasswordBearer": []
+          }
+        ],
+        "summary": "Review Inventory App"
+      }
+    },
     "/v1/families/{family_id}/children/{child_id}/pairing": {
       "post": {
         "operationId": "create_pairing_v1_families__family_id__children__child_id__pairing_post",
@@ -2686,7 +2942,7 @@ export const openApiDocument = {
   }
 } as const;
 
-export type GuardianApiPath = "/health" | "/livez" | "/readiness" | "/readyz" | "/v1/auth/login" | "/v1/auth/logout" | "/v1/auth/me" | "/v1/auth/password-reset/confirm" | "/v1/auth/password-reset/request" | "/v1/auth/refresh" | "/v1/auth/signup" | "/v1/auth/verification/confirm" | "/v1/auth/verification/request" | "/v1/devices/me/events" | "/v1/devices/me/heartbeat" | "/v1/devices/me/policy" | "/v1/devices/me/policy/ack" | "/v1/devices/me/push-tokens" | "/v1/devices/me/requests" | "/v1/devices/pair" | "/v1/families" | "/v1/families/guardians/accept" | "/v1/families/{family_id}" | "/v1/families/{family_id}/activity" | "/v1/families/{family_id}/activity/usage" | "/v1/families/{family_id}/children" | "/v1/families/{family_id}/children/{child_id}" | "/v1/families/{family_id}/children/{child_id}/pairing" | "/v1/families/{family_id}/children/{child_id}/policy/mutations" | "/v1/families/{family_id}/devices/{device_id}/revoke" | "/v1/families/{family_id}/guardians" | "/v1/families/{family_id}/guardians/invite" | "/v1/families/{family_id}/health" | "/v1/families/{family_id}/requests" | "/v1/families/{family_id}/requests/{request_id}/approve" | "/v1/families/{family_id}/requests/{request_id}/deny" | "/v1/me/push-tokens" | "/v1/policy/public-key" | "/v1/push/actions/{action_token}/approve" | "/v1/push/actions/{action_token}/deny";
+export type GuardianApiPath = "/health" | "/livez" | "/readiness" | "/readyz" | "/v1/auth/login" | "/v1/auth/logout" | "/v1/auth/me" | "/v1/auth/password-reset/confirm" | "/v1/auth/password-reset/request" | "/v1/auth/refresh" | "/v1/auth/signup" | "/v1/auth/verification/confirm" | "/v1/auth/verification/request" | "/v1/devices/me/events" | "/v1/devices/me/heartbeat" | "/v1/devices/me/inventory" | "/v1/devices/me/policy" | "/v1/devices/me/policy/ack" | "/v1/devices/me/push-tokens" | "/v1/devices/me/requests" | "/v1/devices/pair" | "/v1/families" | "/v1/families/guardians/accept" | "/v1/families/{family_id}" | "/v1/families/{family_id}/activity" | "/v1/families/{family_id}/activity/usage" | "/v1/families/{family_id}/children" | "/v1/families/{family_id}/children/{child_id}" | "/v1/families/{family_id}/children/{child_id}/inventory" | "/v1/families/{family_id}/children/{child_id}/inventory/{platform_app_id}/review" | "/v1/families/{family_id}/children/{child_id}/pairing" | "/v1/families/{family_id}/children/{child_id}/policy/mutations" | "/v1/families/{family_id}/devices/{device_id}/revoke" | "/v1/families/{family_id}/guardians" | "/v1/families/{family_id}/guardians/invite" | "/v1/families/{family_id}/health" | "/v1/families/{family_id}/requests" | "/v1/families/{family_id}/requests/{request_id}/approve" | "/v1/families/{family_id}/requests/{request_id}/deny" | "/v1/me/push-tokens" | "/v1/policy/public-key" | "/v1/push/actions/{action_token}/approve" | "/v1/push/actions/{action_token}/deny";
 
 export class GeneratedGuardianError extends Error {
   constructor(message: string, readonly status: number) {

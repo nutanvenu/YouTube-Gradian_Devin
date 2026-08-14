@@ -35,6 +35,7 @@ export default function ChildHomeRoute() {
   const [timeMessage, setTimeMessage] = useState<string | null>(null);
   const [acknowledgedVersion, setAcknowledgedVersion] = useState<number | null>(null);
   const usageUploaded = useRef(false);
+  const inventoryUploaded = useRef(false);
 
   useEffect(() => {
     let mounted = true;
@@ -116,6 +117,18 @@ export default function ChildHomeRoute() {
             duration_seconds: Math.min(Math.round(seconds), 86400),
           }));
         if (events.length) await api.ingestEvents(events);
+      }
+      if (!inventoryUploaded.current) {
+        const observedApps = await GuardianProtection.getObservedApps();
+        await api.ingestInventory(
+          observedApps.map((app) => ({
+            platform_app_id: app.platformAppId,
+            display_name: app.displayName,
+            category: app.category,
+            observed_at: app.observedAt,
+          })),
+        );
+        inventoryUploaded.current = true;
       }
     };
     void syncProtection().catch(() => {

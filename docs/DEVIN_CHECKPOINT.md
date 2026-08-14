@@ -1310,7 +1310,7 @@ families and events routers and covered by the inventory guard. The current
 registered table is:
 
 ```text
-registered HTTP routes: 44
+registered HTTP routes: 47
 WebSocket routes:       /v1/ws/sync
 ```
 
@@ -1383,11 +1383,18 @@ guardian-protection AppInventoryTest                       BUILD SUCCESSFUL
 uv lock --check                                             Resolved 54 packages
 ```
 
-The current review state is device-persisted. A backend child-inventory
-upload/read path and parent-side server persistence are still required before
-this can be treated as complete cross-device inventory synchronization; the
-current parent Rules screen must not be interpreted as reading the child
-device's package manager inventory.
+The child inventory synchronization slice now persists minimized observed app
+records in the backend per child profile (`0013_child_app_inventory`).
+`POST /v1/devices/me/inventory` is device-authenticated and upserts bounded
+package identifiers, display names, categories, and observation times.
+Parent-authenticated Rules reads use
+`GET /v1/families/{family_id}/children/{child_id}/inventory`, and review
+decisions use the corresponding parent-authenticated review mutation. Review
+timestamps and the reviewing parent are stored server-side, so repeated
+uploads preserve review state and multiple devices converge on the same
+child-level records. The mobile child uploads its minimized inventory after
+protection sync; the parent Rules screen no longer reads device-local
+inventory.
 
 The child Activity surface now forwards native `WEB_BLOCKED` events and
 non-zero native usage summaries through the minimized
@@ -1396,3 +1403,14 @@ covered by the existing mobile test suite. Live visual Activity evidence is
 still open: the child emulator currently reports `Web protection permission
 is required`, and the backend event tables remained empty during the latest
 run, so no emulator-generated web event or usage point is claimed.
+
+Live backend inventory authorization and persistence evidence:
+
+```text
+pytest tests/test_inventory.py tests/test_route_inventory.py   3 passed
+```
+
+The live two-device Activity evidence remains open until Android VPN consent
+can be granted on the child emulator and native web-block/usage events are
+observed in the parent Activity surface. The current backend and mobile
+runtime must not be interpreted as having that visual evidence.

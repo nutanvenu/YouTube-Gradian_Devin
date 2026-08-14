@@ -89,6 +89,13 @@ export type DeviceEvent = {
   category?: string | null;
   duration_seconds?: number;
 };
+export type ObservedApp = {
+  platform_app_id: string;
+  display_name: string;
+  category: string | null;
+  observed_at: string;
+  reviewed: boolean;
+};
 
 const configuredApiUrl = typeof process.env.EXPO_PUBLIC_API_URL === "string"
   ? process.env.EXPO_PUBLIC_API_URL.replace(/\/+$/, "")
@@ -190,6 +197,15 @@ export class GuardianApiClient {
   health(familyId: string) { return this.request<Health[]>(`/v1/families/${familyId}/health`); }
   activity(familyId: string) { return this.request<ActivityEvent[]>(`/v1/families/${familyId}/activity`); }
   activityUsage(familyId: string) { return this.request<ActivityUsagePoint[]>(`/v1/families/${familyId}/activity/usage`); }
+  childInventory(familyId: string, childId: string) {
+    return this.request<ObservedApp[]>(`/v1/families/${familyId}/children/${childId}/inventory`);
+  }
+  reviewChildApp(familyId: string, childId: string, platformAppId: string) {
+    return this.request<undefined>(
+      `/v1/families/${familyId}/children/${childId}/inventory/${encodeURIComponent(platformAppId)}/review`,
+      { method: "POST" },
+    );
+  }
   createPairing(familyId: string, childId: string) { return this.request<Pairing>(`/v1/families/${familyId}/children/${childId}/pairing`, { method: "POST" }); }
   redeemPairing(input: { session_id: string; code: string; child_profile_id: string; platform: "ANDROID" | "IOS"; public_key: string }) { return this.request<DeviceCredentials>("/v1/devices/pair", { method: "POST", body: JSON.stringify(input) }); }
   policy() { return this.request<{ bundle: unknown; policy_version: number; version_mismatch: boolean }>("/v1/devices/me/policy"); }
@@ -210,6 +226,17 @@ export class GuardianApiClient {
       method: "POST",
       headers: { "Idempotency-Key": `event-batch:${Date.now()}:${Math.random().toString(36).slice(2)}` },
       body: JSON.stringify({ events }),
+    });
+  }
+  ingestInventory(apps: Array<{
+    platform_app_id: string;
+    display_name: string;
+    category?: string | null;
+    observed_at: string;
+  }>) {
+    return this.request<undefined>("/v1/devices/me/inventory", {
+      method: "POST",
+      body: JSON.stringify({ apps }),
     });
   }
   mutatePolicy(familyId: string, childId: string, input: PolicyMutationInput) {
