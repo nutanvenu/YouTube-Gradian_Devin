@@ -103,6 +103,7 @@ export interface SignedPolicyBundle {
   child_profile_id: string;
   issued_at: string;
   expires_soft_at: string;
+  key_id: string;
   age_band: AgeBand;
   base_policy: BasePolicy;
   app_rules: AppRule[];

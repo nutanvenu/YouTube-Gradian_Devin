@@ -1,3 +1,4 @@
+import base64
 import os
 import subprocess
 import sys
@@ -71,6 +72,9 @@ async def test_database_url() -> AsyncGenerator[str]:
 
 @pytest_asyncio.fixture
 async def client(test_database_url: str) -> AsyncGenerator[httpx.AsyncClient]:
+    settings = get_settings()
+    settings.policy_private_key = base64.b64encode(bytes(range(32))).decode("ascii")
+    settings.policy_key_id = "test-key"
     engine = create_async_engine(test_database_url, pool_pre_ping=True)
     factory = async_sessionmaker(engine, expire_on_commit=False)
 

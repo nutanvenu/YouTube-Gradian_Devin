@@ -15,6 +15,7 @@ const bundle = {
   child_profile_id: "child",
   issued_at: "2026-01-01T00:00:00Z",
   expires_soft_at: "2026-01-08T00:00:00Z",
+  key_id: "test-key",
   age_band: "TEEN",
   base_policy: {
     timezone: "UTC",

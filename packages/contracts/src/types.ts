@@ -33,7 +33,7 @@ export const CATEGORIES = [
 ] as const;
 export type Category = (typeof CATEGORIES)[number];
 
-export const HARD_CATEGORIES = hardCategories as readonly [
+export const HARD_CATEGORIES = hardCategories as unknown as readonly [
   Category,
   ...Category[]
 ];

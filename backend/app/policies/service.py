@@ -5,6 +5,11 @@ from uuid import UUID
 from zoneinfo import ZoneInfo
 
 from jsonschema import Draft202012Validator, FormatChecker
+from sqlalchemy import select, update
+from sqlalchemy.ext.asyncio import AsyncSession
+
+from .models import PolicyBundle, PolicyDocument
+from .signing import signer
 
 AGE_BANDS = ("YOUNG_CHILD", "PRETEEN", "TEEN", "OLDER_TEEN")
 _SCHEMA_PATH = (
@@ -165,6 +170,7 @@ def default_policy(
         "child_profile_id": str(child_id),
         "issued_at": issued_at.isoformat().replace("+00:00", "Z"),
         "expires_soft_at": (issued_at + timedelta(days=7)).isoformat().replace("+00:00", "Z"),
+        "key_id": "unconfigured",
         "age_band": band,
         "base_policy": base_policy,
         "app_rules": [],
@@ -190,3 +196,73 @@ def default_policy(
             + "; ".join(error.message for error in errors)
         )
     return document
+
+
+async def create_initial_bundle(
+    session: AsyncSession,
+    child_profile_id: UUID,
+    parent_id: UUID,
+    policy: dict[str, object],
+) -> PolicyBundle:
+    document = PolicyDocument(child_profile_id=child_profile_id, current_policy_version=1)
+    session.add(document)
+    await session.flush()
+    signed = signer.sign(policy)
+    bundle = PolicyBundle(
+        document_id=document.id,
+        child_profile_id=child_profile_id,
+        policy_version=1,
+        author_parent_id=parent_id,
+        effective_at=datetime.now(UTC),
+        new_value=signed,
+        key_id=str(signed["key_id"]),
+        signature=str(signed["signature"]),
+    )
+    session.add(bundle)
+    await session.flush()
+    return bundle
+
+
+async def create_next_bundle(
+    session: AsyncSession,
+    child_profile_id: UUID,
+    parent_id: UUID,
+    new_policy: dict[str, object],
+    previous_value: dict[str, object],
+    effective_at: datetime | None = None,
+    expires_at: datetime | None = None,
+) -> PolicyBundle:
+    document = await session.scalar(
+        select(PolicyDocument)
+        .where(PolicyDocument.child_profile_id == child_profile_id)
+        .with_for_update()
+    )
+    if document is None:
+        raise RuntimeError("Policy document is missing")
+    version = document.current_policy_version + 1
+    new_policy["policy_version"] = version
+    signed = signer.sign(new_policy)
+    await session.execute(
+        update(PolicyBundle)
+        .where(
+            PolicyBundle.child_profile_id == child_profile_id,
+            PolicyBundle.is_current.is_(True),
+        )
+        .values(is_current=False, superseded_at=datetime.now(UTC))
+    )
+    bundle = PolicyBundle(
+        document_id=document.id,
+        child_profile_id=child_profile_id,
+        policy_version=version,
+        author_parent_id=parent_id,
+        effective_at=effective_at or datetime.now(UTC),
+        expires_at=expires_at,
+        previous_value=previous_value,
+        new_value=signed,
+        key_id=str(signed["key_id"]),
+        signature=str(signed["signature"]),
+    )
+    document.current_policy_version = version
+    session.add(bundle)
+    await session.flush()
+    return bundle

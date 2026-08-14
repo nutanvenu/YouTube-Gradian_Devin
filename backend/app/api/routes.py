@@ -1,9 +1,13 @@
+import asyncio
 import hashlib
 import secrets
+from collections.abc import Mapping
+from copy import deepcopy
 from datetime import UTC, datetime, timedelta
 from uuid import UUID
 
-from fastapi import Depends, FastAPI, Header, HTTPException, Request, status
+from fastapi import Depends, FastAPI, Header, HTTPException, WebSocket, WebSocketDisconnect, status
+from fastapi import Request as HTTPRequest
 from fastapi.exceptions import RequestValidationError
 from fastapi.security import OAuth2PasswordBearer
 from sqlalchemy import select, update
@@ -23,6 +27,7 @@ from ..auth.service import (
     verify_password,
 )
 from ..children.models import ChildProfile
+from ..core.config import get_settings
 from ..core.db import get_session
 from ..core.errors import (
     http_exception_handler,
@@ -42,7 +47,19 @@ from ..events.models import (
 )
 from ..families.models import Family, FamilyGuardian, GuardianInvitation, GuardianRole
 from ..pairing.models import PairingSession
-from ..policies.service import age_band_for_dob, default_policy, validate_timezone
+from ..policies.models import PolicyBundle
+from ..policies.service import (
+    age_band_for_dob,
+    create_initial_bundle,
+    create_next_bundle,
+    default_policy,
+    validate_timezone,
+)
+from ..policies.signing import signer
+from ..push.models import PushToken
+from ..requests.models import Request as RequestRow
+from ..requests.models import RequestState
+from ..requests.service import is_expired, transition
 from .schemas import (
     ChildCreate,
     ChildOut,
@@ -61,7 +78,12 @@ from .schemas import (
     PairingRedeemIn,
     ParentOut,
     PasswordResetConfirmIn,
+    PolicyMutationIn,
+    PushTokenIn,
     RefreshIn,
+    RequestCreateIn,
+    RequestDecisionIn,
+    RequestOut,
     SignupIn,
     TokenConfirmIn,
     TokenRequestIn,
@@ -77,7 +99,27 @@ auth_rate_limiter = InProcessRateLimiter()
 notifier = LoggingNotifier()
 
 
-def rate_key(request: Request, operation: str, principal: str) -> str:
+def policy_records(policy: dict[str, object], key: str) -> list[dict[str, object]]:
+    value = policy.get(key)
+    if not isinstance(value, list):
+        return []
+    return [item for item in value if isinstance(item, dict)]
+
+
+def policy_mapping(policy: dict[str, object], key: str) -> dict[str, object]:
+    value = policy.get(key)
+    if not isinstance(value, Mapping):
+        raise HTTPException(status.HTTP_409_CONFLICT, "Policy is malformed")
+    return dict(value)
+
+
+@app.get("/v1/policy/public-key")
+async def policy_public_key() -> dict[str, str]:
+    settings = get_settings()
+    return {"key_id": settings.policy_key_id, "public_key": signer.public_key()}
+
+
+def rate_key(request: HTTPRequest, operation: str, principal: str) -> str:
     client_ip = request.client.host if request.client is not None else "unknown"
     return f"{operation}:{client_ip}:{principal}"
 
@@ -102,7 +144,7 @@ async def family_for_parent(session: AsyncSession, parent: Parent, family_id: UU
 @app.post("/v1/auth/signup", response_model=TokensOut, status_code=201)
 async def signup(
     body: SignupIn,
-    request: Request,
+    request: HTTPRequest,
     session: AsyncSession = Depends(get_session),
 ) -> TokensOut:
     auth_rate_limiter.check(rate_key(request, "signup", body.email.lower()), 5, 60)
@@ -120,7 +162,7 @@ async def signup(
 @app.post("/v1/auth/login", response_model=TokensOut)
 async def login(
     body: LoginIn,
-    request: Request,
+    request: HTTPRequest,
     session: AsyncSession = Depends(get_session),
 ) -> TokensOut:
     auth_rate_limiter.check(rate_key(request, "login", body.email.lower()), 10, 60)
@@ -137,7 +179,7 @@ async def login(
 @app.post("/v1/auth/refresh", response_model=TokensOut)
 async def refresh(
     body: RefreshIn,
-    request: Request,
+    request: HTTPRequest,
     session: AsyncSession = Depends(get_session),
 ) -> TokensOut:
     auth_rate_limiter.check(
@@ -156,7 +198,7 @@ async def me(parent: Parent = Depends(current_parent)) -> Parent:
 
 @app.post("/v1/auth/verification/request", status_code=202)
 async def request_verification(
-    request: Request,
+    request: HTTPRequest,
     parent: Parent = Depends(current_parent),
     session: AsyncSession = Depends(get_session),
 ) -> None:
@@ -177,7 +219,7 @@ async def confirm_verification(
 
 @app.post("/v1/auth/password-reset/request", status_code=202)
 async def request_password_reset(
-    body: TokenRequestIn, request: Request, session: AsyncSession = Depends(get_session)
+    body: TokenRequestIn, request: HTTPRequest, session: AsyncSession = Depends(get_session)
 ) -> None:
     auth_rate_limiter.check(rate_key(request, "password-reset", body.email.lower()), 5, 3600)
     parent = await session.scalar(select(Parent).where(Parent.email == body.email.lower()))
@@ -200,7 +242,7 @@ async def confirm_password_reset(
 @app.post("/v1/auth/logout", status_code=204)
 async def logout(
     body: RefreshIn,
-    request: Request,
+    request: HTTPRequest,
     session: AsyncSession = Depends(get_session),
 ) -> None:
     auth_rate_limiter.check(
@@ -255,6 +297,7 @@ async def create_child(
     session.add(child)
     await session.flush()
     child.policy_document = default_policy(family_id, child.id, band, timezone)
+    await create_initial_bundle(session, child.id, parent.id, child.policy_document)
     await session.commit()
     await session.refresh(child)
     return child
@@ -369,7 +412,7 @@ async def list_guardians(
 async def invite_guardian(
     family_id: UUID,
     body: GuardianInviteIn,
-    request: Request,
+    request: HTTPRequest,
     parent: Parent = Depends(current_parent),
     session: AsyncSession = Depends(get_session),
 ) -> None:
@@ -390,7 +433,7 @@ async def invite_guardian(
 @app.post("/v1/families/guardians/accept", status_code=204)
 async def accept_guardian(
     body: GuardianAcceptIn,
-    request: Request,
+    request: HTTPRequest,
     parent: Parent = Depends(current_parent),
     session: AsyncSession = Depends(get_session),
 ) -> None:
@@ -425,7 +468,7 @@ async def accept_guardian(
 async def create_pairing(
     family_id: UUID,
     child_id: UUID,
-    request: Request,
+    request: HTTPRequest,
     parent: Parent = Depends(current_parent),
     session: AsyncSession = Depends(get_session),
 ) -> PairingOut:
@@ -450,7 +493,7 @@ async def create_pairing(
 @app.post("/v1/devices/pair", response_model=DeviceCredentialOut)
 async def redeem_pairing(
     body: PairingRedeemIn,
-    request: Request,
+    request: HTTPRequest,
     idempotency_key: str | None = Header(default=None, alias="Idempotency-Key"),
     session: AsyncSession = Depends(get_session),
 ) -> DeviceCredentialOut:
@@ -538,10 +581,134 @@ async def fetch_policy(
     device: Device = Depends(current_device),
     session: AsyncSession = Depends(get_session),
 ) -> dict[str, object]:
-    child = await session.get(ChildProfile, device.child_profile_id)
+    bundle = await session.scalar(
+        select(PolicyBundle).where(
+            PolicyBundle.child_profile_id == device.child_profile_id,
+            PolicyBundle.is_current.is_(True),
+        )
+    )
+    if bundle is None:
+        raise HTTPException(status.HTTP_404_NOT_FOUND, "Policy not found")
+    return {
+        "bundle": bundle.new_value,
+        "policy_version": bundle.policy_version,
+        "version_mismatch": device.policy_version_applied != bundle.policy_version,
+    }
+
+
+@app.post("/v1/families/{family_id}/children/{child_id}/policy/mutations")
+async def mutate_policy(
+    family_id: UUID,
+    child_id: UUID,
+    body: PolicyMutationIn,
+    parent: Parent = Depends(current_parent),
+    idempotency_key: str | None = Header(default=None, alias="Idempotency-Key"),
+    session: AsyncSession = Depends(get_session),
+) -> dict[str, object]:
+    await family_for_parent(session, parent, family_id)
+    child = await session.scalar(
+        select(ChildProfile).where(ChildProfile.id == child_id, ChildProfile.family_id == family_id)
+    )
     if child is None:
         raise HTTPException(status.HTTP_404_NOT_FOUND, "Child not found")
-    return child.policy_document
+    digest = payload_hash(body.model_dump(mode="json"))
+    if idempotency_key is not None:
+        replay = await replay_or_conflict(session, "policy_mutation", idempotency_key, digest)
+        if replay is not None:
+            return replay.response_body
+    current = await session.scalar(
+        select(PolicyBundle).where(
+            PolicyBundle.child_profile_id == child_id, PolicyBundle.is_current.is_(True)
+        )
+    )
+    if current is None:
+        raise HTTPException(status.HTTP_409_CONFLICT, "Policy is unavailable")
+    policy = deepcopy(current.new_value)
+    policy["signature"] = ""
+    operation = body.operation
+    rule_id = f"{operation.lower()}-{UUID(int=secrets.randbits(128))}"
+    if operation.startswith("APP_"):
+        action = {
+            "APP_ALLOW": "ALLOW",
+            "APP_BLOCK": "BLOCK",
+            "APP_UNLIMITED": "UNLIMITED",
+            "APP_DAILY_MINUTES": "LIMIT",
+        }[operation]
+        rule: dict[str, object] = {"rule_id": rule_id, "app_ref": body.target, "action": action}
+        if action == "LIMIT":
+            if not isinstance(body.value, int) or body.value < 0:
+                raise HTTPException(status.HTTP_422_UNPROCESSABLE_ENTITY, "Daily minutes required")
+            rule["daily_minutes"] = body.value
+        policy["app_rules"] = [*policy_records(policy, "app_rules"), rule]
+    elif operation in {"DOMAIN_ALLOW", "DOMAIN_BLOCK"}:
+        policy["domain_rules"] = [
+            *policy_records(policy, "domain_rules"),
+            {
+                "rule_id": rule_id,
+                "domain": body.target,
+                "action": "ALLOW" if operation == "DOMAIN_ALLOW" else "BLOCK",
+            },
+        ]
+    elif operation == "CATEGORY_DAILY_MINUTES":
+        if not isinstance(body.value, int) or body.value < 0:
+            raise HTTPException(status.HTTP_422_UNPROCESSABLE_ENTITY, "Daily minutes required")
+        policy["category_rules"] = [
+            *policy_records(policy, "category_rules"),
+            {
+                "rule_id": rule_id,
+                "category": body.target,
+                "action": "LIMIT",
+                "daily_minutes": body.value,
+            },
+        ]
+    elif operation == "UNKNOWN_DOMAIN_POLICY":
+        if body.value not in {"BLOCK", "ALLOW_AND_NOTIFY"}:
+            raise HTTPException(
+                status.HTTP_422_UNPROCESSABLE_ENTITY, "Invalid unknown-domain policy"
+            )
+        base = policy_mapping(policy, "base_policy")
+        base["unknown_domain_policy"] = body.value
+        policy["base_policy"] = base
+    elif operation == "COMMUNICATION_SENSITIVITY":
+        if body.value not in {"LOW", "MEDIUM", "HIGH", "CRITICAL"}:
+            raise HTTPException(status.HTTP_422_UNPROCESSABLE_ENTITY, "Invalid sensitivity")
+        communication = policy_mapping(policy, "communication_safety")
+        communication["severity_threshold"] = body.value
+        policy["communication_safety"] = communication
+    elif operation == "TEMPORARY_EXCEPTION":
+        if body.expires_at is None or body.expires_at <= datetime.now(UTC):
+            raise HTTPException(status.HTTP_422_UNPROCESSABLE_ENTITY, "Future expiry required")
+        policy["temporary_overrides"] = [
+            *policy_records(policy, "temporary_overrides"),
+            {
+                "rule_id": rule_id,
+                "target_kind": "DOMAIN",
+                "target_ref": body.target,
+                "action": "ALLOW",
+                "starts_at": datetime.now(UTC).isoformat().replace("+00:00", "Z"),
+                "expires_at": body.expires_at.isoformat().replace("+00:00", "Z"),
+            },
+        ]
+    bundle = await create_next_bundle(
+        session,
+        child_id,
+        parent.id,
+        policy,
+        {"operation": operation, "target": body.target, "value": body.value},
+        expires_at=body.expires_at,
+    )
+    child.policy_document = bundle.new_value
+    result = {
+        "bundle": bundle.new_value,
+        "policy_version": bundle.policy_version,
+        "effective_at": bundle.effective_at.isoformat(),
+    }
+    if idempotency_key is not None:
+        await save_result(
+            session, "policy_mutation", idempotency_key, digest, status.HTTP_200_OK, result
+        )
+    await session.commit()
+    return result
 
 
 @app.post("/v1/devices/me/policy/ack", status_code=204)
@@ -552,6 +719,314 @@ async def acknowledge_policy(
 ) -> None:
     device.policy_version_applied = body.policy_version
     await session.commit()
+
+
+@app.post(
+    "/v1/devices/me/requests",
+    response_model=RequestOut,
+    status_code=status.HTTP_201_CREATED,
+)
+async def create_request(
+    body: RequestCreateIn,
+    device: Device = Depends(current_device),
+    idempotency_key: str | None = Header(default=None, alias="Idempotency-Key"),
+    session: AsyncSession = Depends(get_session),
+) -> RequestOut:
+    payload = body.model_dump(mode="json")
+    digest = payload_hash(payload)
+    if idempotency_key is not None:
+        replay = await replay_or_conflict(session, "request_create", idempotency_key, digest)
+        if replay is not None:
+            return RequestOut.model_validate(replay.response_body)
+    request_row = RequestRow(
+        child_profile_id=device.child_profile_id,
+        device_id=device.id,
+        request_type=body.request_type,
+        subject=body.subject,
+        reason=body.reason,
+        expires_at=datetime.now(UTC) + timedelta(hours=1),
+    )
+    session.add(request_row)
+    await session.flush()
+    result = RequestOut.model_validate(request_row)
+    if idempotency_key is not None:
+        await save_result(
+            session,
+            "request_create",
+            idempotency_key,
+            digest,
+            status.HTTP_201_CREATED,
+            result.model_dump(mode="json"),
+        )
+    await session.commit()
+    return result
+
+
+@app.get("/v1/families/{family_id}/requests", response_model=list[RequestOut])
+async def list_requests(
+    family_id: UUID,
+    parent: Parent = Depends(current_parent),
+    session: AsyncSession = Depends(get_session),
+) -> list[RequestRow]:
+    await family_for_parent(session, parent, family_id)
+    rows = await session.scalars(
+        select(RequestRow)
+        .join(ChildProfile, ChildProfile.id == RequestRow.child_profile_id)
+        .where(ChildProfile.family_id == family_id)
+        .order_by(RequestRow.created_at.desc())
+    )
+    return list(rows.all())
+
+
+async def decide_request(
+    request_id: UUID,
+    target: RequestState,
+    body: RequestDecisionIn,
+    parent: Parent,
+    session: AsyncSession,
+) -> RequestOut:
+    row = await session.scalar(
+        select(RequestRow)
+        .join(ChildProfile, ChildProfile.id == RequestRow.child_profile_id)
+        .join(Family, Family.id == ChildProfile.family_id)
+        .join(FamilyGuardian, FamilyGuardian.family_id == Family.id)
+        .where(RequestRow.id == request_id, FamilyGuardian.parent_id == parent.id)
+        .with_for_update()
+    )
+    if row is None:
+        raise HTTPException(status.HTTP_404_NOT_FOUND, "Request not found")
+    if is_expired(row.expires_at):
+        row.state = RequestState.EXPIRED.value
+    transition(row.state, target)
+    previous = row.state
+    row.state = target.value
+    row.decision_reason = body.reason
+    row.decided_by_parent_id = parent.id
+    row.decided_at = datetime.now(UTC)
+    if target is RequestState.APPROVED:
+        current = await session.scalar(
+            select(PolicyBundle).where(
+                PolicyBundle.child_profile_id == row.child_profile_id,
+                PolicyBundle.is_current.is_(True),
+            )
+        )
+        if current is None:
+            raise HTTPException(status.HTTP_409_CONFLICT, "Policy is unavailable")
+        policy = deepcopy(current.new_value)
+        policy["signature"] = ""
+        raw_overrides = policy.get("temporary_overrides", [])
+        overrides = list(raw_overrides) if isinstance(raw_overrides, list) else []
+        overrides.append(
+            {
+                "rule_id": f"request-{row.id}",
+                "target_kind": "APP" if row.request_type == "UNBLOCK_APP" else "DOMAIN",
+                "target_ref": row.subject or row.request_type,
+                "action": "ALLOW",
+                "starts_at": datetime.now(UTC).isoformat().replace("+00:00", "Z"),
+                "expires_at": (
+                    datetime.now(UTC) + timedelta(hours=1)
+                ).isoformat().replace("+00:00", "Z"),
+            }
+        )
+        policy["temporary_overrides"] = overrides
+        await create_next_bundle(
+            session,
+            row.child_profile_id,
+            parent.id,
+            policy,
+            {"state": previous, "request_id": str(row.id)},
+            expires_at=datetime.now(UTC) + timedelta(hours=1),
+        )
+    await session.commit()
+    return RequestOut.model_validate(row)
+
+
+@app.post("/v1/families/{family_id}/requests/{request_id}/approve", response_model=RequestOut)
+async def approve_request(
+    family_id: UUID,
+    request_id: UUID,
+    body: RequestDecisionIn,
+    parent: Parent = Depends(current_parent),
+    session: AsyncSession = Depends(get_session),
+) -> RequestOut:
+    await family_for_parent(session, parent, family_id)
+    return await decide_request(request_id, RequestState.APPROVED, body, parent, session)
+
+
+@app.post("/v1/families/{family_id}/requests/{request_id}/deny", response_model=RequestOut)
+async def deny_request(
+    family_id: UUID,
+    request_id: UUID,
+    body: RequestDecisionIn,
+    parent: Parent = Depends(current_parent),
+    session: AsyncSession = Depends(get_session),
+) -> RequestOut:
+    await family_for_parent(session, parent, family_id)
+    return await decide_request(request_id, RequestState.DENIED, body, parent, session)
+
+
+@app.post("/v1/me/push-tokens", status_code=status.HTTP_204_NO_CONTENT)
+async def register_push_token(
+    body: PushTokenIn,
+    parent: Parent = Depends(current_parent),
+    session: AsyncSession = Depends(get_session),
+) -> None:
+    token_hash = hashlib.sha256(body.token.encode()).hexdigest()
+    existing = await session.scalar(
+        select(PushToken).where(
+            PushToken.parent_id == parent.id,
+            PushToken.token_hash == token_hash,
+        )
+    )
+    if existing is None:
+        session.add(PushToken(parent_id=parent.id, platform=body.platform, token_hash=token_hash))
+    else:
+        existing.active = True
+        existing.platform = body.platform
+    await session.commit()
+
+
+@app.get("/v1/families/{family_id}/health")
+async def family_health(
+    family_id: UUID,
+    parent: Parent = Depends(current_parent),
+    session: AsyncSession = Depends(get_session),
+) -> list[dict[str, object]]:
+    await family_for_parent(session, parent, family_id)
+    settings = get_settings()
+    now = datetime.now(UTC)
+    children = list(
+        (
+            await session.scalars(select(ChildProfile).where(ChildProfile.family_id == family_id))
+        ).all()
+    )
+    result: list[dict[str, object]] = []
+    for child in children:
+        devices = list(
+            (
+                await session.scalars(
+                    select(Device).where(Device.child_profile_id == child.id)
+                )
+            ).all()
+        )
+        for device in devices:
+            state = device.protection_state
+            if device.revoked_at is not None:
+                state = "UNKNOWN"
+            elif device.last_seen_at is None or (
+                now - device.last_seen_at
+            ).total_seconds() > settings.health_stale_minutes * 60:
+                state = "DEGRADED"
+            result.append(
+                {
+                    "child_profile_id": child.id,
+                    "device_id": device.id,
+                    "state": state,
+                    "last_seen_at": device.last_seen_at,
+                    "policy_version_applied": device.policy_version_applied,
+                }
+            )
+    return result
+
+
+@app.websocket("/v1/ws/sync")
+async def websocket_sync(
+    websocket: WebSocket,
+    session: AsyncSession = Depends(get_session),
+) -> None:
+    await websocket.accept()
+    token = websocket.headers.get("authorization", "")
+    if token.lower().startswith("bearer "):
+        token = token[7:]
+    family_id = websocket.query_params.get("family_id")
+    child_id = websocket.query_params.get("child_profile_id")
+    if not token or not family_id:
+        await websocket.close(code=1008)
+        return
+    try:
+        family_uuid = UUID(family_id)
+    except ValueError:
+        await websocket.close(code=1008)
+        return
+    parent = None
+    try:
+        parent = await parent_from_access(session, token)
+    except HTTPException:
+        pass
+    device = None
+    if parent is None:
+        digest = hashlib.sha256(token.encode()).hexdigest()
+        credential = await session.scalar(
+            select(DeviceCredential).where(
+                DeviceCredential.token_hash == digest,
+                DeviceCredential.revoked_at.is_(None),
+            )
+        )
+        if credential is not None:
+            device = await session.get(Device, credential.device_id)
+    if parent is None and (device is None or device.revoked_at is not None):
+        await websocket.close(code=1008)
+        return
+    if parent is not None:
+        allowed = await session.scalar(
+            select(FamilyGuardian).where(
+                FamilyGuardian.family_id == family_uuid,
+                FamilyGuardian.parent_id == parent.id,
+            )
+        )
+        if allowed is None:
+            await websocket.close(code=1008)
+            return
+    else:
+        assert device is not None
+        child = await session.scalar(
+            select(ChildProfile).where(
+                ChildProfile.id == device.child_profile_id,
+                ChildProfile.family_id == family_uuid,
+            )
+        )
+        if child is None or (child_id is not None and str(child.id) != child_id):
+            await websocket.close(code=1008)
+            return
+    bundle = None
+    if child_id is not None:
+        try:
+            child_uuid = UUID(child_id)
+        except ValueError:
+            await websocket.close(code=1008)
+            return
+        child = await session.scalar(
+            select(ChildProfile).where(
+                ChildProfile.id == child_uuid, ChildProfile.family_id == family_uuid
+            )
+        )
+        if child is None:
+            await websocket.close(code=1008)
+            return
+        bundle = await session.scalar(
+            select(PolicyBundle).where(
+                PolicyBundle.child_profile_id == child_uuid,
+                PolicyBundle.is_current.is_(True),
+            )
+        )
+    await websocket.send_json(
+        {
+            "type": "catch-up",
+            "policy_version": bundle.policy_version if bundle is not None else None,
+            "open_requests": [],
+        }
+    )
+    try:
+        while True:
+            try:
+                message = await asyncio.wait_for(websocket.receive_text(), timeout=30)
+            except TimeoutError:
+                await websocket.send_json({"type": "ping"})
+                continue
+            if message != "pong":
+                await websocket.send_json({"type": "pong"})
+    except (WebSocketDisconnect, TimeoutError):
+        return
 
 
 @app.post("/v1/devices/me/heartbeat", status_code=204)

@@ -190,3 +190,49 @@ class MinimizedEvent(BaseModel):
 
 class EventBatchIn(BaseModel):
     events: list[MinimizedEvent] = Field(min_length=1, max_length=100)
+
+
+class RequestCreateIn(BaseModel):
+    request_type: Literal["MORE_TIME", "UNBLOCK_APP", "UNBLOCK_SITE"]
+    subject: str | None = Field(default=None, max_length=255)
+    reason: str | None = Field(default=None, max_length=1000)
+
+
+class RequestDecisionIn(BaseModel):
+    reason: str = Field(min_length=1, max_length=1000)
+
+
+class RequestOut(BaseModel):
+    model_config = ConfigDict(from_attributes=True)
+    id: UUID
+    child_profile_id: UUID
+    device_id: UUID
+    request_type: str
+    subject: str | None
+    state: str
+    reason: str | None
+    decision_reason: str | None
+    expires_at: datetime | None
+
+
+class PushTokenIn(BaseModel):
+    platform: Literal["ANDROID", "IOS", "WEB"]
+    token: str = Field(min_length=20, max_length=4096)
+
+
+class PolicyMutationIn(BaseModel):
+    operation: Literal[
+        "APP_ALLOW",
+        "APP_BLOCK",
+        "APP_UNLIMITED",
+        "APP_DAILY_MINUTES",
+        "DOMAIN_ALLOW",
+        "DOMAIN_BLOCK",
+        "CATEGORY_DAILY_MINUTES",
+        "UNKNOWN_DOMAIN_POLICY",
+        "COMMUNICATION_SENSITIVITY",
+        "TEMPORARY_EXCEPTION",
+    ]
+    target: str = Field(min_length=1, max_length=512)
+    value: str | int | None = None
+    expires_at: datetime | None = None

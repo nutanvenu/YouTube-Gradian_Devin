@@ -4,10 +4,12 @@ function escapeString(value: string): string {
   for (let index = 0; index < value.length; index += 1) {
     const code = value.charCodeAt(index);
     const next = value.charCodeAt(index + 1);
-    if (
-      (code >= 0xd800 && code <= 0xdbff && !(next >= 0xdc00 && next <= 0xdfff)) ||
-      (code >= 0xdc00 && code <= 0xdfff)
-    ) {
+    if (code >= 0xd800 && code <= 0xdbff) {
+      if (!(next >= 0xdc00 && next <= 0xdfff)) {
+        throw new TypeError("Canonical JSON does not permit lone surrogates");
+      }
+      index += 1;
+    } else if (code >= 0xdc00 && code <= 0xdfff) {
       throw new TypeError("Canonical JSON does not permit lone surrogates");
     }
   }
@@ -21,8 +23,8 @@ function canonicalize(value: unknown): string {
   }
   if (value === null || typeof value === "boolean") return JSON.stringify(value);
   if (typeof value === "number") {
-    if (!Number.isFinite(value) || !Number.isInteger(value)) {
-      throw new TypeError("Canonical JSON permits only finite integers");
+    if (!Number.isSafeInteger(value)) {
+      throw new TypeError("Canonical JSON permits only finite safe integers");
     }
     return JSON.stringify(value);
   }

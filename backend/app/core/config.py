@@ -11,6 +11,9 @@ class Settings(BaseSettings):
     jwt_secret: str = Field(min_length=32)
     access_minutes: int = 15
     refresh_days: int = 30
+    policy_key_id: str = "guardian-dev"
+    policy_private_key: str | None = None
+    health_stale_minutes: int = 15
 
 
 @lru_cache
