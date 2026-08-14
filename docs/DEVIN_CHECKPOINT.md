@@ -1557,14 +1557,16 @@ bounded-memory estimate of 512 bytes per retained entry:
 
 ```text
 entryCount=10000
+encodedBytes=1919047
+applyMillis=195
 estimatedMemoryBytes=5120000
-encodedBytes and applyMillis: reported by the large-bundle JVM test
 ```
 
 The memory value is an upper-bound accounting estimate, not a platform heap
 profile. The live delta application emitted `version=7/APPLIED`; its bridge
-event does not expose the apply metrics, so the JVM performance artifact is
-the source for the numeric bundle measurements.
+event does not expose the apply metrics, so the JVM performance artifact
+(`TEST-expo.modules.guardianprotection.reputation.ReputationManagerTest.xml`)
+is the source for the numeric bundle measurements.
 
 The child-side sync/classification transport now requests only the event's
 minimized domain, applies full/delta responses locally, and refetches a full
