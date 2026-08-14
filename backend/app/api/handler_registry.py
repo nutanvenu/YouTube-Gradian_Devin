@@ -586,6 +586,11 @@ async def revoke_device(
     if credential is not None:
         credential.revoked_at = now
     await session.commit()
+    broadcaster.publish(
+        family_id,
+        {"type": "device-status", "device_id": str(device.id), "status": "REVOKED"},
+        device.child_profile_id,
+    )
 
 
 @app.get("/v1/devices/me/policy")
