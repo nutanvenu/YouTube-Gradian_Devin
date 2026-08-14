@@ -16,3 +16,5 @@ backend/.venv/
 __pycache__/
 .pyenv/
 *.egg-info/
+docs/superpowers/
+tasks/

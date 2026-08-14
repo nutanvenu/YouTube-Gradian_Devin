@@ -2,7 +2,11 @@ import { webcrypto } from "node:crypto";
 import { describe, expect, it } from "vitest";
 import { canonicalizeForSigning } from "./canonical.js";
 import type { SignedPolicyBundle } from "./generated.js";
-import { verifyPolicySignature } from "./signature.js";
+import {
+  tamperedSignatureDecision,
+  verifyBundle,
+  verifyPolicySignature
+} from "./signature.js";
 
 const bundle = {
   schema_version: 1,
@@ -61,5 +65,18 @@ describe("Ed25519 policy signatures", () => {
         Buffer.from(publicKey).toString("base64")
       )
     ).resolves.toBe(false);
+    await expect(
+      verifyBundle(signedBundle, Buffer.from(publicKey).toString("base64"))
+    ).resolves.toBeTruthy();
+    await expect(
+      verifyBundle(
+        { ...signedBundle, policy_version: 2 },
+        Buffer.from(publicKey).toString("base64")
+      )
+    ).rejects.toThrow();
+    expect(tamperedSignatureDecision()).toMatchObject({
+      action: "BLOCK",
+      reason_code: "TAMPERED_SIGNATURE"
+    });
   });
 });

@@ -6,13 +6,29 @@
  */
 
 export type AgeBand = "YOUNG_CHILD" | "PRETEEN" | "TEEN" | "OLDER_TEEN";
+export type BasePolicy = {
+  timezone: string;
+  unknown_domain_policy: UnknownDomainPolicy;
+  unknown_app_policy: UnknownAppPolicy;
+  unknown_app_daily_minutes?: number;
+  daily_device_budget_minutes?: number;
+  hard_category_rules: CategoryRule[];
+  default_category_rules: CategoryRule[];
+  safety_allowlist: {
+    target_kind: "APP" | "DOMAIN" | "CATEGORY";
+    target_ref: string;
+  }[];
+};
 export type UnknownDomainPolicy = "BLOCK" | "BLOCK_WHILE_CLASSIFYING" | "ALLOW_WHILE_CLASSIFYING" | "ALLOW_AND_NOTIFY";
 export type UnknownAppPolicy = "BLOCK" | "LIMIT_AND_NOTIFY" | "ALLOW_AND_NOTIFY" | "ALLOW";
-export type CategoryRule = RuleCommon & {
+export type CategoryRule = {
+  rule_id: string;
   category: Category;
-  [k: string]: unknown;
+  action: Action;
+  daily_minutes?: number;
+  schedule?: TimeWindow;
+  exclude_from_budget?: boolean;
 };
-export type Action = "ALLOW" | "BLOCK" | "UNLIMITED" | "LIMIT" | "SCHEDULE" | "ASK_PARENT";
 export type Category =
   | "ADULT_PORNOGRAPHY"
   | "SEXUAL_CONTENT"
@@ -40,14 +56,44 @@ export type Category =
   | "MESSAGING"
   | "PRODUCTIVITY"
   | "UNKNOWN";
-export type AppRule = RuleCommon & {
+export type Action = "ALLOW" | "BLOCK" | "UNLIMITED" | "LIMIT" | "SCHEDULE" | "ASK_PARENT";
+export type AppRule = {
+  rule_id: string;
   app_ref: string;
-  [k: string]: unknown;
+  action: Action;
+  daily_minutes?: number;
+  schedule?: TimeWindow;
+  exclude_from_budget?: boolean;
 };
-export type DomainRule = RuleCommon & {
+export type DomainRule = {
+  rule_id: string;
   domain: string;
   match?: "EXACT" | "SUBDOMAINS";
-  [k: string]: unknown;
+  action: Action;
+  daily_minutes?: number;
+  schedule?: TimeWindow;
+  exclude_from_budget?: boolean;
+};
+export type Routine = {
+  routine_id: string;
+  name: string;
+  kind: "SCHEDULED" | "MANUAL";
+  window?: TimeWindow;
+  allowed_apps?: string[];
+  allowed_categories?: Category[];
+  blocked_apps?: string[];
+  blocked_categories?: Category[];
+  web_mode?: "BALANCED" | "STRICT";
+  communication_mode?: "NORMAL" | "ESSENTIAL_ONLY";
+};
+export type TemporaryOverride = {
+  rule_id: string;
+  target_kind: "APP" | "DOMAIN" | "CATEGORY";
+  target_ref: string;
+  action: Action;
+  daily_minutes?: number;
+  starts_at: string;
+  expires_at: string;
 };
 
 export interface SignedPolicyBundle {
@@ -67,25 +113,6 @@ export interface SignedPolicyBundle {
   communication_safety: CommunicationSafety;
   signature: string;
 }
-export interface BasePolicy {
-  timezone: string;
-  unknown_domain_policy: UnknownDomainPolicy;
-  unknown_app_policy: UnknownAppPolicy;
-  daily_device_budget_minutes?: number;
-  hard_category_rules: CategoryRule[];
-  default_category_rules: CategoryRule[];
-  safety_allowlist: {
-    target_kind: "APP" | "DOMAIN" | "CATEGORY";
-    target_ref: string;
-  }[];
-}
-export interface RuleCommon {
-  rule_id: string;
-  action: Action;
-  daily_minutes?: number;
-  schedule?: TimeWindow;
-  exclude_from_budget?: boolean;
-}
 export interface TimeWindow {
   /**
    * @minItems 1
@@ -93,26 +120,6 @@ export interface TimeWindow {
   days: [number, ...number[]];
   start: string;
   end: string;
-}
-export interface Routine {
-  routine_id: string;
-  name: string;
-  window: TimeWindow;
-  allowed_apps?: string[];
-  allowed_categories?: Category[];
-  blocked_apps?: string[];
-  blocked_categories?: Category[];
-  web_mode?: "BALANCED" | "STRICT";
-  communication_mode?: "NORMAL" | "ESSENTIAL_ONLY";
-}
-export interface TemporaryOverride {
-  rule_id: string;
-  target_kind: "APP" | "DOMAIN" | "CATEGORY";
-  target_ref: string;
-  action: Action;
-  daily_minutes?: number;
-  starts_at: string;
-  expires_at: string;
 }
 export interface CommunicationSafety {
   enabled: boolean;

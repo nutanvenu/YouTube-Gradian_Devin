@@ -1,6 +1,48 @@
 export const AGE_BANDS = ["YOUNG_CHILD", "PRETEEN", "TEEN", "OLDER_TEEN"] as const;
 export type AgeBand = (typeof AGE_BANDS)[number];
 
+export const CATEGORIES = [
+  "ADULT_PORNOGRAPHY",
+  "SEXUAL_CONTENT",
+  "GAMBLING",
+  "DRUGS_CONTROLLED_SUBSTANCES",
+  "ALCOHOL_TOBACCO",
+  "GRAPHIC_VIOLENCE_GORE",
+  "SELF_HARM_SUICIDE",
+  "HATE_EXTREMISM",
+  "WEAPONS",
+  "MALWARE",
+  "PHISHING_SCAMS",
+  "ANONYMOUS_CHAT",
+  "DATING",
+  "PROXY_VPN_TOR",
+  "PIRACY",
+  "SOCIAL_MEDIA",
+  "STREAMING_VIDEO",
+  "GAMES",
+  "SHOPPING",
+  "AI_ASSISTANTS",
+  "EDUCATION",
+  "SEARCH_ENGINES",
+  "NEWS",
+  "MESSAGING",
+  "PRODUCTIVITY",
+  "UNKNOWN"
+] as const;
+export type Category = (typeof CATEGORIES)[number];
+
+export const HARD_CATEGORIES = [
+  "ADULT_PORNOGRAPHY",
+  "SEXUAL_CONTENT",
+  "GAMBLING",
+  "DRUGS_CONTROLLED_SUBSTANCES",
+  "SELF_HARM_SUICIDE",
+  "HATE_EXTREMISM",
+  "GRAPHIC_VIOLENCE_GORE",
+  "MALWARE",
+  "PHISHING_SCAMS"
+] as const;
+
 export const CAPABILITY_LEVELS = [
   "FULL",
   "BEST_EFFORT",
@@ -93,9 +135,13 @@ export type PolicyReasonCode =
   | "AGE_BAND_HARD_CATEGORY"
   | "DEFAULT_CATEGORY_RULE"
   | "UNKNOWN_APP_POLICY"
+  | "UNKNOWN_APP_BUDGET_AVAILABLE"
+  | "UNKNOWN_APP_BUDGET_EXHAUSTED"
   | "UNKNOWN_DOMAIN_POLICY"
   | "BUDGET_AVAILABLE"
   | "BUDGET_EXHAUSTED"
+  | "DEVICE_BUDGET_EXHAUSTED"
+  | "REQUIRES_PARENT_APPROVAL"
   | "SCHEDULE_OUTSIDE_WINDOW"
   | "TEMPORARY_OVERRIDE_EXPIRED"
   | "SOFT_EXPIRED_BUNDLE"
@@ -105,6 +151,13 @@ export interface PolicyDecision {
   action: PolicyDecisionAction;
   reason_code: PolicyReasonCode;
   policy_rule_id: string | null;
+  bundle_stale: boolean;
+}
+
+export interface UsageView {
+  device_seconds_today: number;
+  app_seconds_today: Record<string, number>;
+  category_seconds_today: Partial<Record<Category, number>>;
 }
 
 export interface TimeRange {

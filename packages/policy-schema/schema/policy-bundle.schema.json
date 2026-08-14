@@ -22,84 +22,29 @@
     "signature"
   ],
   "properties": {
-    "schema_version": {
-      "type": "integer",
-      "const": 1
-    },
-    "policy_version": {
-      "type": "integer",
-      "minimum": 1
-    },
-    "family_id": {
-      "type": "string",
-      "minLength": 1
-    },
-    "child_profile_id": {
-      "type": "string",
-      "minLength": 1
-    },
-    "issued_at": {
-      "type": "string",
-      "format": "date-time"
-    },
-    "expires_soft_at": {
-      "type": "string",
-      "format": "date-time"
-    },
-    "age_band": {
-      "$ref": "#/$defs/ageBand"
-    },
-    "base_policy": {
-      "$ref": "#/$defs/basePolicy"
-    },
-    "app_rules": {
-      "type": "array",
-      "items": {
-        "$ref": "#/$defs/appRule"
-      }
-    },
-    "domain_rules": {
-      "type": "array",
-      "items": {
-        "$ref": "#/$defs/domainRule"
-      }
-    },
-    "category_rules": {
-      "type": "array",
-      "items": {
-        "$ref": "#/$defs/categoryRule"
-      }
-    },
-    "routines": {
-      "type": "array",
-      "items": {
-        "$ref": "#/$defs/routine"
-      }
-    },
+    "schema_version": { "type": "integer", "const": 1 },
+    "policy_version": { "type": "integer", "minimum": 1 },
+    "family_id": { "type": "string", "minLength": 1 },
+    "child_profile_id": { "type": "string", "minLength": 1 },
+    "issued_at": { "type": "string", "format": "date-time" },
+    "expires_soft_at": { "type": "string", "format": "date-time" },
+    "age_band": { "$ref": "#/$defs/ageBand" },
+    "base_policy": { "$ref": "#/$defs/basePolicy" },
+    "app_rules": { "type": "array", "items": { "$ref": "#/$defs/appRule" } },
+    "domain_rules": { "type": "array", "items": { "$ref": "#/$defs/domainRule" } },
+    "category_rules": { "type": "array", "items": { "$ref": "#/$defs/categoryRule" } },
+    "routines": { "type": "array", "items": { "$ref": "#/$defs/routine" } },
     "temporary_overrides": {
       "type": "array",
-      "items": {
-        "$ref": "#/$defs/temporaryOverride"
-      }
+      "items": { "$ref": "#/$defs/temporaryOverride" }
     },
-    "communication_safety": {
-      "$ref": "#/$defs/communicationSafety"
-    },
-    "signature": {
-      "type": "string",
-      "contentEncoding": "base64",
-      "minLength": 1
-    }
+    "communication_safety": { "$ref": "#/$defs/communicationSafety" },
+    "signature": { "type": "string", "contentEncoding": "base64", "minLength": 1 }
   },
   "$defs": {
     "ageBand": {
       "type": "string",
-      "enum": [
-        "YOUNG_CHILD",
-        "PRETEEN",
-        "TEEN",
-        "OLDER_TEEN"
-      ]
+      "enum": ["YOUNG_CHILD", "PRETEEN", "TEEN", "OLDER_TEEN"]
     },
     "category": {
       "type": "string",
@@ -143,42 +88,22 @@
     },
     "unknownAppPolicy": {
       "type": "string",
-      "enum": [
-        "BLOCK",
-        "LIMIT_AND_NOTIFY",
-        "ALLOW_AND_NOTIFY",
-        "ALLOW"
-      ]
+      "enum": ["BLOCK", "LIMIT_AND_NOTIFY", "ALLOW_AND_NOTIFY", "ALLOW"]
     },
     "action": {
       "type": "string",
-      "enum": [
-        "ALLOW",
-        "BLOCK",
-        "UNLIMITED",
-        "LIMIT",
-        "SCHEDULE",
-        "ASK_PARENT"
-      ]
+      "enum": ["ALLOW", "BLOCK", "UNLIMITED", "LIMIT", "SCHEDULE", "ASK_PARENT"]
     },
     "timeWindow": {
       "type": "object",
       "additionalProperties": false,
-      "required": [
-        "days",
-        "start",
-        "end"
-      ],
+      "required": ["days", "start", "end"],
       "properties": {
         "days": {
           "type": "array",
           "minItems": 1,
           "uniqueItems": true,
-          "items": {
-            "type": "integer",
-            "minimum": 1,
-            "maximum": 7
-          }
+          "items": { "type": "integer", "minimum": 1, "maximum": 7 }
         },
         "start": {
           "type": "string",
@@ -190,157 +115,111 @@
         }
       }
     },
-    "ruleCommon": {
+    "appRule": {
       "type": "object",
       "additionalProperties": false,
-      "required": [
-        "rule_id",
-        "action"
-      ],
+      "required": ["rule_id", "app_ref", "action"],
       "properties": {
-        "rule_id": {
-          "type": "string",
-          "minLength": 1
-        },
-        "action": {
-          "$ref": "#/$defs/action"
-        },
-        "daily_minutes": {
-          "type": "integer",
-          "minimum": 0
-        },
-        "schedule": {
-          "$ref": "#/$defs/timeWindow"
-        },
-        "exclude_from_budget": {
-          "type": "boolean",
-          "default": false
-        }
-      }
-    },
-    "appRule": {
+        "rule_id": { "type": "string", "minLength": 1 },
+        "app_ref": { "type": "string", "minLength": 1 },
+        "action": { "$ref": "#/$defs/action" },
+        "daily_minutes": { "type": "integer", "minimum": 0 },
+        "schedule": { "$ref": "#/$defs/timeWindow" },
+        "exclude_from_budget": { "type": "boolean" }
+      },
       "allOf": [
         {
-          "$ref": "#/$defs/ruleCommon"
+          "if": { "properties": { "action": { "const": "LIMIT" } } },
+          "then": { "required": ["daily_minutes"] }
         },
         {
-          "type": "object",
-          "required": [
-            "app_ref"
-          ],
-          "properties": {
-            "app_ref": {
-              "type": "string",
-              "minLength": 1
-            }
-          }
+          "if": { "properties": { "action": { "const": "SCHEDULE" } } },
+          "then": { "required": ["schedule"] }
         }
       ]
     },
     "domainRule": {
+      "type": "object",
+      "additionalProperties": false,
+      "required": ["rule_id", "domain", "action"],
+      "properties": {
+        "rule_id": { "type": "string", "minLength": 1 },
+        "domain": {
+          "type": "string",
+          "minLength": 1,
+          "pattern": "^(?!.*\\*)[^\\s/]+$"
+        },
+        "match": { "type": "string", "enum": ["EXACT", "SUBDOMAINS"] },
+        "action": { "$ref": "#/$defs/action" },
+        "daily_minutes": { "type": "integer", "minimum": 0 },
+        "schedule": { "$ref": "#/$defs/timeWindow" },
+        "exclude_from_budget": { "type": "boolean" }
+      },
       "allOf": [
         {
-          "$ref": "#/$defs/ruleCommon"
+          "if": { "properties": { "action": { "const": "LIMIT" } } },
+          "then": { "required": ["daily_minutes"] }
         },
         {
-          "type": "object",
-          "required": [
-            "domain"
-          ],
-          "properties": {
-            "domain": {
-              "type": "string",
-              "minLength": 1
-            },
-            "match": {
-              "type": "string",
-              "enum": [
-                "EXACT",
-                "SUBDOMAINS"
-              ],
-              "default": "SUBDOMAINS"
-            }
-          }
+          "if": { "properties": { "action": { "const": "SCHEDULE" } } },
+          "then": { "required": ["schedule"] }
         }
       ]
     },
     "categoryRule": {
+      "type": "object",
+      "additionalProperties": false,
+      "required": ["rule_id", "category", "action"],
+      "properties": {
+        "rule_id": { "type": "string", "minLength": 1 },
+        "category": { "$ref": "#/$defs/category" },
+        "action": { "$ref": "#/$defs/action" },
+        "daily_minutes": { "type": "integer", "minimum": 0 },
+        "schedule": { "$ref": "#/$defs/timeWindow" },
+        "exclude_from_budget": { "type": "boolean" }
+      },
       "allOf": [
         {
-          "$ref": "#/$defs/ruleCommon"
+          "if": { "properties": { "action": { "const": "LIMIT" } } },
+          "then": { "required": ["daily_minutes"] }
         },
         {
-          "type": "object",
-          "required": [
-            "category"
-          ],
-          "properties": {
-            "category": {
-              "$ref": "#/$defs/category"
-            }
-          }
+          "if": { "properties": { "action": { "const": "SCHEDULE" } } },
+          "then": { "required": ["schedule"] }
         }
       ]
     },
     "routine": {
       "type": "object",
       "additionalProperties": false,
-      "required": [
-        "routine_id",
-        "name",
-        "window"
-      ],
+      "required": ["routine_id", "name", "kind"],
       "properties": {
-        "routine_id": {
-          "type": "string",
-          "minLength": 1
-        },
-        "name": {
-          "type": "string",
-          "minLength": 1
-        },
-        "window": {
-          "$ref": "#/$defs/timeWindow"
-        },
-        "allowed_apps": {
-          "type": "array",
-          "items": {
-            "type": "string"
-          }
-        },
+        "routine_id": { "type": "string", "minLength": 1 },
+        "name": { "type": "string", "minLength": 1 },
+        "kind": { "type": "string", "enum": ["SCHEDULED", "MANUAL"] },
+        "window": { "$ref": "#/$defs/timeWindow" },
+        "allowed_apps": { "type": "array", "items": { "type": "string" } },
         "allowed_categories": {
           "type": "array",
-          "items": {
-            "$ref": "#/$defs/category"
-          }
+          "items": { "$ref": "#/$defs/category" }
         },
-        "blocked_apps": {
-          "type": "array",
-          "items": {
-            "type": "string"
-          }
-        },
+        "blocked_apps": { "type": "array", "items": { "type": "string" } },
         "blocked_categories": {
           "type": "array",
-          "items": {
-            "$ref": "#/$defs/category"
-          }
+          "items": { "$ref": "#/$defs/category" }
         },
-        "web_mode": {
-          "type": "string",
-          "enum": [
-            "BALANCED",
-            "STRICT"
-          ]
-        },
+        "web_mode": { "type": "string", "enum": ["BALANCED", "STRICT"] },
         "communication_mode": {
           "type": "string",
-          "enum": [
-            "NORMAL",
-            "ESSENTIAL_ONLY"
-          ]
+          "enum": ["NORMAL", "ESSENTIAL_ONLY"]
         }
-      }
+      },
+      "allOf": [
+        {
+          "if": { "properties": { "kind": { "const": "SCHEDULED" } } },
+          "then": { "required": ["window"] }
+        }
+      ]
     },
     "temporaryOverride": {
       "type": "object",
@@ -354,38 +233,23 @@
         "expires_at"
       ],
       "properties": {
-        "rule_id": {
-          "type": "string",
-          "minLength": 1
-        },
+        "rule_id": { "type": "string", "minLength": 1 },
         "target_kind": {
           "type": "string",
-          "enum": [
-            "APP",
-            "DOMAIN",
-            "CATEGORY"
-          ]
+          "enum": ["APP", "DOMAIN", "CATEGORY"]
         },
-        "target_ref": {
-          "type": "string",
-          "minLength": 1
-        },
-        "action": {
-          "$ref": "#/$defs/action"
-        },
-        "daily_minutes": {
-          "type": "integer",
-          "minimum": 0
-        },
-        "starts_at": {
-          "type": "string",
-          "format": "date-time"
-        },
-        "expires_at": {
-          "type": "string",
-          "format": "date-time"
+        "target_ref": { "type": "string", "minLength": 1 },
+        "action": { "$ref": "#/$defs/action" },
+        "daily_minutes": { "type": "integer", "minimum": 0 },
+        "starts_at": { "type": "string", "format": "date-time" },
+        "expires_at": { "type": "string", "format": "date-time" }
+      },
+      "allOf": [
+        {
+          "if": { "properties": { "action": { "const": "LIMIT" } } },
+          "then": { "required": ["daily_minutes"] }
         }
-      }
+      ]
     },
     "basePolicy": {
       "type": "object",
@@ -399,58 +263,45 @@
         "safety_allowlist"
       ],
       "properties": {
-        "timezone": {
-          "type": "string",
-          "minLength": 1
-        },
-        "unknown_domain_policy": {
-          "$ref": "#/$defs/unknownDomainPolicy"
-        },
-        "unknown_app_policy": {
-          "$ref": "#/$defs/unknownAppPolicy"
-        },
-        "daily_device_budget_minutes": {
-          "type": "integer",
-          "minimum": 0
-        },
+        "timezone": { "type": "string", "minLength": 1 },
+        "unknown_domain_policy": { "$ref": "#/$defs/unknownDomainPolicy" },
+        "unknown_app_policy": { "$ref": "#/$defs/unknownAppPolicy" },
+        "unknown_app_daily_minutes": { "type": "integer", "minimum": 0 },
+        "daily_device_budget_minutes": { "type": "integer", "minimum": 0 },
         "hard_category_rules": {
           "type": "array",
-          "items": {
-            "$ref": "#/$defs/categoryRule"
-          }
+          "items": { "$ref": "#/$defs/categoryRule" }
         },
         "default_category_rules": {
           "type": "array",
-          "items": {
-            "$ref": "#/$defs/categoryRule"
-          }
+          "items": { "$ref": "#/$defs/categoryRule" }
         },
         "safety_allowlist": {
           "type": "array",
           "items": {
             "type": "object",
             "additionalProperties": false,
-            "required": [
-              "target_kind",
-              "target_ref"
-            ],
+            "required": ["target_kind", "target_ref"],
             "properties": {
               "target_kind": {
                 "type": "string",
-                "enum": [
-                  "APP",
-                  "DOMAIN",
-                  "CATEGORY"
-                ]
+                "enum": ["APP", "DOMAIN", "CATEGORY"]
               },
-              "target_ref": {
-                "type": "string",
-                "minLength": 1
-              }
+              "target_ref": { "type": "string", "minLength": 1 }
             }
           }
         }
-      }
+      },
+      "allOf": [
+        {
+          "if": {
+            "properties": {
+              "unknown_app_policy": { "const": "LIMIT_AND_NOTIFY" }
+            }
+          },
+          "then": { "required": ["unknown_app_daily_minutes"] }
+        }
+      ]
     },
     "communicationSafety": {
       "type": "object",
@@ -462,24 +313,13 @@
         "android_accessibility_signals"
       ],
       "properties": {
-        "enabled": {
-          "type": "boolean"
-        },
+        "enabled": { "type": "boolean" },
         "severity_threshold": {
           "type": "string",
-          "enum": [
-            "LOW",
-            "MEDIUM",
-            "HIGH",
-            "CRITICAL"
-          ]
+          "enum": ["LOW", "MEDIUM", "HIGH", "CRITICAL"]
         },
-        "android_notification_signals": {
-          "type": "boolean"
-        },
-        "android_accessibility_signals": {
-          "type": "boolean"
-        }
+        "android_notification_signals": { "type": "boolean" },
+        "android_accessibility_signals": { "type": "boolean" }
       }
     }
   }

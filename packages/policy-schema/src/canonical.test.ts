@@ -29,4 +29,24 @@ describe("policy signing canonicalization", () => {
       "signature"
     );
   });
+
+  it.each([
+    ["fractional", 1.5],
+    ["nan", Number.NaN],
+    ["infinity", Number.POSITIVE_INFINITY]
+  ])("rejects %s numbers", (_name, value) => {
+    expect(() => canonicalizeForSigning({ ...({} as SignedPolicyBundle), policy_version: value })).toThrow();
+  });
+
+  it("rejects undefined and lone surrogates", () => {
+    expect(() =>
+      canonicalizeForSigning({
+        ...({} as SignedPolicyBundle),
+        family_id: undefined
+      } as unknown as SignedPolicyBundle)
+    ).toThrow();
+    expect(() =>
+      canonicalizeForSigning({ ...({} as SignedPolicyBundle), family_id: "\ud800" })
+    ).toThrow();
+  });
 });
