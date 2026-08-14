@@ -186,14 +186,7 @@ async def sync_for_version(
     if full is None:
         entries = [_entry_value(entry) for entry in await current_entries(session)]
         full_bundle = _signed_document("FULL", current, None, entries)
-        full = ReputationRevision(
-            bundle_version=current,
-            kind="FULL",
-            base_version=None,
-            bundle=full_bundle,
-        )
-        session.add(full)
-        await session.flush()
+        return current, full_bundle, []
     return current, full.bundle, []
 
 

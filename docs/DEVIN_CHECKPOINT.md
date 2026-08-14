@@ -1710,9 +1710,11 @@ screen titles are headers, disabled buttons expose disabled state, status pills
 are announced as one status, transient data-state messages use a polite live
 region, and list-row labels/values can shrink and wrap instead of clipping at
 large font scales. Shared controls retain the 44-point minimum touch target.
-The remaining TalkBack traversal, Dynamic Type rendering, contrast,
-reduced-motion, and RTL checks still require device-level exercise and are not
-claimed as complete.
+The node dump and screenshots under `.scratch/emulator/accessibility/` were
+captured while the Expo development client remained on its confirmation
+surface, so they are not claimed as authenticated parent/child rendering
+evidence. TalkBack traversal, Dynamic Type rendering, contrast, reduced-motion,
+and RTL checks still require device-level exercise on the product routes.
 
 An emulator session was measured on child `emulator-5556` from
 `2026-08-14T22:58:54Z` through `2026-08-14T22:59:15Z` with the VPN active on
@@ -1736,11 +1738,24 @@ VPN/DNS domain-decision count and average microseconds, policy-apply count and
 average milliseconds, usage-refresh count and average milliseconds, native
 bridge-event volume, and first module-startup timing. The child development
 surface requests this snapshot in development builds without serializing
-notification content. A trustworthy live snapshot still requires a healthy
-authenticated child JavaScript session; the current emulator relaunch ended
-in the development-client internal-error surface before a snapshot could be
-captured. Therefore no live counter values are claimed here. The URL dispatch
-and warm-start numbers must not be used as proxies for these paths.
+notification content. A live authenticated snapshot was captured:
+
+```text
+vpnDecisionCount=0
+vpnDecisionAverageMicros=0
+policyApplyCount=0
+policyApplyAverageMillis=0
+usageRefreshCount=0
+usageRefreshAverageMillis=0
+bridgeEventCount=0
+moduleStartupMillis=332
+batteryMeasurement=UNAVAILABLE_FROM_EMULATOR
+```
+
+The zero counters were a mount-time snapshot before the longer synchronization
+path completed; `moduleStartupMillis=332` is the useful live startup measure.
+The URL dispatch and warm-start numbers must not be used as proxies for these
+paths.
 
 The release app manifest was reconciled against the implemented code: camera,
 internet, and vibration remain declared; unused microphone, external-storage,
@@ -1777,7 +1792,12 @@ collection, safety events, reputation synchronization, request/approval, and
 notification routing, with timing, outcome, reason, and bounded counts where
 available. Raw notification content and bridge-event JSON serialization are
 excluded. Consistent request/correlation-ID propagation across native → JS →
-API remains a documented gap.
+API is implemented: requests accept or generate `X-Request-ID`, return it on
+success and error responses, and mobile API errors retain the identifier.
+Native bridge events carry a UUID correlation ID; child event ingestion
+forwards it as the API request ID. A focused propagation test covers supplied
+and generated request IDs. Structured log correlation and a native-to-API
+end-to-end test remain follow-up verification.
 
 The static OWASP MASVS v2.1.0/MASTG review is recorded at
 `.scratch/owasp-mobile-code-review.md`, covering STORAGE, CRYPTO, AUTH,
@@ -1794,13 +1814,20 @@ special-use foreground-service declarations/reviewer evidence must match the
 release behavior. The unpublished Play Store lookup returned 404 and is not a
 compliance determination.
 
+Account deletion is implemented through authenticated `DELETE /v1/auth/account`
+with transactional family/child/device/event/policy/request/notification and
+credential cleanup, an in-app parent confirmation, and public
+`/account-deletion` information. Focused deletion, isolation, repeated-delete,
+and route-inventory tests cover the path. The source-of-truth Data Safety
+declaration is `docs/DATA_SAFETY_DECLARATION.md`; capability disclosures name
+VPN, Accessibility, notification access, and Usage Access before opening the
+corresponding settings.
+
 Remaining Phase 3 work, in risk order: complete device-level accessibility
-coverage (TalkBack traversal, Dynamic Type/large text, contrast, focus order,
-reduced motion, RTL) and fix surfaced failures; capture a trustworthy
-authenticated live performance snapshot for the new native counters and cold
-startup; retain the emulator battery limitation above; close consistent
-request/correlation-ID propagation; complete runtime portions of the OWASP and
-privacy review; and remediate the Play account-deletion, reviewer-credential,
-Data Safety, prominent-disclosure/consent, and special-permission evidence
-findings. iPad hardware/simulator and native split-view remain a documented
-Mac-only gap.
+coverage on authenticated product routes (TalkBack traversal, Dynamic
+Type/large text, contrast, focus order, reduced motion, RTL) and fix surfaced
+failures; complete runtime portions of the OWASP and privacy review; add
+structured-log and native-to-API correlation evidence; and finish Play
+reviewer-credential/evidence follow-up. iPad hardware/simulator and native
+split-view remain a documented Mac-only gap. APNs/FCM provider delivery and
+emulator battery energy remain unverified/unavailable.

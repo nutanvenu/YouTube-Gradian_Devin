@@ -229,17 +229,18 @@ export interface GuardianProtectionNative {
 }
 
 export type GuardianNativeEvent =
-  | { type: "PROTECTION_STATUS_CHANGED"; status: ProtectionStatus }
-  | { type: "APP_BLOCKED"; appRef: string; reasonCode: PolicyReasonCode }
+  | { type: "PROTECTION_STATUS_CHANGED"; status: ProtectionStatus; correlationId?: string }
+  | { type: "APP_BLOCKED"; appRef: string; reasonCode: PolicyReasonCode; correlationId?: string }
   | {
       type: "WEB_BLOCKED";
       domain?: string;
       category?: string;
       appRef?: string;
       reasonCode: PolicyReasonCode;
+      correlationId?: string;
     }
-  | { type: "TIME_WARNING"; targetRef: string; remainingSeconds: number }
-  | { type: "TIME_EXPIRED"; targetRef: string }
+  | { type: "TIME_WARNING"; targetRef: string; remainingSeconds: number; correlationId?: string }
+  | { type: "TIME_EXPIRED"; targetRef: string; correlationId?: string }
   | {
       type: "SAFETY_EVENT";
       category: string;
@@ -248,10 +249,11 @@ export type GuardianNativeEvent =
       reasonCode?: string;
       appRef?: string;
       occurredAt: string;
+      correlationId?: string;
     }
-  | { type: "POLICY_APPLIED"; version: number }
-  | { type: "PERMISSION_STATE_CHANGED"; capability: string; state: string }
-  | { type: "REPUTATION_STATUS_CHANGED"; version?: number; reason: string };
+  | { type: "POLICY_APPLIED"; version: number; correlationId?: string }
+  | { type: "PERMISSION_STATE_CHANGED"; capability: string; state: string; correlationId?: string }
+  | { type: "REPUTATION_STATUS_CHANGED"; version?: number; reason: string; correlationId?: string };
 
 export type ApiErrorCode =
   | "VALIDATION_ERROR"

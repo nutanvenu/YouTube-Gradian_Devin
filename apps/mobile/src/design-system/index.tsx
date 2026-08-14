@@ -40,7 +40,6 @@ export function ScreenScaffold({
         styles.scaffold,
         { paddingTop: Math.max(insets.top, spacing.md), backgroundColor: palette.background },
       ]}
-      accessibilityLabel={title}
     >
       <View style={[styles.content, isRegularWidth && styles.contentRegular]}>
         {title ? (

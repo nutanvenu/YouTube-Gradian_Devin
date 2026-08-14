@@ -139,7 +139,7 @@ const DEVICE_PRIVATE_KEY_KEY = "guardian.device-private-key";
 const FAMILY_ID_KEY = "guardian.family-id";
 
 export class ApiError extends Error {
-  constructor(message: string, readonly status: number, readonly code?: string) {
+  constructor(message: string, readonly status: number, readonly code?: string, readonly requestId?: string) {
     super(message);
     this.name = "ApiError";
   }
@@ -178,6 +178,8 @@ export class GuardianApiClient {
     const deviceToken = await sessionStorage.getDeviceToken();
     const deviceAuthenticated = Boolean(deviceToken && path.startsWith("/v1/devices"));
     const headers = new Headers(init.headers);
+    const requestId = `guardian-${Date.now()}-${Math.random().toString(36).slice(2)}`;
+    headers.set("X-Request-ID", requestId);
     headers.set("Content-Type", "application/json");
     if (deviceAuthenticated) headers.set("Authorization", `Bearer ${deviceToken}`);
     else if (accessToken) headers.set("Authorization", `Bearer ${accessToken}`);
@@ -211,6 +213,14 @@ export class GuardianApiClient {
           }
         }
       }
+      if (error instanceof Error) {
+        throw new ApiError(
+          error.message,
+          status ?? 0,
+          (error as { code?: string }).code,
+          requestId,
+        );
+      }
       throw error;
     }
   }
@@ -218,6 +228,7 @@ export class GuardianApiClient {
   signup(email: string, password: string) { return this.request<Tokens>("/v1/auth/signup", { method: "POST", body: JSON.stringify({ email, password }) }); }
   login(email: string, password: string) { return this.request<Tokens>("/v1/auth/login", { method: "POST", body: JSON.stringify({ email, password }) }); }
   me() { return this.request<Parent>("/v1/auth/me"); }
+  deleteAccount() { return this.request<undefined>("/v1/auth/account", { method: "DELETE" }); }
   createFamily(name: string) { return this.request<Family>("/v1/families", { method: "POST", body: JSON.stringify({ name }) }); }
   families() { return this.request<Family[]>("/v1/families"); }
   createChild(familyId: string, input: { name: string; date_of_birth: string; timezone: string }) { return this.request<Child>(`/v1/families/${familyId}/children`, { method: "POST", body: JSON.stringify(input) }); }
@@ -275,10 +286,13 @@ export class GuardianApiClient {
       body: JSON.stringify(body),
     });
   }
-  ingestEvents(events: DeviceEvent[]) {
+  ingestEvents(events: DeviceEvent[], correlationId?: string) {
     return this.request<undefined>("/v1/devices/me/events", {
       method: "POST",
-      headers: { "Idempotency-Key": `event-batch:${Date.now()}:${Math.random().toString(36).slice(2)}` },
+      headers: {
+        "Idempotency-Key": `event-batch:${Date.now()}:${Math.random().toString(36).slice(2)}`,
+        ...(correlationId ? { "X-Request-ID": correlationId } : {}),
+      },
       body: JSON.stringify({ events }),
     });
   }

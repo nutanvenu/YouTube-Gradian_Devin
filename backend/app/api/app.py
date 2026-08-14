@@ -1,6 +1,6 @@
-"""FastAPI application composition."""
+from uuid import uuid4
 
-from fastapi import FastAPI, HTTPException
+from fastapi import FastAPI, HTTPException, Request
 from fastapi.exceptions import RequestValidationError
 
 from ..auth.router import router as auth_router
@@ -19,6 +19,17 @@ from .handler_support import notifier
 from .lifecycle import lifespan
 
 app = FastAPI(title="Guardian API", version="0.1.0", lifespan=lifespan)
+
+
+@app.middleware("http")
+async def request_id_middleware(request: Request, call_next):
+    request_id = request.headers.get("X-Request-ID") or str(uuid4())
+    request.state.request_id = request_id
+    response = await call_next(request)
+    response.headers["X-Request-ID"] = request_id
+    return response
+
+
 app.add_exception_handler(RequestValidationError, validation_error_handler)
 app.add_exception_handler(HTTPException, http_exception_handler)
 app.add_exception_handler(Exception, internal_error_handler)

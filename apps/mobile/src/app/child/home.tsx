@@ -1,7 +1,7 @@
 import { useEffect, useRef, useState } from "react";
 import { useQuery } from "@tanstack/react-query";
 import { useRouter } from "expo-router";
-import { AppState, Platform, Text } from "react-native";
+import { Alert, AppState, Platform, Text } from "react-native";
 import { ApiError, api, sessionStorage } from "@/api/client";
 import { useFamilySync } from "@/hooks/use-family-sync";
 import { useNetworkStatus } from "@/state/network";
@@ -67,6 +67,18 @@ export default function ChildHomeRoute() {
     };
   }, []);
 
+  useEffect(() => {
+    if (__DEV__ && Platform.OS === "android") {
+      void GuardianProtection.getPerformanceMetrics()
+        .then((metrics) => {
+          console.info("GUARDIAN_PERFORMANCE_METRICS", JSON.stringify(metrics));
+        })
+        .catch(() => {
+          console.info("GUARDIAN_PERFORMANCE_METRICS_UNAVAILABLE");
+        });
+    }
+  }, []);
+
   useFamilySync(familyId);
 
   useEffect(() => {
@@ -80,7 +92,7 @@ export default function ChildHomeRoute() {
           app_ref: event.appRef ?? null,
           domain: event.domain,
           category: event.category ?? null,
-        }]).catch(() => undefined);
+        }], event.correlationId).catch(() => undefined);
         if (event.domain && event.reasonCode.startsWith("REPUTATION_PENDING")) {
           void api.classifyDomain(event.domain)
             .then(() => syncReputation())
@@ -96,7 +108,7 @@ export default function ChildHomeRoute() {
           severity: event.severity,
           confidence: event.confidence,
           reason_code: event.reasonCode,
-        }]).catch(() => undefined);
+        }], event.correlationId).catch(() => undefined);
       }
       if (event.type === "APP_BLOCKED") {
         setAppBlockedMessage(`${event.appRef} · ${event.reasonCode}`);
@@ -139,10 +151,6 @@ export default function ChildHomeRoute() {
         protection_state: protectionStatus.health,
         capabilities: currentCapabilities,
       });
-      if (__DEV__ && Platform.OS === "android") {
-        const metrics = await GuardianProtection.getPerformanceMetrics();
-        console.info("GUARDIAN_PERFORMANCE_METRICS", JSON.stringify(metrics));
-      }
       setAcknowledgedVersion(policy.data.policy_version);
       setProtectionMessage("Web protection is active for DNS and known blocked destinations. Other traffic may bypass Guardian.");
       if (!usageUploaded.current) {
@@ -230,13 +238,27 @@ export default function ChildHomeRoute() {
             {protectionMessage === "Web protection permission is required." ? (
               <PrimaryButton
                 label="Enable web protection"
-                onPress={() => void GuardianProtection.requestVpnPermission()}
+                onPress={() => Alert.alert(
+                  "VPN web protection",
+                  "Guardian uses an Android VPN to inspect DNS destinations for policy enforcement. It does not provide full-device traffic visibility. Unrouted traffic, some QUIC/DoH flows, and IP-only traffic may bypass domain attribution.",
+                  [
+                    { text: "Not now", style: "cancel" },
+                    { text: "Allow VPN", onPress: () => void GuardianProtection.requestVpnPermission() },
+                  ],
+                )}
               />
             ) : null}
             {protectionMessage === "Communication safety permission is required." ? (
               <PrimaryButton
                 label="Restore communication safety permission"
-                onPress={() => void GuardianProtection.openNotificationAccessSettings()}
+                onPress={() => Alert.alert(
+                  "Notification access",
+                  "With Communication Safety enabled, Guardian checks only supported communication-app notifications. Raw notification text is processed briefly on this device and discarded; only category, severity, source app, time, confidence, and reason metadata leave the device.",
+                  [
+                    { text: "Not now", style: "cancel" },
+                    { text: "Open notification settings", onPress: () => void GuardianProtection.openNotificationAccessSettings() },
+                  ],
+                )}
               />
             ) : null}
             <PrimaryButton label="My time" onPress={() => router.push("/child/time")} />

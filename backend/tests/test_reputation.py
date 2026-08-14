@@ -93,3 +93,32 @@ async def test_classification_rejects_full_urls_and_parent_reads_server_state(
         item["identifier"] == "unknown.example" and item["verdict"] == "UNKNOWN"
         for item in inventory.json()["entries"]
     )
+
+
+@pytest.mark.asyncio
+async def test_reputation_full_fallback_does_not_duplicate_current_revision(
+    client, parent_a, paired_device
+) -> None:
+    for identifier in ("one.example", "two.example", "three.example"):
+        body = json.dumps({"identifier": identifier}, separators=(",", ":")).encode()
+        classified = await client.post(
+            "/v1/devices/me/reputation/classify",
+            headers={
+                "Authorization": f"Bearer {paired_device.device_token}",
+                **paired_device.signed_headers(
+                    "/v1/devices/me/reputation/classify", body
+                ),
+            },
+            content=body,
+        )
+        assert classified.status_code == 200, classified.text
+
+    response = await client.get(
+        "/v1/devices/me/reputation?version=0",
+        headers={"Authorization": f"Bearer {paired_device.device_token}"},
+    )
+    assert response.status_code == 200, response.text
+    payload = response.json()
+    assert payload["bundle"]["kind"] == "FULL"
+    assert payload["bundle"]["bundle_version"] == payload["current_version"]
+    assert payload["deltas"] == []

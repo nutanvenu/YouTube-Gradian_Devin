@@ -1,5 +1,5 @@
 import { useLocalSearchParams, useRouter } from "expo-router";
-import { Image, Text } from "react-native";
+import { Alert, Image, Text } from "react-native";
 import { useQuery } from "@tanstack/react-query";
 import { api } from "@/api/client";
 import { useSession } from "@/auth/session";
@@ -21,6 +21,34 @@ export default function ParentHomeRoute() {
     app_usage: { level: "Checking" },
     accessibility_signals: { level: "Checking" },
   };
+  const explainCapability = (capability: string, explanation: string, open: () => void) => {
+    Alert.alert(
+      `${capability} access`,
+      `${explanation}\n\nGuardian does not read passwords or message content through this capability.`,
+      [
+        { text: "Not now", style: "cancel" },
+        { text: `Open ${capability} settings`, onPress: open },
+      ],
+    );
+  };
+  const deleteAccount = () => {
+    Alert.alert(
+      "Delete account and family data?",
+      "This permanently deletes your account, family, child profiles, devices, policies, events, reports, requests, and notification records. This cannot be undone.",
+      [
+        { text: "Cancel", style: "cancel" },
+        {
+          text: "Delete permanently",
+          style: "destructive",
+          onPress: () => {
+            void api.deleteAccount()
+              .then(() => signOut())
+              .then(() => router.replace("/role-selection"));
+          },
+        },
+      ],
+    );
+  };
   const state = !activeFamilyId ? "empty" : children.isLoading || health.isLoading ? "loading" : isOffline ? "offline" : children.isError || health.isError ? "error" : children.data?.length ? "loaded" : "empty";
   return (
     <ScreenScaffold title="Parent home">
@@ -35,12 +63,48 @@ export default function ParentHomeRoute() {
           {health.data?.map((item) => <CardSurface key={item.device_id}><ListRow label="Protection" value={item.last_seen_at ?? "Unknown"} /><ProtectionStatePill state={item.state} /></CardSurface>)}
           <CardSurface>
             <Text>Protection permissions</Text>
-            <Text>Usage Access lets Guardian measure foreground time. Accessibility lets Guardian identify the foreground app and enforce limits. Guardian cannot read passwords, messages, or screen content.</Text>
-            <ListRow label="Usage Access" value={capabilityState.app_usage.level} onPress={() => void GuardianProtection.openUsageAccessSettings()} />
-            <ListRow label="Accessibility" value={capabilityState.accessibility_signals.level} onPress={() => void GuardianProtection.openAccessibilitySettings()} />
+            <Text>
+              Guardian asks for each sensitive Android capability only after you choose to enable
+              it. VPN filters DNS destinations; Usage Access measures foreground app time;
+              Accessibility identifies the foreground app and supports app limits; notification
+              access checks supported communication notifications for opt-in safety signals.
+              Notification text is processed briefly on-device and discarded.
+            </Text>
+            <ListRow
+              label="Usage Access"
+              value={capabilityState.app_usage.level}
+              onPress={() => explainCapability(
+                "Usage Access",
+                "Guardian uses this to measure foreground app time and build screen-time reports.",
+                () => void GuardianProtection.openUsageAccessSettings(),
+              )}
+            />
+            <ListRow
+              label="Accessibility"
+              value={capabilityState.accessibility_signals.level}
+              onPress={() => explainCapability(
+                "Accessibility",
+                "Guardian uses this to identify the foreground app and enforce app limits where Android allows.",
+                () => void GuardianProtection.openAccessibilitySettings(),
+              )}
+            />
             <ListRow
               label="Web protection"
               value={capabilities.data?.web_filtering.level ?? "Checking"}
+              onPress={() => explainCapability(
+                "VPN",
+                "Guardian uses an Android VPN to inspect DNS destinations for policy enforcement. It does not provide full-device traffic visibility.",
+                () => void GuardianProtection.requestVpnPermission(),
+              )}
+            />
+            <ListRow
+              label="Notification access"
+              value={capabilities.data?.communication_risk_signals.level ?? "Checking"}
+              onPress={() => explainCapability(
+                "Notification access",
+                "Guardian checks only supported communication-app notifications when Communication Safety is enabled. Raw notification text is discarded and only minimized category, severity, app, time, confidence, and reason metadata is sent.",
+                () => void GuardianProtection.openNotificationAccessSettings(),
+              )}
             />
             <Text>
               Guardian protects DNS requests and destinations identified as blocked by policy.
@@ -67,6 +131,14 @@ export default function ParentHomeRoute() {
           </CardSurface>
         </ResponsiveColumns>
       </DataState>
+      <SectionSurface>
+        <Text>Account and data</Text>
+        <Text>
+          You can permanently delete your Guardian account and all family and child data from
+          this device. Deletion is irreversible.
+        </Text>
+        <SecondaryButton label="Delete account and family data" onPress={deleteAccount} />
+      </SectionSurface>
       <PrimaryButton label="Sign out" onPress={() => { void signOut().then(() => router.replace("/role-selection")); }} />
     </ScreenScaffold>
   );

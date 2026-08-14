@@ -1,5 +1,7 @@
 # ruff: noqa: E501
 from fastapi import APIRouter
+from fastapi.responses import HTMLResponse
+from sqlalchemy import delete
 
 from ..api.handler_support import (
     DUMMY_PASSWORD_HASH,
@@ -35,6 +37,20 @@ from ..api.handler_support import (
     timedelta,
     verify_password,
 )
+from ..children.models import ChildAppInventory, ChildProfile
+from ..devices.models import Device, DeviceCredential
+from ..events.models import (
+    ProtectionHealthEvent,
+    SafetyEvent,
+    SafetyNotification,
+    UsageAggregate,
+    WebEvent,
+)
+from ..families.models import Family, FamilyGuardian, GuardianInvitation
+from ..pairing.models import PairingSession
+from ..policies.models import PolicyBundle, PolicyDocument
+from ..push.models import PushAction, PushToken
+from ..requests.models import Request
 
 router = APIRouter()
 
@@ -133,6 +149,105 @@ async def logout(
     )
     await revoke_refresh(session, body.refresh_token)
 
+async def delete_account(
+    parent: Parent = Depends(current_parent),
+    session: AsyncSession = Depends(get_session),
+) -> None:
+    family_ids = list(
+        (
+            await session.scalars(
+                select(FamilyGuardian.family_id).where(
+                    FamilyGuardian.parent_id == parent.id
+                )
+            )
+        ).all()
+    )
+    child_ids = list(
+        (
+            await session.scalars(
+                select(ChildProfile.id).where(ChildProfile.family_id.in_(family_ids))
+            )
+        ).all()
+    )
+    device_ids = list(
+        (
+            await session.scalars(
+                select(Device.id).where(Device.child_profile_id.in_(child_ids))
+            )
+        ).all()
+    )
+
+    if child_ids:
+        await session.execute(
+            delete(SafetyNotification).where(
+                SafetyNotification.child_profile_id.in_(child_ids)
+            )
+        )
+    if device_ids:
+        await session.execute(delete(PushToken).where(PushToken.device_id.in_(device_ids)))
+        await session.execute(
+            delete(DeviceCredential).where(DeviceCredential.device_id.in_(device_ids))
+        )
+        await session.execute(delete(SafetyEvent).where(SafetyEvent.device_id.in_(device_ids)))
+        await session.execute(delete(WebEvent).where(WebEvent.device_id.in_(device_ids)))
+        await session.execute(
+            delete(UsageAggregate).where(UsageAggregate.device_id.in_(device_ids))
+        )
+        await session.execute(
+            delete(ProtectionHealthEvent).where(
+                ProtectionHealthEvent.device_id.in_(device_ids)
+            )
+        )
+    if child_ids:
+        await session.execute(delete(Request).where(Request.child_profile_id.in_(child_ids)))
+        await session.execute(
+            delete(PolicyBundle).where(PolicyBundle.child_profile_id.in_(child_ids))
+        )
+        await session.execute(
+            delete(PolicyDocument).where(PolicyDocument.child_profile_id.in_(child_ids))
+        )
+        await session.execute(
+            delete(ChildAppInventory).where(
+                ChildAppInventory.child_profile_id.in_(child_ids)
+            )
+        )
+        await session.execute(
+            delete(PairingSession).where(PairingSession.child_profile_id.in_(child_ids))
+        )
+    if family_ids:
+        await session.execute(
+            delete(GuardianInvitation).where(
+                GuardianInvitation.family_id.in_(family_ids)
+            )
+        )
+        await session.execute(
+            delete(FamilyGuardian).where(FamilyGuardian.family_id.in_(family_ids))
+        )
+        await session.execute(delete(ChildProfile).where(ChildProfile.id.in_(child_ids)))
+        await session.execute(delete(Family).where(Family.id.in_(family_ids)))
+
+    await session.execute(delete(PushAction).where(PushAction.parent_id == parent.id))
+    await session.execute(delete(PushToken).where(PushToken.parent_id == parent.id))
+    await session.delete(parent)
+    await session.commit()
+
+async def account_deletion_page() -> HTMLResponse:
+    return HTMLResponse(
+        """<!doctype html>
+<html lang="en">
+  <head><meta charset="utf-8"><title>Delete your Guardian account</title></head>
+  <body>
+    <main>
+      <h1>Delete your Guardian account</h1>
+      <p>Sign in to Guardian, open Account, choose Delete account, and confirm the irreversible action.</p>
+      <p>Account deletion removes your family, child profiles, devices, policies, events, reports, requests, and notification records.</p>
+      <p>To request deletion from a browser, use the authenticated account deletion endpoint:
+        <code>DELETE /v1/auth/account</code>.</p>
+    </main>
+  </body>
+</html>"""
+    )
+
 router.add_api_route("/v1/auth/signup", signup, methods=["POST"], status_code=201)
 router.add_api_route("/v1/auth/login", login, methods=["POST"])
 router.add_api_route("/v1/auth/refresh", refresh, methods=["POST"])
@@ -142,3 +257,5 @@ router.add_api_route("/v1/auth/verification/confirm", confirm_verification, meth
 router.add_api_route("/v1/auth/password-reset/request", request_password_reset, methods=["POST"], status_code=202)
 router.add_api_route("/v1/auth/password-reset/confirm", confirm_password_reset, methods=["POST"], status_code=204)
 router.add_api_route("/v1/auth/logout", logout, methods=["POST"], status_code=204)
+router.add_api_route("/v1/auth/account", delete_account, methods=["DELETE"], status_code=204)
+router.add_api_route("/account-deletion", account_deletion_page, methods=["GET"])

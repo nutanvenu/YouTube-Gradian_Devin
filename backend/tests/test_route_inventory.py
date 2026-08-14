@@ -10,6 +10,8 @@ EXPECTED_ROUTES: tuple[ExpectedRoute, ...] = (
     ("/livez", "GET", "public"),
     ("/readiness", "GET", "public"),
     ("/readyz", "GET", "public"),
+    ("/account-deletion", "GET", "public"),
+    ("/v1/auth/account", "DELETE", "parent"),
     ("/v1/auth/login", "POST", "public"),
     ("/v1/auth/logout", "POST", "public"),
     ("/v1/auth/me", "GET", "parent"),

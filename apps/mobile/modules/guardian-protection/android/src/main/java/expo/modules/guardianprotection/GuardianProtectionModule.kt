@@ -15,6 +15,7 @@ import expo.modules.guardianprotection.communication.CommunicationSafetyRuntime
 import expo.modules.guardianprotection.observability.GuardianPerformanceMetrics
 import android.os.SystemClock
 import java.time.Instant
+import java.util.UUID
 import java.util.concurrent.atomic.AtomicReference
 
 class GuardianProtectionModule : Module() {
@@ -149,7 +150,7 @@ class GuardianProtectionModule : Module() {
 
   private fun emit(event: Map<String, Any?>) {
     GuardianPerformanceMetrics.recordBridgeEvent()
-    sendEvent("onGuardianEvent", event)
+    sendEvent("onGuardianEvent", event + ("correlationId" to UUID.randomUUID().toString()))
   }
 
   private val eventListener = object : GuardianPolicyRuntime.Listener {
