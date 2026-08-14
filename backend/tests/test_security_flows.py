@@ -496,7 +496,7 @@ async def test_child_delete_and_guardian_invitation_single_use(
 ) -> None:
     import importlib
 
-    api_module = importlib.import_module("app.api.routes")
+    api_module = importlib.import_module("app.api.route_handlers")
     sent: list[str] = []
 
     async def capture(_recipient: str, _subject: str, body: str) -> None:
@@ -596,7 +596,7 @@ async def test_unhandled_error_uses_generic_error_shape(client, monkeypatch) -> 
 
     import httpx
 
-    api_module = importlib.import_module("app.api.routes")
+    api_module = importlib.import_module("app.api.route_handlers")
 
     async def fail(*_args, **_kwargs):
         raise RuntimeError("sensitive internal detail")
