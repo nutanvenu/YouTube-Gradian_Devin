@@ -338,6 +338,7 @@ async def test_pairing_returns_manual_code_and_reuse_is_rejected(
     payload = pairing.json()
     assert payload["code"].isdigit() and len(payload["code"]) == 6
     assert payload["code"] in payload["qr_payload"]
+    assert f"child_id={parent_a.child_id}" in payload["qr_payload"]
     body = {
         "session_id": payload["session_id"],
         "code": payload["code"],

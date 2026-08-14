@@ -20,5 +20,5 @@ export default function ParentPairingRoute() {
     const timer = setInterval(update, 1000);
     return () => clearInterval(timer);
   }, [pairing]);
-  return <ScreenScaffold title="Pair a child device"><DataState state={pairing ? "loaded" : "loading"}><SectionSurface><QRCode value={pairing?.qr_payload ?? ""} size={220} /><Text selectable>Manual code: {pairing?.code ?? "Unknown"}</Text><Text>Expires in: {remaining}</Text></SectionSurface></DataState></ScreenScaffold>;
+  return <ScreenScaffold title="Pair a child device"><DataState state={pairing ? "loaded" : "loading"}><SectionSurface><QRCode value={pairing?.qr_payload ?? ""} size={220} /><Text selectable>Manual code: {pairing?.code ?? "Unknown"}</Text><Text selectable>Session ID: {pairing?.session_id ?? "Unknown"}</Text><Text selectable>Child profile ID: {childId}</Text><Text>Expires in: {remaining}</Text></SectionSurface></DataState></ScreenScaffold>;
 }

@@ -494,7 +494,7 @@ async def create_pairing(
     return PairingOut(
         session_id=row.id,
         code=code,
-        qr_payload=f"guardian://pair/{row.id}?code={code}",
+        qr_payload=f"guardian://pair/{row.id}?code={code}&child_id={child_id}",
         expires_at=row.expires_at,
     )
 
