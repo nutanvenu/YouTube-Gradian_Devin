@@ -77,6 +77,8 @@ from ..requests.models import Request as RequestRow
 from ..requests.models import RequestState
 from ..requests.service import is_expired, transition
 from .schemas import (
+    ActivityEventOut,
+    ActivityUsagePointOut,
     ChildCreate,
     ChildOut,
     ChildUpdate,
@@ -110,6 +112,8 @@ from .schemas import (
 __all__ = [
     'AsyncIterator',
     'AsyncSession',
+    'ActivityEventOut',
+    'ActivityUsagePointOut',
     'Base64Error',
     'ChildCreate',
     'ChildOut',

@@ -20,6 +20,7 @@ class SafetyEvent(TimestampMixin, Base):
     occurred_at: Mapped[datetime] = mapped_column(DateTime(timezone=True))
     app_ref: Mapped[str | None] = mapped_column(String(200))
     domain: Mapped[str | None] = mapped_column(String(253))
+    category: Mapped[str | None] = mapped_column(String(50))
 
 
 class WebEvent(TimestampMixin, Base):
@@ -33,6 +34,7 @@ class WebEvent(TimestampMixin, Base):
     occurred_at: Mapped[datetime] = mapped_column(DateTime(timezone=True))
     domain: Mapped[str | None] = mapped_column(String(253))
     app_ref: Mapped[str | None] = mapped_column(String(200))
+    category: Mapped[str | None] = mapped_column(String(50))
 
 
 class UsageAggregate(TimestampMixin, Base):

@@ -49,6 +49,21 @@ async def create_family(
     await session.commit()
     return family
 
+async def list_families(
+    parent: Parent = Depends(current_parent),
+    session: AsyncSession = Depends(get_session),
+) -> list[Family]:
+    return list(
+        (
+            await session.scalars(
+                select(Family)
+                .join(FamilyGuardian, FamilyGuardian.family_id == Family.id)
+                .where(FamilyGuardian.parent_id == parent.id)
+                .order_by(Family.created_at)
+            )
+        ).all()
+    )
+
 async def read_family(
     family_id: UUID,
     parent: Parent = Depends(current_parent),
@@ -174,6 +189,7 @@ async def revoke_device(
     )
 
 router.add_api_route("/v1/families", create_family, methods=["POST"], status_code=201, response_model=None)
+router.add_api_route("/v1/families", list_families, methods=["GET"], response_model=None)
 router.add_api_route("/v1/families/{family_id}", read_family, methods=["GET"], response_model=None)
 router.add_api_route("/v1/families/{family_id}/health", family_health, methods=["GET"], response_model=None)
 router.add_api_route("/v1/families/{family_id}/guardians", list_guardians, methods=["GET"], response_model=None)

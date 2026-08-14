@@ -187,10 +187,30 @@ class MinimizedEvent(BaseModel):
     occurred_at: datetime
     app_ref: str | None = Field(default=None, max_length=200)
     domain: str | None = Field(default=None, max_length=253)
+    category: str | None = Field(default=None, max_length=50)
+    duration_seconds: int = Field(default=0, ge=0, le=86400)
 
 
 class EventBatchIn(BaseModel):
     events: list[MinimizedEvent] = Field(min_length=1, max_length=100)
+
+
+class ActivityEventOut(BaseModel):
+    id: UUID
+    kind: Literal["WEB", "SAFETY"]
+    event_type: str
+    occurred_at: datetime
+    domain: str | None
+    app_ref: str | None
+    category: str | None
+
+
+class ActivityUsagePointOut(BaseModel):
+    app_ref: str | None
+    category: str | None
+    duration_seconds: int
+    event_type: str
+    occurred_at: datetime
 
 
 class RequestCreateIn(BaseModel):

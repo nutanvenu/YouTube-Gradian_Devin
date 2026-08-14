@@ -3,6 +3,8 @@ from fastapi import APIRouter
 
 from ..api.handler_support import (
     UUID,
+    ActivityEventOut,
+    ActivityUsagePointOut,
     AsyncSession,
     ChildProfile,
     Depends,
@@ -10,11 +12,17 @@ from ..api.handler_support import (
     DeviceCredential,
     FamilyGuardian,
     HTTPException,
+    Parent,
     PolicyBundle,
+    SafetyEvent,
+    UsageAggregate,
+    WebEvent,
     WebSocket,
     WebSocketDisconnect,
     asyncio,
     broadcaster,
+    current_parent,
+    family_for_parent,
     get_session,
     hashlib,
     parent_from_access,
@@ -22,6 +30,93 @@ from ..api.handler_support import (
 )
 
 router = APIRouter()
+
+
+async def family_activity(
+    family_id: UUID,
+    parent: Parent = Depends(current_parent),
+    session: AsyncSession = Depends(get_session),
+) -> list[dict[str, object]]:
+    await family_for_parent(session, parent, family_id)
+    web_events = list(
+        (
+            await session.scalars(
+                select(WebEvent)
+                .join(Device, Device.id == WebEvent.device_id)
+                .join(ChildProfile, ChildProfile.id == Device.child_profile_id)
+                .where(ChildProfile.family_id == family_id)
+                .order_by(WebEvent.occurred_at.desc())
+                .limit(200)
+            )
+        ).all()
+    )
+    safety_events = list(
+        (
+            await session.scalars(
+                select(SafetyEvent)
+                .join(Device, Device.id == SafetyEvent.device_id)
+                .join(ChildProfile, ChildProfile.id == Device.child_profile_id)
+                .where(ChildProfile.family_id == family_id)
+                .order_by(SafetyEvent.occurred_at.desc())
+                .limit(200)
+            )
+        ).all()
+    )
+    events: list[dict[str, object]] = [
+        {
+            "id": str(event.id),
+            "kind": "WEB",
+            "event_type": event.event_type,
+            "occurred_at": event.occurred_at.isoformat(),
+            "domain": event.domain,
+            "app_ref": event.app_ref,
+            "category": event.category,
+        }
+        for event in web_events
+    ]
+    events.extend(
+        {
+            "id": str(event.id),
+            "kind": "SAFETY",
+            "event_type": event.event_type,
+            "occurred_at": event.occurred_at.isoformat(),
+            "domain": event.domain,
+            "app_ref": event.app_ref,
+            "category": event.category,
+        }
+        for event in safety_events
+    )
+    return sorted(events, key=lambda event: str(event["occurred_at"]), reverse=True)
+
+
+async def family_usage(
+    family_id: UUID,
+    parent: Parent = Depends(current_parent),
+    session: AsyncSession = Depends(get_session),
+) -> list[dict[str, object]]:
+    await family_for_parent(session, parent, family_id)
+    rows = list(
+        (
+            await session.scalars(
+                select(UsageAggregate)
+                .join(Device, Device.id == UsageAggregate.device_id)
+                .join(ChildProfile, ChildProfile.id == Device.child_profile_id)
+                .where(ChildProfile.family_id == family_id)
+                .order_by(UsageAggregate.occurred_at.desc())
+                .limit(500)
+            )
+        ).all()
+    )
+    return [
+        {
+            "app_ref": row.app_ref,
+            "category": row.category,
+            "duration_seconds": row.duration_seconds,
+            "event_type": row.event_type,
+            "occurred_at": row.occurred_at.isoformat(),
+        }
+        for row in rows
+    ]
 
 
 async def websocket_sync(
@@ -137,3 +232,15 @@ async def websocket_sync(
         broadcaster.unsubscribe(connection)
 
 router.add_api_websocket_route('/v1/ws/sync', websocket_sync)
+router.add_api_route(
+    "/v1/families/{family_id}/activity",
+    family_activity,
+    methods=["GET"],
+    response_model=list[ActivityEventOut],
+)
+router.add_api_route(
+    "/v1/families/{family_id}/activity/usage",
+    family_usage,
+    methods=["GET"],
+    response_model=list[ActivityUsagePointOut],
+)

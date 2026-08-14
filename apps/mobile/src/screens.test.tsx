@@ -28,6 +28,7 @@ jest.mock("@/api/client", () => ({
     health: () => Promise.resolve([]),
     requests: () => Promise.resolve([]),
     activity: () => Promise.resolve([]),
+    activityUsage: () => Promise.resolve([]),
   },
 }));
 

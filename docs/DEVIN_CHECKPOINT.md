@@ -1293,3 +1293,68 @@ and resolved artifacts in `backend/uv.lock`. CI uses
 `uv sync --locked --extra dev` and executes migrations, lint, type checking,
 and tests through `uv run`. The OpenAPI drift job uses the same locked
 environment.
+
+The explicit route inventory was extended while starting the Activity slice.
+The audit found two additional client-visible registrations that had never
+been present in the backend table:
+
+```text
+GET /v1/families
+GET /v1/families/{family_id}/activity
+GET /v1/families/{family_id}/activity/usage
+```
+
+The first is used during mobile session family discovery; the latter two
+back the parent Activity screen. They are now registered in the owning
+families and events routers and covered by the inventory guard. The current
+registered table is:
+
+```text
+registered HTTP routes: 44
+WebSocket routes:       /v1/ws/sync
+```
+
+`backend/app/api/route_handlers.py` remains deleted; handler bodies are
+owned by their feature routers. The route inventory test now fails if any of
+these paths is dropped, duplicated, or changes authentication category.
+
+## Phase 2 rich Activity dashboard (backend and contract slice)
+
+The Activity backend now exposes real persisted data:
+
+```text
+GET /v1/families/{family_id}/activity
+GET /v1/families/{family_id}/activity/usage
+```
+
+The first returns persisted web and safety events, including domain, app,
+category, and occurrence time. The second returns persisted usage points
+with app, category, duration, event type, and occurrence time. Device event
+ingestion now accepts category and bounded duration fields, routes
+`WEB_*` events to web history, and stores categories for web and safety
+events. Migration `0012_event_categories` adds the persisted columns.
+Unknown values remain `null` and render as `Unknown` in the mobile Activity
+screen; no usage numbers are fabricated.
+
+The mobile Activity screen now queries both backend endpoints, renders web
+history and usage-over-time points, and preserves loading, error, offline,
+stale, and unknown/empty states. Generated OpenAPI output includes the
+typed Activity response schemas and all three newly audited paths.
+
+Automated evidence:
+
+```text
+pytest tests/test_route_inventory.py tests/test_activity.py   2 passed
+ruff check app tests/test_activity.py tests/test_route_inventory.py  passed
+mypy app                                                   success, 51 files
+guardian-mobile typecheck                                  passed
+guardian-mobile lint                                       passed
+guardian-mobile Jest                                       7 suites, 25 tests passed
+alembic current                                            0012_event_categories
+```
+
+The test posts a real device-authenticated `WEB_BLOCKED` event and an
+`APP_USAGE` point, then reads them through the authenticated family Activity
+endpoints. Dedicated two-emulator visual Activity evidence has not yet been
+captured; no visual claim is made until the parent Activity surface is
+exercised against live emulator data.

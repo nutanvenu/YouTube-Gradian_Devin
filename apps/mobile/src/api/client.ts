@@ -72,6 +72,14 @@ export type ActivityEvent = {
   occurred_at: string;
   domain: string | null;
   app_ref: string | null;
+  category: string | null;
+};
+export type ActivityUsagePoint = {
+  app_ref: string | null;
+  category: string | null;
+  duration_seconds: number;
+  event_type: string;
+  occurred_at: string;
 };
 
 const configuredApiUrl = typeof process.env.EXPO_PUBLIC_API_URL === "string"
@@ -173,6 +181,7 @@ export class GuardianApiClient {
   children(familyId: string) { return this.request<Child[]>(`/v1/families/${familyId}/children`); }
   health(familyId: string) { return this.request<Health[]>(`/v1/families/${familyId}/health`); }
   activity(familyId: string) { return this.request<ActivityEvent[]>(`/v1/families/${familyId}/activity`); }
+  activityUsage(familyId: string) { return this.request<ActivityUsagePoint[]>(`/v1/families/${familyId}/activity/usage`); }
   createPairing(familyId: string, childId: string) { return this.request<Pairing>(`/v1/families/${familyId}/children/${childId}/pairing`, { method: "POST" }); }
   redeemPairing(input: { session_id: string; code: string; child_profile_id: string; platform: "ANDROID" | "IOS"; public_key: string }) { return this.request<DeviceCredentials>("/v1/devices/pair", { method: "POST", body: JSON.stringify(input) }); }
   policy() { return this.request<{ bundle: unknown; policy_version: number; version_mismatch: boolean }>("/v1/devices/me/policy"); }

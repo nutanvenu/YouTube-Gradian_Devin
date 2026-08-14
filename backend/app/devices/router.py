@@ -125,8 +125,9 @@ async def ingest_events(
             "occurred_at": event.occurred_at,
             "app_ref": event.app_ref,
             "domain": event.domain,
+            "category": event.category,
         }
-        if event_type in {"URL", "DOMAIN", "WEB"}:
+        if event_type in {"URL", "DOMAIN", "WEB"} or event_type.startswith("WEB_"):
             session.add(WebEvent(**values))
         elif event_type.startswith("SAFETY"):
             session.add(SafetyEvent(**values))
@@ -137,8 +138,8 @@ async def ingest_events(
                     event_type=event.event_type,
                     occurred_at=event.occurred_at,
                     app_ref=event.app_ref,
-                    category=None,
-                    duration_seconds=0,
+                    category=event.category,
+                    duration_seconds=event.duration_seconds,
                 )
             )
     device.last_seen_at = datetime.now(UTC)
