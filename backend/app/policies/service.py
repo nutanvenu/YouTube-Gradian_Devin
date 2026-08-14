@@ -1,5 +1,4 @@
 import json
-import re
 from datetime import UTC, date, datetime, timedelta
 from pathlib import Path
 from uuid import UUID
@@ -15,21 +14,14 @@ _SCHEMA_PATH = (
     / "schema"
     / "policy-bundle.schema.json"
 )
+_HARD_CATEGORIES_PATH = (
+    Path(__file__).resolve().parents[3] / "packages" / "contracts" / "hard-categories.json"
+)
 
 
 def _shared_hard_categories() -> tuple[str, ...]:
-    source = (
-        Path(__file__).resolve().parents[3] / "packages" / "contracts" / "src" / "types.ts"
-    ).read_text()
-    match = re.search(
-        r"export const HARD_CATEGORIES = \[(?P<values>.*?)\] as const;",
-        source,
-        re.DOTALL,
-    )
-    if match is None:
-        raise RuntimeError("Shared HARD_CATEGORIES definition is unavailable")
-    values = tuple(re.findall(r'"([^"]+)"', match.group("values")))
-    if not values:
+    values = tuple(json.loads(_HARD_CATEGORIES_PATH.read_text()))
+    if not values or not all(isinstance(value, str) for value in values):
         raise RuntimeError("Shared HARD_CATEGORIES definition is empty")
     return values
 

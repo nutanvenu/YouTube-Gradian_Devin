@@ -1,5 +1,11 @@
 import { describe, expect, it } from "vitest";
-import { isAgeBand, isCapabilityLevel, isPolicyDecisionAction } from "./types.js";
+import hardCategories from "../hard-categories.json" with { type: "json" };
+import {
+  HARD_CATEGORIES,
+  isAgeBand,
+  isCapabilityLevel,
+  isPolicyDecisionAction
+} from "./types.js";
 
 describe("contract type guards", () => {
   it("accept only canonical age bands", () => {
@@ -15,5 +21,9 @@ describe("contract type guards", () => {
   it("accept only canonical decision actions", () => {
     expect(isPolicyDecisionAction("ALLOW_WITH_BUDGET")).toBe(true);
     expect(isPolicyDecisionAction("UNKNOWN")).toBe(false);
+  });
+
+  it("keeps the exported hard categories aligned with the shared artifact", () => {
+    expect(HARD_CATEGORIES).toEqual(hardCategories);
   });
 });

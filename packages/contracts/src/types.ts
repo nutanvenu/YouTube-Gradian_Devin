@@ -1,3 +1,5 @@
+import hardCategories from "../hard-categories.json" with { type: "json" };
+
 export const AGE_BANDS = ["YOUNG_CHILD", "PRETEEN", "TEEN", "OLDER_TEEN"] as const;
 export type AgeBand = (typeof AGE_BANDS)[number];
 
@@ -31,17 +33,10 @@ export const CATEGORIES = [
 ] as const;
 export type Category = (typeof CATEGORIES)[number];
 
-export const HARD_CATEGORIES = [
-  "ADULT_PORNOGRAPHY",
-  "SEXUAL_CONTENT",
-  "GAMBLING",
-  "DRUGS_CONTROLLED_SUBSTANCES",
-  "SELF_HARM_SUICIDE",
-  "HATE_EXTREMISM",
-  "GRAPHIC_VIOLENCE_GORE",
-  "MALWARE",
-  "PHISHING_SCAMS"
-] as const;
+export const HARD_CATEGORIES = hardCategories as readonly [
+  Category,
+  ...Category[]
+];
 
 export const CAPABILITY_LEVELS = [
   "FULL",

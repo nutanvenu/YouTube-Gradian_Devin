@@ -6,7 +6,7 @@ from uuid import uuid4
 import pytest
 from jsonschema import Draft202012Validator, FormatChecker
 
-from app.policies.service import default_policy
+from app.policies.service import HARD_CATEGORIES, default_policy
 
 SCHEMA = json.loads(
     (
@@ -58,3 +58,12 @@ def test_default_policy_versions_are_supplied_by_mutation() -> None:
     second = default_policy(uuid4(), uuid4(), "TEEN", "UTC", policy_version=5)
     assert first["policy_version"] == 4
     assert second["policy_version"] == 5
+
+
+def test_hard_categories_are_loaded_from_shared_artifact() -> None:
+    artifact = json.loads(
+        (
+            Path(__file__).parents[2] / "packages" / "contracts" / "hard-categories.json"
+        ).read_text()
+    )
+    assert HARD_CATEGORIES == tuple(artifact)
