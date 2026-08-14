@@ -32,3 +32,24 @@ jobs:
       - run: pnpm --filter guardian-mobile lint
       - run: pnpm --filter guardian-mobile typecheck
       - run: pnpm --filter guardian-mobile test --runInBand
+
+  android-native:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-node@v4
+        with:
+          node-version-file: ".nvmrc"
+          cache: pnpm
+      - uses: pnpm/action-setup@v4
+        with:
+          version: 10.14.0
+      - uses: actions/setup-java@v4
+        with:
+          distribution: temurin
+          java-version: "17"
+      - run: pnpm install --frozen-lockfile
+      - run: npx expo prebuild --no-install
+        working-directory: apps/mobile
+      - run: ./gradlew :guardian-protection:assembleDebug :guardian-protection:testDebugUnitTest
+        working-directory: apps/mobile/android

@@ -4,18 +4,25 @@ import android.content.Context
 import android.security.keystore.KeyGenParameterSpec
 import android.security.keystore.KeyProperties
 import android.util.Base64
+import java.util.concurrent.atomic.AtomicBoolean
+import org.json.JSONObject
 import java.security.KeyStore
 import javax.crypto.Cipher
 import javax.crypto.KeyGenerator
 import javax.crypto.spec.GCMParameterSpec
 
-class EncryptedPolicyStore(context: Context) {
-  private val preferences = context.getSharedPreferences("guardian-protection", Context.MODE_PRIVATE)
+class EncryptedPolicyStore(
+  context: Context,
+  preferenceName: String = "guardian-protection",
+) {
+  private val preferences = context.getSharedPreferences(preferenceName, Context.MODE_PRIVATE)
   private val alias = "guardian-protection-state"
+  private val corruptState = AtomicBoolean(false)
 
   fun active(): String? = read("active")
   fun previous(): String? = read("previous")
   fun appliedVersion(): Long? = preferences.getLong("applied-version", -1).takeIf { it >= 0 }
+  fun hasCorruptState(): Boolean = corruptState.get()
 
   fun swap(active: String, version: Long) {
     val old = read("active")
@@ -23,16 +30,62 @@ class EncryptedPolicyStore(context: Context) {
       .putString("previous", old?.let { encrypt(it) })
       .putString("active", encrypt(active))
       .putLong("applied-version", version)
-      .apply()
+      .commit()
   }
 
-  fun usageSummary(range: Map<String, Any?>): Map<String, Any?> = mapOf(
-    "range" to range,
-    "totalSeconds" to preferences.getLong("usage-total-seconds", 0),
-    "byTarget" to emptyMap<String, Long>(),
-  )
+  @Synchronized
+  fun addUsage(target: String, deltaSeconds: Long, elapsedRealtime: Long) {
+    require(target.isNotBlank()) { "Usage target cannot be blank" }
+    require(deltaSeconds >= 0) { "Usage deltas cannot be negative" }
+    require(elapsedRealtime >= 0) { "Elapsed realtime cannot be negative" }
+    val counters = usageCounters()
+    val current = counters[target] ?: CounterState()
+    val next = MonotonicCounterStore().also {
+      it.restore(current.totalSeconds, current.lastElapsedRealtime)
+    }.add(deltaSeconds, elapsedRealtime)
+    counters[target] = CounterState(next, elapsedRealtime)
+    val json = JSONObject().apply {
+      counters.toSortedMap().forEach { (key, value) ->
+        put(key, JSONObject().apply {
+          put("total_seconds", value.totalSeconds)
+          put("last_elapsed_realtime", value.lastElapsedRealtime)
+        })
+      }
+    }
+    preferences.edit().putString("usage-counters", encrypt(json.toString())).commit()
+  }
 
-  private fun read(key: String): String? = preferences.getString(key, null)?.let(::decrypt)
+  fun usageSummary(range: Map<String, Any?>): Map<String, Any?> {
+    val byTarget = usageCounters().mapValues { it.value.totalSeconds }
+    return mapOf(
+      "range" to range,
+      "totalSeconds" to byTarget.values.sum(),
+      "byTarget" to byTarget,
+    )
+  }
+
+  private fun read(key: String): String? {
+    val encoded = preferences.getString(key, null) ?: return null
+    return runCatching { decrypt(encoded) }.getOrElse {
+      corruptState.set(true)
+      null
+    }
+  }
+
+  private fun usageCounters(): MutableMap<String, CounterState> {
+    val encoded = preferences.getString("usage-counters", null) ?: return mutableMapOf()
+    val decoded = runCatching { JSONObject(decrypt(encoded)) }.getOrElse {
+      corruptState.set(true)
+      throw IllegalStateException("Encrypted usage state is corrupt", it)
+    }
+    return decoded.keys().asSequence().associateWith { key ->
+      val value = decoded.getJSONObject(key)
+      CounterState(
+        value.getLong("total_seconds"),
+        value.getLong("last_elapsed_realtime"),
+      )
+    }.toMutableMap()
+  }
 
   private fun key() = (KeyStore.getInstance("AndroidKeyStore").apply { load(null) }.getKey(alias, null)
     ?: KeyGenerator.getInstance(KeyProperties.KEY_ALGORITHM_AES, "AndroidKeyStore").apply {
@@ -55,4 +108,9 @@ class EncryptedPolicyStore(context: Context) {
     cipher.init(Cipher.DECRYPT_MODE, key(), GCMParameterSpec(128, bytes.copyOfRange(0, 12)))
     return cipher.doFinal(bytes.copyOfRange(12, bytes.size)).toString(Charsets.UTF_8)
   }
+
+  private data class CounterState(
+    val totalSeconds: Long = 0,
+    val lastElapsedRealtime: Long = 0,
+  )
 }

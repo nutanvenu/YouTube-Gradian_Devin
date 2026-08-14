@@ -10,29 +10,46 @@ class PolicyManager(
 ) {
   private val verifier = PolicyVerifier(parseTrustedKeys(trustedKeysJson))
   @Volatile private var active: CompiledPolicySnapshot? = null
+  @Volatile private var previous: CompiledPolicySnapshot? = null
   @Volatile private var started = false
 
   init {
-    store.active()?.let { active = null }
+    store.active()?.let { encoded ->
+      runCatching {
+        val restored = compile(parseJsonObject(encoded))
+        if (restored.policyVersion == store.appliedVersion()) active = restored
+      }
+    }
   }
 
   fun apply(bundle: Map<String, Any?>): Map<String, Any?> {
+    if (store.hasCorruptState()) return failure("LOCAL_STATE_CORRUPT", store.appliedVersion())
     val version = (bundle["policy_version"] as? Number)?.toLong()
       ?: return failure("INVALID_POLICY_VERSION")
-    if ((bundle["schema_version"] as? Number)?.toInt() != 1) return failure("UNSUPPORTED_SCHEMA")
+    val schemaError = validateSchema(bundle)
+    if (schemaError != null) return failure(schemaError)
     val current = store.appliedVersion()
     if (current != null && version <= current) return failure("POLICY_VERSION_NOT_MONOTONIC", current)
     if (!verifier.verify(bundle)) return failure("SIGNATURE_INVALID", current)
     return runCatching {
       val compiled = compile(bundle)
-      val previous = active
+      previous = active
       store.swap(CanonicalJson.encode(bundle), version)
       active = compiled
       mapOf("applied" to true, "policyVersion" to version)
     }.getOrElse {
-      active = active
       failure("POLICY_REJECTED")
     }
+  }
+
+  fun rollback(): Boolean {
+    val encoded = store.previous() ?: return false
+    val restored = runCatching { compile(parseJsonObject(encoded)) }.getOrNull() ?: return false
+    val snapshot = previous
+    store.swap(encoded, restored.policyVersion)
+    previous = active ?: snapshot
+    active = restored
+    return true
   }
 
   fun start() {
@@ -71,8 +88,26 @@ class PolicyManager(
       categoryRules = categoryRules,
       temporaryOverrides = (bundle["temporary_overrides"] as? List<*>)?.filterIsInstance<Map<*, *>>()?.map { it.cast() }.orEmpty(),
       routines = (bundle["routines"] as? List<*>)?.filterIsInstance<Map<*, *>>()?.map { it.cast() }.orEmpty(),
-      basePolicy = (bundle["base_policy"] as? Map<*, *>)?.cast() ?: emptyMap(),
+      basePolicy = (bundle["base_policy"] as? Map<*, *>)?.let { it.cast() } ?: emptyMap(),
+      expiresSoftAt = (bundle["expires_soft_at"] as? String)?.let { Instant.parse(it) },
     )
+  }
+
+  private fun validateSchema(bundle: Map<String, Any?>): String? {
+    if ((bundle["schema_version"] as? Number)?.toInt() != 1) return "UNSUPPORTED_SCHEMA"
+    val requiredStrings = listOf(
+      "family_id", "child_profile_id", "issued_at", "expires_soft_at", "key_id", "age_band",
+    )
+    if (requiredStrings.any { bundle[it] !is String }) return "SCHEMA_INVALID"
+    if (bundle["policy_version"] !is Number || bundle["policy_version"].toString().toLongOrNull() == null) {
+      return "INVALID_POLICY_VERSION"
+    }
+    if (bundle["base_policy"] !is Map<*, *>) return "SCHEMA_INVALID"
+    if (listOf("app_rules", "domain_rules", "category_rules", "routines", "temporary_overrides").any {
+        bundle[it] !is List<*>
+      }) return "SCHEMA_INVALID"
+    if (bundle["signature"] !is String) return "SCHEMA_INVALID"
+    return null
   }
 
   private fun failure(reason: String, version: Long? = null) = mapOf(
@@ -89,5 +124,15 @@ class PolicyManager(
       val json = JSONObject(value)
       json.keys().asSequence().associateWith { key -> json.getString(key) }
     }.getOrDefault(emptyMap())
+  }
+
+  private fun parseJsonObject(value: String): Map<String, Any?> {
+    fun convert(raw: Any?): Any? = when (raw) {
+      JSONObject.NULL -> null
+      is JSONObject -> raw.keys().asSequence().associateWith { convert(raw.get(it)) }
+      is org.json.JSONArray -> (0 until raw.length()).map { convert(raw.get(it)) }
+      else -> raw
+    }
+    return convert(JSONObject(value)) as Map<String, Any?>
   }
 }

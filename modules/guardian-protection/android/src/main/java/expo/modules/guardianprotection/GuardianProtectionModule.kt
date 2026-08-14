@@ -17,6 +17,9 @@ class GuardianProtectionModule : Module() {
   override fun definition() = ModuleDefinition {
     Name("GuardianProtection")
     Events("onGuardianEvent")
+    OnActivityEntersForeground {
+      reportCapabilityChanges(capabilities.getCapabilities())
+    }
 
     AsyncFunction("getCapabilities") {
       reportCapabilityChanges(capabilities.getCapabilities())
