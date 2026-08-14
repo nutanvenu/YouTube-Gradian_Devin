@@ -17,6 +17,8 @@ data class PolicyContext(
   val deviceUsageTodayMs: Long = 0,
   val currentManualRoutineId: String? = null,
   val timezone: String? = null,
+  val reputationVerdict: String? = null,
+  val reputationPendingUntil: Instant? = null,
 )
 
 data class PolicyDecision(
@@ -117,6 +119,38 @@ class PolicyEvaluator {
       val defaultRule = (base["default_category_rules"] as? List<*>).orEmpty().filterIsInstance<Map<*, *>>()
         .firstOrNull { it["category"] == targetCategory }
       if (defaultRule != null) return finish(actionFor(defaultRule, usageSeconds, "DEFAULT_CATEGORY_RULE", defaultRule["exclude_from_budget"] == true))
+    }
+
+    if (targetKind == "DOMAIN" && context.reputationVerdict in setOf("KNOWN_SAFE", "KNOWN_RISK")) {
+      return finish(
+        if (context.reputationVerdict == "KNOWN_RISK") {
+          Candidate("BLOCK", "REPUTATION_KNOWN_RISK", null, false)
+        } else {
+          Candidate("ALLOW", "REPUTATION_KNOWN_SAFE", null, false)
+        },
+      )
+    }
+    if (targetKind == "DOMAIN" && context.reputationPendingUntil != null) {
+      val pending = context.now.isBefore(context.reputationPendingUntil)
+      val blockWhileClassifying = base["unknown_domain_policy"] == "BLOCK_WHILE_CLASSIFYING"
+      if (pending) {
+        return finish(
+          Candidate(
+            if (blockWhileClassifying) "BLOCK" else "ALLOW",
+            if (blockWhileClassifying) "REPUTATION_PENDING" else "REPUTATION_PENDING_NOTIFY",
+            null,
+            false,
+          ),
+        )
+      }
+      return finish(
+        Candidate(
+          if (blockWhileClassifying) "BLOCK" else "ALLOW",
+          if (blockWhileClassifying) "REPUTATION_PENDING_EXPIRED" else "REPUTATION_PENDING_EXPIRED_NOTIFY",
+          null,
+          false,
+        ),
+      )
     }
 
     if (targetKind == "APP" && base["unknown_app_policy"] == "LIMIT_AND_NOTIFY") {

@@ -4,6 +4,8 @@ import type {
   CapabilityRecord,
   GuardianNativeEvent,
   GuardianProtectionNative,
+  ReputationApplyResult,
+  ReputationStatus,
   ObservedApp,
   PermissionResult,
   ProtectionStatus,
@@ -30,6 +32,9 @@ export const GuardianProtection: GuardianProtectionNative = {
   startProtection: () => native.startProtection(),
   stopProtection: () => native.stopProtection(),
   applyPolicyBundle: (bundle: unknown): Promise<ApplyResult> => native.applyPolicyBundle(bundle),
+  applyReputationBundle: (bundle: unknown): Promise<ReputationApplyResult> =>
+    native.applyReputationBundle(bundle),
+  getReputationStatus: (): Promise<ReputationStatus> => native.getReputationStatus(),
   getUsageSummary: (range: TimeRange): Promise<UsageSummary> => native.getUsageSummary(range),
   getObservedApps: (): Promise<ObservedApp[]> => native.getObservedApps(),
   markObservedAppReviewed: (platformAppId: string): Promise<void> =>
@@ -38,4 +43,4 @@ export const GuardianProtection: GuardianProtectionNative = {
     native.addListener("onGuardianEvent", listener),
 };
 
-export { type ApplyResult, type CapabilityRecord, type GuardianNativeEvent, type ObservedApp, type PermissionResult, type ProtectionStatus, type TimeRange, type UsageSummary };
+export { type ApplyResult, type CapabilityRecord, type GuardianNativeEvent, type ObservedApp, type PermissionResult, type ProtectionStatus, type ReputationApplyResult, type ReputationStatus, type TimeRange, type UsageSummary };

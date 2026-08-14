@@ -13,6 +13,7 @@ from ..health.router import router as health_router
 from ..pairing.router import router as pairing_router
 from ..policies.router import router as policies_router
 from ..push.router import router as push_router
+from ..reputation.router import router as reputation_router
 from ..requests.router import router as requests_router
 from .handler_support import notifier
 from .lifecycle import lifespan
@@ -33,6 +34,7 @@ for router in (
     health_router,
     requests_router,
     push_router,
+    reputation_router,
 ):
     app.include_router(router)
 __all__ = ["app", "notifier"]

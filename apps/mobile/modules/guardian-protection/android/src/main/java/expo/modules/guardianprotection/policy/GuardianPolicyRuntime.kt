@@ -5,9 +5,11 @@ import java.util.concurrent.ConcurrentHashMap
 import expo.modules.guardianprotection.usage.UsageContext
 import expo.modules.guardianprotection.usage.UsageThresholdEvent
 import expo.modules.guardianprotection.usage.UsageThresholdTracker
+import expo.modules.guardianprotection.reputation.ReputationManager
 
 object GuardianPolicyRuntime {
   private var manager: PolicyManager? = null
+  private var reputation: ReputationManager? = null
   private val listeners = CopyOnWriteArraySet<Listener>()
   private val lastBlockedAt = ConcurrentHashMap<String, Long>()
   private val thresholds = UsageThresholdTracker()
@@ -16,6 +18,10 @@ object GuardianPolicyRuntime {
     manager = policyManager
     lastBlockedAt.clear()
     thresholds.clear()
+  }
+
+  fun installReputation(reputationManager: ReputationManager) {
+    reputation = reputationManager
   }
 
   fun hasActiveSnapshot(): Boolean = manager?.activeSnapshot() != null
@@ -27,6 +33,12 @@ object GuardianPolicyRuntime {
   fun evaluateDomain(domain: String, destinationIp: String? = null): DomainDecision {
     val current = manager?.activeSnapshot()
       ?: return DomainDecision(false, "POLICY_UNAVAILABLE")
+    val reputationEntry = reputation?.lookup(domain)
+    val pendingUntil = if (reputationEntry == null) {
+      reputation?.markPending(domain)?.let { java.time.Instant.ofEpochMilli(it) }
+    } else {
+      null
+    }
     val result = current.let {
       PolicyEvaluator().evaluate(
         it,
@@ -41,6 +53,8 @@ object GuardianPolicyRuntime {
           activeRoutineIds = emptySet(),
           currentManualRoutineId = (it.basePolicy["current_manual_routine_id"] as? String),
           signal = null,
+          reputationVerdict = reputationEntry?.verdict,
+          reputationPendingUntil = pendingUntil,
         ),
       )
     }

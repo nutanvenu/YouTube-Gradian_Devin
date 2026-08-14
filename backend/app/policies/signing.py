@@ -150,6 +150,14 @@ class PolicySigner:
         bundle["signature"] = base64.b64encode(signature).decode("ascii")
         return bundle
 
+    def sign_document(self, document: dict[str, object]) -> dict[str, object]:
+        settings = get_settings()
+        document["key_id"] = settings.policy_key_id
+        document["signature"] = ""
+        signature = self._key().sign(canonical_bytes(document))
+        document["signature"] = base64.b64encode(signature).decode("ascii")
+        return document
+
     def public_key(self) -> str:
         raw = self._key().public_key().public_bytes(Encoding.Raw, PublicFormat.Raw)
         return base64.b64encode(raw).decode("ascii")

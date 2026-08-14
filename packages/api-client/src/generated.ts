@@ -717,6 +717,168 @@ export const openApiDocument = {
         "title": "RefreshIn",
         "type": "object"
       },
+      "ReputationClassificationOut": {
+        "properties": {
+          "identifier": {
+            "title": "Identifier",
+            "type": "string"
+          },
+          "reason": {
+            "title": "Reason",
+            "type": "string"
+          },
+          "state": {
+            "enum": [
+              "RESOLVED",
+              "PENDING"
+            ],
+            "title": "State",
+            "type": "string"
+          },
+          "verdict": {
+            "enum": [
+              "KNOWN_SAFE",
+              "KNOWN_RISK",
+              "UNKNOWN"
+            ],
+            "title": "Verdict",
+            "type": "string"
+          }
+        },
+        "required": [
+          "identifier",
+          "verdict",
+          "state",
+          "reason"
+        ],
+        "title": "ReputationClassificationOut",
+        "type": "object"
+      },
+      "ReputationClassifyIn": {
+        "additionalProperties": false,
+        "properties": {
+          "identifier": {
+            "maxLength": 253,
+            "minLength": 1,
+            "title": "Identifier",
+            "type": "string"
+          }
+        },
+        "required": [
+          "identifier"
+        ],
+        "title": "ReputationClassifyIn",
+        "type": "object"
+      },
+      "ReputationEntryOut": {
+        "properties": {
+          "bundle_version": {
+            "title": "Bundle Version",
+            "type": "integer"
+          },
+          "expires_at": {
+            "format": "date-time",
+            "title": "Expires At",
+            "type": "string"
+          },
+          "identifier": {
+            "title": "Identifier",
+            "type": "string"
+          },
+          "rationale": {
+            "title": "Rationale",
+            "type": "string"
+          },
+          "source": {
+            "title": "Source",
+            "type": "string"
+          },
+          "target_kind": {
+            "enum": [
+              "DOMAIN",
+              "APP"
+            ],
+            "title": "Target Kind",
+            "type": "string"
+          },
+          "verdict": {
+            "enum": [
+              "KNOWN_SAFE",
+              "KNOWN_RISK",
+              "UNKNOWN"
+            ],
+            "title": "Verdict",
+            "type": "string"
+          }
+        },
+        "required": [
+          "target_kind",
+          "identifier",
+          "verdict",
+          "source",
+          "rationale",
+          "expires_at",
+          "bundle_version"
+        ],
+        "title": "ReputationEntryOut",
+        "type": "object"
+      },
+      "ReputationStatusOut": {
+        "properties": {
+          "current_version": {
+            "title": "Current Version",
+            "type": "integer"
+          },
+          "entries": {
+            "items": {
+              "$ref": "#/components/schemas/ReputationEntryOut"
+            },
+            "title": "Entries",
+            "type": "array"
+          }
+        },
+        "required": [
+          "current_version",
+          "entries"
+        ],
+        "title": "ReputationStatusOut",
+        "type": "object"
+      },
+      "ReputationSyncOut": {
+        "properties": {
+          "bundle": {
+            "anyOf": [
+              {
+                "additionalProperties": true,
+                "type": "object"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Bundle"
+          },
+          "current_version": {
+            "title": "Current Version",
+            "type": "integer"
+          },
+          "deltas": {
+            "items": {
+              "additionalProperties": true,
+              "type": "object"
+            },
+            "title": "Deltas",
+            "type": "array"
+          }
+        },
+        "required": [
+          "current_version",
+          "bundle",
+          "deltas"
+        ],
+        "title": "ReputationSyncOut",
+        "type": "object"
+      },
       "RequestCreateIn": {
         "properties": {
           "reason": {
@@ -1563,6 +1725,94 @@ export const openApiDocument = {
           }
         ],
         "summary": "Register Device Push Token"
+      }
+    },
+    "/v1/devices/me/reputation": {
+      "get": {
+        "operationId": "device_reputation_v1_devices_me_reputation_get",
+        "parameters": [
+          {
+            "in": "query",
+            "name": "version",
+            "required": false,
+            "schema": {
+              "default": 0,
+              "title": "Version",
+              "type": "integer"
+            }
+          }
+        ],
+        "responses": {
+          "200": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ReputationSyncOut"
+                }
+              }
+            },
+            "description": "Successful Response"
+          },
+          "422": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/HTTPValidationError"
+                }
+              }
+            },
+            "description": "Validation Error"
+          }
+        },
+        "security": [
+          {
+            "HTTPBearer": []
+          }
+        ],
+        "summary": "Device Reputation"
+      }
+    },
+    "/v1/devices/me/reputation/classify": {
+      "post": {
+        "operationId": "classify_domain_v1_devices_me_reputation_classify_post",
+        "requestBody": {
+          "content": {
+            "application/json": {
+              "schema": {
+                "$ref": "#/components/schemas/ReputationClassifyIn"
+              }
+            }
+          },
+          "required": true
+        },
+        "responses": {
+          "200": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ReputationClassificationOut"
+                }
+              }
+            },
+            "description": "Successful Response"
+          },
+          "422": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/HTTPValidationError"
+                }
+              }
+            },
+            "description": "Validation Error"
+          }
+        },
+        "security": [
+          {
+            "HTTPBearer": []
+          }
+        ],
+        "summary": "Classify Domain"
       }
     },
     "/v1/devices/me/requests": {
@@ -2417,6 +2667,61 @@ export const openApiDocument = {
         "summary": "Mutate Policy"
       }
     },
+    "/v1/families/{family_id}/children/{child_id}/reputation": {
+      "get": {
+        "operationId": "parent_reputation_v1_families__family_id__children__child_id__reputation_get",
+        "parameters": [
+          {
+            "in": "path",
+            "name": "family_id",
+            "required": true,
+            "schema": {
+              "format": "uuid",
+              "title": "Family Id",
+              "type": "string"
+            }
+          },
+          {
+            "in": "path",
+            "name": "child_id",
+            "required": true,
+            "schema": {
+              "format": "uuid",
+              "title": "Child Id",
+              "type": "string"
+            }
+          }
+        ],
+        "responses": {
+          "200": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ReputationStatusOut"
+                }
+              }
+            },
+            "description": "Successful Response"
+          },
+          "422": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/HTTPValidationError"
+                }
+              }
+            },
+            "description": "Validation Error"
+          }
+        },
+        "security": [
+          {
+            "OAuth2PasswordBearer": []
+          }
+        ],
+        "summary": "Parent Reputation"
+      }
+    },
     "/v1/families/{family_id}/devices/{device_id}/revoke": {
       "post": {
         "operationId": "revoke_device_v1_families__family_id__devices__device_id__revoke_post",
@@ -2942,7 +3247,7 @@ export const openApiDocument = {
   }
 } as const;
 
-export type GuardianApiPath = "/health" | "/livez" | "/readiness" | "/readyz" | "/v1/auth/login" | "/v1/auth/logout" | "/v1/auth/me" | "/v1/auth/password-reset/confirm" | "/v1/auth/password-reset/request" | "/v1/auth/refresh" | "/v1/auth/signup" | "/v1/auth/verification/confirm" | "/v1/auth/verification/request" | "/v1/devices/me/events" | "/v1/devices/me/heartbeat" | "/v1/devices/me/inventory" | "/v1/devices/me/policy" | "/v1/devices/me/policy/ack" | "/v1/devices/me/push-tokens" | "/v1/devices/me/requests" | "/v1/devices/pair" | "/v1/families" | "/v1/families/guardians/accept" | "/v1/families/{family_id}" | "/v1/families/{family_id}/activity" | "/v1/families/{family_id}/activity/usage" | "/v1/families/{family_id}/children" | "/v1/families/{family_id}/children/{child_id}" | "/v1/families/{family_id}/children/{child_id}/inventory" | "/v1/families/{family_id}/children/{child_id}/inventory/{platform_app_id}/review" | "/v1/families/{family_id}/children/{child_id}/pairing" | "/v1/families/{family_id}/children/{child_id}/policy/mutations" | "/v1/families/{family_id}/devices/{device_id}/revoke" | "/v1/families/{family_id}/guardians" | "/v1/families/{family_id}/guardians/invite" | "/v1/families/{family_id}/health" | "/v1/families/{family_id}/requests" | "/v1/families/{family_id}/requests/{request_id}/approve" | "/v1/families/{family_id}/requests/{request_id}/deny" | "/v1/me/push-tokens" | "/v1/policy/public-key" | "/v1/push/actions/{action_token}/approve" | "/v1/push/actions/{action_token}/deny";
+export type GuardianApiPath = "/health" | "/livez" | "/readiness" | "/readyz" | "/v1/auth/login" | "/v1/auth/logout" | "/v1/auth/me" | "/v1/auth/password-reset/confirm" | "/v1/auth/password-reset/request" | "/v1/auth/refresh" | "/v1/auth/signup" | "/v1/auth/verification/confirm" | "/v1/auth/verification/request" | "/v1/devices/me/events" | "/v1/devices/me/heartbeat" | "/v1/devices/me/inventory" | "/v1/devices/me/policy" | "/v1/devices/me/policy/ack" | "/v1/devices/me/push-tokens" | "/v1/devices/me/reputation" | "/v1/devices/me/reputation/classify" | "/v1/devices/me/requests" | "/v1/devices/pair" | "/v1/families" | "/v1/families/guardians/accept" | "/v1/families/{family_id}" | "/v1/families/{family_id}/activity" | "/v1/families/{family_id}/activity/usage" | "/v1/families/{family_id}/children" | "/v1/families/{family_id}/children/{child_id}" | "/v1/families/{family_id}/children/{child_id}/inventory" | "/v1/families/{family_id}/children/{child_id}/inventory/{platform_app_id}/review" | "/v1/families/{family_id}/children/{child_id}/pairing" | "/v1/families/{family_id}/children/{child_id}/policy/mutations" | "/v1/families/{family_id}/children/{child_id}/reputation" | "/v1/families/{family_id}/devices/{device_id}/revoke" | "/v1/families/{family_id}/guardians" | "/v1/families/{family_id}/guardians/invite" | "/v1/families/{family_id}/health" | "/v1/families/{family_id}/requests" | "/v1/families/{family_id}/requests/{request_id}/approve" | "/v1/families/{family_id}/requests/{request_id}/deny" | "/v1/me/push-tokens" | "/v1/policy/public-key" | "/v1/push/actions/{action_token}/approve" | "/v1/push/actions/{action_token}/deny";
 
 export class GeneratedGuardianError extends Error {
   constructor(message: string, readonly status: number) {

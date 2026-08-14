@@ -6,6 +6,9 @@ import expo.modules.guardianprotection.health.CapabilityDetector
 import expo.modules.guardianprotection.policy.PolicyManager
 import expo.modules.guardianprotection.policy.GuardianPolicyRuntime
 import expo.modules.guardianprotection.storage.EncryptedPolicyStore
+import expo.modules.guardianprotection.reputation.EncryptedReputationStore
+import expo.modules.guardianprotection.reputation.ReputationManager
+import expo.modules.guardianprotection.policy.PolicyVerifier
 import expo.modules.guardianprotection.usage.UsageCollector
 import expo.modules.guardianprotection.vpn.GuardianVpnService
 import java.time.Instant
@@ -14,6 +17,10 @@ import java.util.concurrent.atomic.AtomicReference
 class GuardianProtectionModule : Module() {
   private val store by lazy { EncryptedPolicyStore(requireNotNull(appContext.reactContext)) }
   private val policyManager by lazy { PolicyManager(store, BuildConfig.GUARDIAN_POLICY_TRUSTED_PUBLIC_KEYS) }
+  private val reputationManager by lazy {
+    val verifier = PolicyVerifier(parseTrustedKeys(BuildConfig.GUARDIAN_POLICY_TRUSTED_PUBLIC_KEYS))
+    ReputationManager(EncryptedReputationStore(requireNotNull(appContext.reactContext))) { verifier.verify(it) }
+  }
   private val capabilities by lazy { CapabilityDetector(requireNotNull(appContext.reactContext)) }
   private val usage by lazy { UsageCollector(requireNotNull(appContext.reactContext), store) }
   private val lastCapabilities = AtomicReference<Map<String, Map<String, Any?>>?>()
@@ -45,6 +52,7 @@ class GuardianProtectionModule : Module() {
     }
     AsyncFunction("startProtection") {
       GuardianPolicyRuntime.install(policyManager)
+      GuardianPolicyRuntime.installReputation(reputationManager)
       GuardianPolicyRuntime.addListener(eventListener)
       policyManager.start()
       if (capabilities.getCapabilities()["app_usage"]?.get("level") == "FULL") {
@@ -80,6 +88,31 @@ class GuardianProtectionModule : Module() {
       }
       result
     }
+    AsyncFunction("applyReputationBundle") { bundle: Map<String, Any?> ->
+      GuardianPolicyRuntime.installReputation(reputationManager)
+      val result = reputationManager.apply(bundle)
+      sendEvent("onGuardianEvent", mapOf(
+        "type" to "REPUTATION_STATUS_CHANGED",
+        "version" to result.version,
+        "reason" to result.reason,
+      ))
+      mapOf(
+        "applied" to result.applied,
+        "version" to result.version,
+        "reason" to result.reason,
+        "entryCount" to result.entryCount,
+        "encodedBytes" to result.encodedBytes,
+        "applyMillis" to result.applyMillis,
+        "estimatedMemoryBytes" to result.estimatedMemoryBytes,
+      )
+    }
+    AsyncFunction("getReputationStatus") {
+      mapOf(
+        "version" to reputationManager.version(),
+        "entryCount" to (reputationManager.snapshot()?.entries?.size ?: 0),
+        "pending" to (reputationManager.snapshot()?.entries?.values?.count { it.verdict == "UNKNOWN" } ?: 0),
+      )
+    }
     AsyncFunction("getUsageSummary") { range: Map<String, Any?> ->
       if (capabilities.getCapabilities()["app_usage"]?.get("level") == "FULL") {
         usage.refresh()
@@ -92,6 +125,13 @@ class GuardianProtectionModule : Module() {
     AsyncFunction("markObservedAppReviewed") { packageName: String ->
       capabilities.markObservedAppReviewed(packageName)
     }
+  }
+
+  private fun parseTrustedKeys(value: String): Map<String, String> {
+    return runCatching {
+      val json = org.json.JSONObject(value)
+      json.keys().asSequence().associateWith { key -> json.getString(key) }
+    }.getOrDefault(emptyMap())
   }
 
   private val eventListener = object : GuardianPolicyRuntime.Listener {

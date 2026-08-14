@@ -96,6 +96,15 @@ export type ObservedApp = {
   observed_at: string;
   reviewed: boolean;
 };
+export type ReputationEntry = {
+  target_kind: "DOMAIN" | "APP";
+  identifier: string;
+  verdict: "KNOWN_SAFE" | "KNOWN_RISK" | "UNKNOWN";
+  source: string;
+  rationale: string;
+  expires_at: string;
+  bundle_version: number;
+};
 
 const configuredApiUrl = typeof process.env.EXPO_PUBLIC_API_URL === "string"
   ? process.env.EXPO_PUBLIC_API_URL.replace(/\/+$/, "")
@@ -214,6 +223,22 @@ export class GuardianApiClient {
       method: "POST",
       body: JSON.stringify({ policy_version: policyVersion }),
     });
+  }
+  reputation(version = 0) {
+    return this.request<{ current_version: number; bundle: Record<string, unknown> | null; deltas: unknown[] }>(
+      `/v1/devices/me/reputation?version=${version}`,
+    );
+  }
+  classifyDomain(identifier: string) {
+    return this.request<{ identifier: string; verdict: ReputationEntry["verdict"]; state: "RESOLVED" | "PENDING"; reason: string }>(
+      "/v1/devices/me/reputation/classify",
+      { method: "POST", body: JSON.stringify({ identifier }) },
+    );
+  }
+  reputationStatus(familyId: string, childId: string) {
+    return this.request<{ current_version: number; entries: ReputationEntry[] }>(
+      `/v1/families/${familyId}/children/${childId}/reputation`,
+    );
   }
   heartbeat(body: { protection_state: "HEALTHY" | "DEGRADED" | "DISABLED" | "UNKNOWN"; capabilities: unknown }) {
     return this.request<undefined>("/v1/devices/me/heartbeat", {

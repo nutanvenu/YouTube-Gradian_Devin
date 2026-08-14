@@ -47,6 +47,11 @@ export default function ParentRulesRoute() {
     queryFn: () => api.childInventory(familyId, childId),
     enabled: Boolean(familyId && childId),
   });
+  const reputation = useQuery({
+    queryKey: ["reputation", familyId, childId],
+    queryFn: () => api.reputationStatus(familyId, childId),
+    enabled: Boolean(familyId && childId),
+  });
   const health = useQuery({
     queryKey: ["health", familyId],
     queryFn: () => api.health(familyId),
@@ -87,7 +92,7 @@ export default function ParentRulesRoute() {
 
   return (
     <ScreenScaffold title="Rules">
-      <DataState state={children.isLoading || inventory.isLoading ? "loading" : children.isError || inventory.isError ? "error" : isOffline ? "offline" : children.isStale || inventory.isStale ? "stale" : "loaded"} onRetry={() => { void children.refetch(); void inventory.refetch(); }}>
+      <DataState state={children.isLoading || inventory.isLoading || reputation.isLoading ? "loading" : children.isError || inventory.isError || reputation.isError ? "error" : isOffline ? "offline" : children.isStale || inventory.isStale || reputation.isStale ? "stale" : "loaded"} onRetry={() => { void children.refetch(); void inventory.refetch(); void reputation.refetch(); }}>
         <SectionSurface>
           <Text>{child?.name ?? "Child"} · {syncState}</Text>
           <Text>Changes are not active until this device acknowledges the new policy version.</Text>
@@ -127,6 +132,15 @@ export default function ParentRulesRoute() {
           <Text>Unknown websites: {typeof basePolicy.unknown_domain_policy === "string" ? basePolicy.unknown_domain_policy : "Unknown"}</Text>
           <SecondaryButton label="Block unknown websites" onPress={() => save({ operation: "UNKNOWN_DOMAIN_POLICY", target: "unknown", value: "BLOCK" })} />
           <SecondaryButton label="Allow unknown websites with notice" onPress={() => save({ operation: "UNKNOWN_DOMAIN_POLICY", target: "unknown", value: "ALLOW_AND_NOTIFY" })} />
+          <Text>Reputation bundle: {reputation.data ? `version ${reputation.data.current_version}` : "Still classifying"}</Text>
+          {(reputation.data?.entries ?? []).map((entry) => (
+            <ListRow
+              key={`${entry.target_kind}:${entry.identifier}`}
+              label={entry.identifier}
+              value={`${entry.verdict} · ${entry.source}`}
+            />
+          ))}
+          {reputation.isFetching ? <Text>Still classifying reputation entries…</Text> : null}
           <Text>Unknown apps: {typeof basePolicy.unknown_app_policy === "string" ? basePolicy.unknown_app_policy : "Unknown"}</Text>
           <SecondaryButton label="Block unknown apps" onPress={() => save({ operation: "UNKNOWN_APP_POLICY", target: "unknown", value: "BLOCK" })} />
           <SecondaryButton label="Allow unknown apps with notice" onPress={() => save({ operation: "UNKNOWN_APP_POLICY", target: "unknown", value: "ALLOW_AND_NOTIFY" })} />

@@ -1445,3 +1445,85 @@ review-preservation coverage:
 ```text
 pytest backend/tests/test_inventory.py   3 passed
 ```
+
+## Phase 2 reputation slice
+
+The backend now stores source-attributed domain verdicts and publishes signed,
+versioned full bundles and chained deltas using the policy Ed25519
+`key_id`/canonical-byte machinery. The default provider is intentionally
+conservative: the shipped `example.com` entry is a source-attributed
+placeholder seed (`KNOWN_SAFE` for the reserved documentation domain), and all
+other identifiers resolve to explicit `UNKNOWN` with no fabricated score or
+confidence. The seed list is not presented as useful reputation coverage. A
+real third-party reputation feed remains an external provider integration
+point pending integration and is not claimed here.
+
+Classification accepts only a normalized domain identifier. Full URLs, paths,
+queries, and browsing-history fields are rejected at the API boundary. Device
+sync returns a full bundle when a delta chain is unavailable; Android retains
+the last-known-good snapshot when schema, signature, version, or delta-chain
+validation fails.
+
+Android local evaluation now supports `KNOWN_SAFE`, `KNOWN_RISK`, and
+`UNKNOWN`, with bounded 30-second pending state. Explicit parent rules remain
+ahead of reputation. Younger policies block while classifying and on expiry;
+older policies allow-and-notify while classifying and on expiry. The parent
+Rules screen shows bundle version, source-attributed verdicts, explicit
+`UNKNOWN`, and `Still classifying` instead of a fabricated confidence.
+
+Focused evidence:
+
+```text
+backend pytest                                      105 passed
+backend ruff                                        passed
+OpenAPI generation                                  passed
+root typecheck                                      passed
+guardian-mobile typecheck                           passed
+guardian-protection reputation JVM tests            BUILD SUCCESSFUL
+guardian-protection large bundle                   10,000 entries; encoded size and apply time reported
+alembic head                                        0014_reputation
+```
+
+The native large-bundle test reports encoded size, apply duration, and an
+explicit bounded-memory estimate of 512 bytes per retained entry
+(5,120,000 bytes for 10,000 entries). This is an upper-bound accounting
+estimate, not a platform heap profile; a device heap profiler remains useful
+for release benchmarking and is not represented as measured here.
+
+Remaining reputation evidence:
+
+```text
+.scratch/emulator/reputation/
+```
+
+The Android debug APK was rebuilt with the backend's trusted
+`guardian-dev` public key and installed on both live emulators. The child then
+applied the signed full bundle and emitted:
+
+```text
+GET /v1/devices/me/reputation?version=0 HTTP/1.1 200 OK
+REPUTATION_STATUS_CHANGED {"version":1,"reason":"APPLIED"}
+VPN CONNECTED InterfaceName: tun0
+```
+
+The development database at that point contained reputation version 1, one
+source-attributed curated entry (`example.com`, `KNOWN_SAFE`), and one `FULL`
+revision. The previous `SIGNATURE_INVALID` result was therefore an
+APK-configuration failure, not a backend signature or route failure. The
+signed-build artifact is
+`.scratch/emulator/reputation/child-main-after-signed.png`.
+
+The live unknown-domain attempt was not counted as pending-classification
+evidence: the child was still running an earlier scheduled routine policy and
+the app's development-launcher surface did not produce a new JavaScript
+session during that attempt. The fixture policy was restored afterward. No
+claim is made for the pending/resolve flow until a run captures the native
+`REPUTATION_PENDING*` event, minimized classification request, and subsequent
+bundle synchronization together.
+
+The child-side sync/classification transport now requests only the event's
+minimized domain, applies full/delta responses locally, and refetches a full
+bundle after `DELTA_GAP`. The live two-device pending/resolve run still needs
+to be captured before this slice can be called fully verified. Usage
+aggregation/reports and parent safety notification routing remain separate
+later slices.

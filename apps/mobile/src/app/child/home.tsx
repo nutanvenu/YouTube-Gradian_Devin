@@ -37,6 +37,26 @@ export default function ChildHomeRoute() {
   const usageUploaded = useRef(false);
   const inventoryUploaded = useRef(false);
 
+  const syncReputation = async () => {
+    const status = await GuardianProtection.getReputationStatus();
+    const response = await api.reputation(status.version ?? 0);
+    const bundles = response.bundle ? [response.bundle, ...response.deltas] : response.deltas;
+    for (const bundle of bundles) {
+      const result = await GuardianProtection.applyReputationBundle(bundle);
+      if (!result.applied && result.reason === "DELTA_GAP") {
+        const full = await api.reputation(0);
+        if (full.bundle) {
+          const fallback = await GuardianProtection.applyReputationBundle(full.bundle);
+          if (!fallback.applied) throw new Error(`Reputation full bundle rejected: ${fallback.reason}`);
+        }
+        break;
+      }
+      if (!result.applied && result.reason !== "VERSION_NOT_MONOTONIC") {
+        throw new Error(`Reputation bundle rejected: ${result.reason}`);
+      }
+    }
+  };
+
   useEffect(() => {
     let mounted = true;
     void sessionStorage.getFamilyId().then((value) => {
@@ -61,6 +81,11 @@ export default function ChildHomeRoute() {
           domain: event.domain,
           category: event.category ?? null,
         }]).catch(() => undefined);
+        if (event.domain && event.reasonCode.startsWith("REPUTATION_PENDING")) {
+          void api.classifyDomain(event.domain)
+            .then(() => syncReputation())
+            .catch(() => undefined);
+        }
       }
       console.info("GUARDIAN_BRIDGE_EVENT", JSON.stringify(event));
       if (event.type === "APP_BLOCKED") {
@@ -92,6 +117,7 @@ export default function ChildHomeRoute() {
         return;
       }
       await GuardianProtection.startProtection();
+      await syncReputation();
       await api.acknowledgePolicy(policy.data.policy_version);
       const protectionStatus = await GuardianProtection.getProtectionStatus();
       const currentCapabilities = await GuardianProtection.getCapabilities();

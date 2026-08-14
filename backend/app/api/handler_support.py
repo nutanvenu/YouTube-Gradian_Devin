@@ -73,6 +73,7 @@ from ..push.service import (
     issue_action_token,
     request_action_payload,
 )
+from ..reputation.models import ReputationEntry
 from ..requests.models import Request as RequestRow
 from ..requests.models import RequestState
 from ..requests.service import is_expired, transition
@@ -172,6 +173,7 @@ __all__ = [
     'RequestRow',
     'RequestState',
     'RequestValidationError',
+    'ReputationEntry',
     'SafetyEvent',
     'SignupIn',
     'TokenConfirmIn',

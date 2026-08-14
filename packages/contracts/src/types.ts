@@ -183,6 +183,20 @@ export type PermissionResult =
 export type ApplyResult =
   | { applied: true; policyVersion: number }
   | { applied: false; policyVersion: number | null; reason: string };
+export type ReputationApplyResult = {
+  applied: boolean;
+  version: number | null;
+  reason: string;
+  entryCount: number;
+  encodedBytes: number;
+  applyMillis: number;
+  estimatedMemoryBytes: number;
+};
+export type ReputationStatus = {
+  version: number | null;
+  entryCount: number;
+  pending: number;
+};
 
 export interface GuardianProtectionNative {
   getCapabilities(): Promise<CapabilityRecord>;
@@ -194,6 +208,8 @@ export interface GuardianProtectionNative {
   startProtection(): Promise<void>;
   stopProtection(): Promise<void>;
   applyPolicyBundle(bundle: unknown): Promise<ApplyResult>;
+  applyReputationBundle(bundle: unknown): Promise<ReputationApplyResult>;
+  getReputationStatus(): Promise<ReputationStatus>;
   getUsageSummary(range: TimeRange): Promise<UsageSummary>;
   getObservedApps(): Promise<ObservedApp[]>;
   markObservedAppReviewed(platformAppId: string): Promise<void>;
@@ -214,7 +230,8 @@ export type GuardianNativeEvent =
   | { type: "TIME_EXPIRED"; targetRef: string }
   | { type: "SAFETY_EVENT"; category: string; severity: string }
   | { type: "POLICY_APPLIED"; version: number }
-  | { type: "PERMISSION_STATE_CHANGED"; capability: string; state: string };
+  | { type: "PERMISSION_STATE_CHANGED"; capability: string; state: string }
+  | { type: "REPUTATION_STATUS_CHANGED"; version?: number; reason: string };
 
 export type ApiErrorCode =
   | "VALIDATION_ERROR"

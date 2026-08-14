@@ -223,7 +223,8 @@ test("Activity renders empty data distinctly from endpoint errors", () => {
 });
 
 test("Activity renders permission-denied for an expired session", () => {
-  const ApiError = jest.requireMock("@/api/client").ApiError as new (message: string, status: number) => Error & { status: number };
+  const mockedClient: { ApiError: new (message: string, status: number) => Error & { status: number } } = jest.requireMock("@/api/client");
+  const ApiError = mockedClient.ApiError;
   setQuery(["activity", "family-1"], { error: new ApiError("Unauthorized", 401), isError: true });
   setQuery(["activity-usage", "family-1"], { data: [] });
   setQuery(["usage-summary"], { data: { byTarget: {} } });

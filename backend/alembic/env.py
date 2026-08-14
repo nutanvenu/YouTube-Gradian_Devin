@@ -16,6 +16,7 @@ from app.families import models as family_models  # noqa: F401
 from app.pairing import models as pairing_models  # noqa: F401
 from app.policies import models as policy_models  # noqa: F401
 from app.push import models as push_models  # noqa: F401
+from app.reputation import models as reputation_models  # noqa: F401
 from app.requests import models as request_models  # noqa: F401
 
 config = context.config

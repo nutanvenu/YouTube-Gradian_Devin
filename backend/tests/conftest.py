@@ -93,6 +93,10 @@ async def client(test_database_url: str) -> AsyncGenerator[httpx.AsyncClient]:
     settings = get_settings()
     settings.policy_private_key = base64.b64encode(bytes(range(32))).decode("ascii")
     settings.policy_key_id = "test-key"
+    client_public_key = Ed25519PrivateKey.from_private_bytes(bytes(range(32))).public_key()
+    app.state.test_public_key = base64.b64encode(
+        client_public_key.public_bytes(Encoding.Raw, PublicFormat.Raw)
+    ).decode("ascii")
     engine = create_async_engine(test_database_url, pool_pre_ping=True)
     factory = async_sessionmaker(engine, expire_on_commit=False)
 
