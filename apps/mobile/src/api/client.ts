@@ -1,5 +1,9 @@
 import * as SecureStore from "expo-secure-store";
 import { signDeviceRequest } from "@/api/device-signing";
+import {
+  GeneratedGuardianClient,
+  type GuardianApiPath,
+} from "@guardian/api-client";
 
 export type ApiErrorBody = { error?: { code?: string; message?: string } };
 export type Tokens = { access_token: string; refresh_token: string; token_type?: string };
@@ -99,13 +103,12 @@ export const sessionStorage = {
   setFamilyId: (familyId: string) => SecureStore.setItemAsync(FAMILY_ID_KEY, familyId),
 };
 
-async function parseError(response: Response): Promise<never> {
-  const body = (await response.json().catch(() => ({}))) as ApiErrorBody;
-  throw new ApiError(body.error?.message ?? "The request could not be completed.", response.status, body.error?.code);
-}
-
 export class GuardianApiClient {
-  constructor(private readonly baseUrl = API_URL) {}
+  private readonly generated: GeneratedGuardianClient;
+
+  constructor(private readonly baseUrl = API_URL) {
+    this.generated = new GeneratedGuardianClient(baseUrl);
+  }
 
   private async request<T>(path: string, init: RequestInit = {}, retry = true): Promise<T> {
     const accessToken = await sessionStorage.getAccessToken();
@@ -128,20 +131,25 @@ export class GuardianApiClient {
         await signDeviceRequest(privateKey, init.method, path, timestamp, nonce, body),
       );
     }
-    const response = await fetch(`${this.baseUrl}${path}`, { ...init, headers });
-    if (response.status === 401 && retry && accessToken && !deviceAuthenticated) {
-      const refreshToken = await sessionStorage.getRefreshToken();
-      if (refreshToken) {
-        const refreshed = await fetch(`${this.baseUrl}/v1/auth/refresh`, { method: "POST", headers: { "Content-Type": "application/json" }, body: JSON.stringify({ refresh_token: refreshToken }) });
-        if (refreshed.ok) {
-          await sessionStorage.setTokens((await refreshed.json()) as Tokens);
-          return this.request<T>(path, init, false);
+    try {
+      return await this.generated.request<T>(path as GuardianApiPath, {
+        ...init,
+        headers,
+      });
+    } catch (error) {
+      const status = (error as { status?: number }).status;
+      if (status === 401 && retry && accessToken && !deviceAuthenticated) {
+        const refreshToken = await sessionStorage.getRefreshToken();
+        if (refreshToken) {
+          const refreshed = await fetch(`${this.baseUrl}/v1/auth/refresh`, { method: "POST", headers: { "Content-Type": "application/json" }, body: JSON.stringify({ refresh_token: refreshToken }) });
+          if (refreshed.ok) {
+            await sessionStorage.setTokens((await refreshed.json()) as Tokens);
+            return this.request<T>(path, init, false);
+          }
         }
       }
+      throw error;
     }
-    if (!response.ok) return parseError(response);
-    if (response.status === 204) return undefined as T;
-    return (await response.json()) as T;
   }
 
   signup(email: string, password: string) { return this.request<Tokens>("/v1/auth/signup", { method: "POST", body: JSON.stringify({ email, password }) }); }

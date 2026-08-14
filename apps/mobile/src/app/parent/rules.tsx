@@ -3,6 +3,7 @@ import { Image, Text } from "react-native";
 import { useLocalSearchParams } from "expo-router";
 import { useMutation, useQuery, useQueryClient } from "@tanstack/react-query";
 import { api, type PolicyMutationInput } from "@/api/client";
+import { useNetworkStatus } from "@/state/network";
 import { GuardianProtection } from "../../../modules/guardian-protection/src";
 import {
   CardSurface,
@@ -36,6 +37,7 @@ export default function ParentRulesRoute() {
   const [scheduleStart, setScheduleStart] = useState("09:00");
   const [scheduleEnd, setScheduleEnd] = useState("17:00");
   const [message, setMessage] = useState<string | null>(null);
+  const { isOffline } = useNetworkStatus();
   const children = useQuery({
     queryKey: ["children", familyId],
     queryFn: () => api.children(familyId),
@@ -79,7 +81,7 @@ export default function ParentRulesRoute() {
 
   return (
     <ScreenScaffold title="Rules">
-      <DataState state={children.isLoading || inventory.isLoading ? "loading" : children.isError || inventory.isError ? "error" : "loaded"} onRetry={() => { void children.refetch(); void inventory.refetch(); }}>
+      <DataState state={children.isLoading || inventory.isLoading ? "loading" : children.isError || inventory.isError ? "error" : isOffline ? "offline" : children.isStale || inventory.isStale ? "stale" : "loaded"} onRetry={() => { void children.refetch(); void inventory.refetch(); }}>
         <SectionSurface>
           <Text>{child?.name ?? "Child"} · {syncState}</Text>
           <Text>Changes are not active until this device acknowledges the new policy version.</Text>

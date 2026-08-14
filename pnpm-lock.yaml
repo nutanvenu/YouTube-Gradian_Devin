@@ -53,6 +53,9 @@ importers:
 
   apps/mobile:
     dependencies:
+      '@guardian/api-client':
+        specifier: workspace:*
+        version: link:../../packages/api-client
       '@guardian/contracts':
         specifier: workspace:*
         version: link:../../packages/contracts

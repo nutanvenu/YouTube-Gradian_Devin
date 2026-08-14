@@ -2,6 +2,7 @@ import { Text } from "react-native";
 import { useLocalSearchParams } from "expo-router";
 import { useQuery } from "@tanstack/react-query";
 import { api } from "@/api/client";
+import { useNetworkStatus } from "@/state/network";
 import { GuardianProtection } from "../../../modules/guardian-protection/src";
 import { CardSurface, DataState, ListRow, ScreenScaffold, SectionSurface } from "@/design-system";
 
@@ -13,6 +14,7 @@ function startOfDay() {
 
 export default function ParentActivityRoute() {
   const { familyId } = useLocalSearchParams<{ familyId: string }>();
+  const { isOffline } = useNetworkStatus();
   const activity = useQuery({ queryKey: ["activity", familyId], queryFn: () => api.activity(familyId), enabled: Boolean(familyId) });
   const usage = useQuery({
     queryKey: ["usage-summary"],
@@ -20,7 +22,7 @@ export default function ParentActivityRoute() {
   });
   return (
     <ScreenScaffold title="Activity">
-      <DataState state={activity.isLoading || usage.isLoading ? "loading" : activity.isError || usage.isError ? "error" : "loaded"} onRetry={() => { void activity.refetch(); void usage.refetch(); }}>
+      <DataState state={activity.isLoading || usage.isLoading ? "loading" : activity.isError || usage.isError ? "error" : isOffline ? "offline" : activity.isStale || usage.isStale ? "stale" : "loaded"} onRetry={() => { void activity.refetch(); void usage.refetch(); }}>
         <SectionSurface>
           <Text>Today’s usage</Text>
           {usage.data?.byTarget && Object.keys(usage.data.byTarget).length > 0

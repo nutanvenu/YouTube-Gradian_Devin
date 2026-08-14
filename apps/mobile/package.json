@@ -8,6 +8,7 @@
     }
   },
   "dependencies": {
+    "@guardian/api-client": "workspace:*",
     "@guardian/contracts": "workspace:*",
     "@guardian/design-tokens": "workspace:*",
     "@guardian/policy-schema": "workspace:*",

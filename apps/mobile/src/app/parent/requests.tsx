@@ -4,6 +4,7 @@ import { useLocalSearchParams } from "expo-router";
 import { useMutation, useQuery, useQueryClient } from "@tanstack/react-query";
 import { api, type AccessRequest } from "@/api/client";
 import { useFamilySync } from "@/hooks/use-family-sync";
+import { useNetworkStatus } from "@/state/network";
 import { CardSurface, DataState, ListRow, PrimaryButton, ScreenScaffold, SectionSurface, TextField } from "@/design-system";
 
 function stateLabel(request: AccessRequest) {
@@ -14,6 +15,7 @@ export default function ParentRequestsRoute() {
   const { familyId } = useLocalSearchParams<{ familyId: string }>();
   const queryClient = useQueryClient();
   const [reason, setReason] = useState("Reviewed with the family.");
+  const { isOffline } = useNetworkStatus();
   const requests = useQuery({
     queryKey: ["requests", familyId],
     queryFn: () => api.requests(familyId),
@@ -26,7 +28,7 @@ export default function ParentRequestsRoute() {
   });
   return (
     <ScreenScaffold title="Requests">
-      <DataState state={requests.isLoading ? "loading" : requests.isError ? "error" : requests.data?.length ? "loaded" : "empty"} onRetry={() => void requests.refetch()}>
+      <DataState state={requests.isLoading ? "loading" : requests.isError ? "error" : isOffline ? "offline" : requests.isStale ? "stale" : requests.data?.length ? "loaded" : "empty"} onRetry={() => void requests.refetch()}>
         <SectionSurface>
           <TextField label="Decision reason" value={reason} onChangeText={setReason} />
           {requests.data?.map((request) => (

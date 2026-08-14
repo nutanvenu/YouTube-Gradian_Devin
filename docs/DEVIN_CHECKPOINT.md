@@ -948,3 +948,31 @@ GET /health                200 {"status":"ok"}
 GET /readiness             200 {"status":"ready"}
 git diff --check            passed
 ```
+
+## Phase 1 closure work in progress
+
+The active FastAPI application now includes each owning router exactly once;
+family, health, and push duplicate registrations were removed. OpenAPI
+generation completes without duplicate-operation warnings. The handler
+implementations remain in `backend/app/api/route_handlers.py` and are
+imported by the owning routers, so physical function relocation is still
+outstanding even though the active route graph is unique.
+
+Mobile transport now calls the generated `@guardian/api-client` workspace
+client for request execution while retaining device proof headers and parent
+token refresh behavior. The mobile surface tests were moved outside the Expo
+Router route tree so Metro does not bundle test-only dependencies. The latest
+mobile evidence is:
+
+```text
+Test Suites: 6 passed, 6 total
+Tests:       23 passed, 23 total
+guardian-mobile lint       passed
+guardian-mobile typecheck  passed
+```
+
+The app reload after moving the tests reached the real child "My time" screen
+on `emulator-5554`; the earlier Metro `Unable to resolve module console`
+failure no longer reproduces. A dedicated parent-role Rules mutation run,
+WebSocket no-refresh capture, and emulator offline queue/reconnect capture
+remain required before those acceptance items can be claimed.
