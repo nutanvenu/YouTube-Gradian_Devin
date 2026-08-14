@@ -7,6 +7,7 @@ from sqlalchemy.ext.asyncio import async_engine_from_config
 from alembic import context
 from app.auth import models as auth_models  # noqa: F401
 from app.children import models as children_models  # noqa: F401
+from app.core import models as core_models  # noqa: F401
 from app.core.config import get_settings
 from app.core.models import Base
 from app.devices import models as device_models  # noqa: F401

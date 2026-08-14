@@ -88,6 +88,14 @@ class GuardianOut(BaseModel):
     role: str
 
 
+class GuardianInviteIn(BaseModel):
+    email: EmailStr
+
+
+class GuardianAcceptIn(BaseModel):
+    token: str = Field(min_length=20)
+
+
 class PairingOut(BaseModel):
     session_id: UUID
     qr_payload: str

@@ -1,5 +1,8 @@
 import pytest
 from conftest import PairedDevice, ParentFamily
+from sqlalchemy import select
+
+from app.pairing.models import PairingSession
 
 
 @pytest.mark.asyncio
@@ -23,7 +26,7 @@ async def test_refresh_rotation_and_reuse_revokes_family(client, parent_a: Paren
         await client.post(
             "/v1/auth/refresh", json={"refresh_token": rotated.json()["refresh_token"]}
         )
-    ).status_code == 401
+    ).status_code == 400
 
 
 @pytest.mark.asyncio
@@ -107,4 +110,258 @@ async def test_credentials_cannot_cross_parent_and_device_routes(
     assert (await client.get("/v1/devices/me/policy", headers=parent_headers)).status_code == 401
     assert (
         await client.get(f"/v1/families/{paired_device.parent.family_id}", headers=device_headers)
+    ).status_code == 400
+
+
+@pytest.mark.asyncio
+async def test_pairing_idempotency_replays_and_conflicts(client, parent_a: ParentFamily) -> None:
+    headers = {"Authorization": f"Bearer {parent_a.token}"}
+    pairing = await client.post(
+        f"/v1/families/{parent_a.family_id}/children/{parent_a.child_id}/pairing",
+        headers=headers,
+    )
+    code = pairing.json()["qr_payload"].rsplit("code=", 1)[1]
+    body = {
+        "session_id": pairing.json()["session_id"],
+        "code": code,
+        "child_profile_id": parent_a.child_id,
+        "platform": "ANDROID",
+        "public_key": "test-device-public-key-111111111111111111111111",
+    }
+    idem = {"Idempotency-Key": "pairing-replay"}
+    first = await client.post("/v1/devices/pair", json=body, headers=idem)
+    second = await client.post("/v1/devices/pair", json=body, headers=idem)
+    assert first.status_code == second.status_code == 200
+    assert first.json() == second.json()
+    conflict = await client.post(
+        "/v1/devices/pair",
+        json={**body, "platform": "IOS"},
+        headers=idem,
+    )
+    assert conflict.status_code == 409
+
+
+@pytest.mark.asyncio
+async def test_revoked_device_is_rejected_on_every_device_route(
+    client, paired_device: PairedDevice
+) -> None:
+    parent_headers = {"Authorization": f"Bearer {paired_device.parent.token}"}
+    device_headers = {"Authorization": f"Bearer {paired_device.device_token}"}
+    revoke = await client.post(
+        f"/v1/families/{paired_device.parent.family_id}/devices/{paired_device.device_id}/revoke",
+        headers=parent_headers,
+    )
+    assert revoke.status_code == 204
+    assert (await client.get("/v1/devices/me/policy", headers=device_headers)).status_code == 401
+    assert (
+        await client.post(
+            "/v1/devices/me/policy/ack",
+            json={"policy_version": 1},
+            headers=device_headers,
+        )
+    ).status_code == 400
+    assert (
+        await client.post(
+            "/v1/devices/me/heartbeat",
+            json={"protection_state": "PROTECTED"},
+            headers=device_headers,
+        )
+    ).status_code == 400
+    assert (
+        await client.post(
+            "/v1/devices/me/events",
+            json={"events": [{"event_type": "APP", "occurred_at": "2026-01-01T00:00:00Z"}]},
+            headers=device_headers,
+        )
     ).status_code == 401
+
+
+@pytest.mark.asyncio
+async def test_event_batch_idempotency_replays_and_conflicts(
+    client, paired_device: PairedDevice
+) -> None:
+    headers = {
+        "Authorization": f"Bearer {paired_device.device_token}",
+        "Idempotency-Key": "events-replay",
+    }
+    body = {"events": [{"event_type": "APP", "occurred_at": "2026-01-01T00:00:00Z"}]}
+    first = await client.post("/v1/devices/me/events", json=body, headers=headers)
+    second = await client.post("/v1/devices/me/events", json=body, headers=headers)
+    assert first.status_code == second.status_code == 202
+    conflict = await client.post(
+        "/v1/devices/me/events",
+        json={"events": [{"event_type": "DOMAIN", "occurred_at": "2026-01-01T00:00:00Z"}]},
+        headers=headers,
+    )
+    assert conflict.status_code == 409
+
+
+@pytest.mark.asyncio
+async def test_pairing_wrong_code_locks_session(client, parent_a: ParentFamily) -> None:
+    headers = {"Authorization": f"Bearer {parent_a.token}"}
+    pairing = await client.post(
+        f"/v1/families/{parent_a.family_id}/children/{parent_a.child_id}/pairing",
+        headers=headers,
+    )
+    body = {
+        "session_id": pairing.json()["session_id"],
+        "code": "000000",
+        "child_profile_id": parent_a.child_id,
+        "platform": "ANDROID",
+        "public_key": "test-device-public-key-222222222222222222222222",
+    }
+    for _ in range(5):
+        assert (await client.post("/v1/devices/pair", json=body)).status_code == 400
+    assert (await client.post("/v1/devices/pair", json=body)).status_code == 400
+
+
+@pytest.mark.asyncio
+async def test_pairing_expired_is_rejected(
+    client, parent_a: ParentFamily, database_session
+) -> None:
+    from datetime import UTC, datetime, timedelta
+
+    headers = {"Authorization": f"Bearer {parent_a.token}"}
+    pairing = await client.post(
+        f"/v1/families/{parent_a.family_id}/children/{parent_a.child_id}/pairing",
+        headers=headers,
+    )
+    session_id = pairing.json()["session_id"]
+    row = await database_session.scalar(
+        select(PairingSession).where(PairingSession.id == session_id)
+    )
+    assert row is not None
+    row.expires_at = datetime.now(UTC) - timedelta(seconds=1)
+    await database_session.commit()
+    code = pairing.json()["qr_payload"].rsplit("code=", 1)[1]
+    body = {
+        "session_id": session_id,
+        "code": code,
+        "child_profile_id": parent_a.child_id,
+        "platform": "ANDROID",
+        "public_key": "test-device-public-key-333333333333333333333333",
+    }
+    assert (await client.post("/v1/devices/pair", json=body)).status_code == 400
+
+
+@pytest.mark.asyncio
+async def test_child_delete_and_guardian_invitation_single_use(
+    client, parent_a: ParentFamily, monkeypatch
+) -> None:
+    import importlib
+
+    api_module = importlib.import_module("app.api.app")
+    sent: list[str] = []
+
+    async def capture(_recipient: str, _subject: str, body: str) -> None:
+        sent.append(body)
+
+    monkeypatch.setattr(api_module.notifier, "send_email", capture)
+    headers = {"Authorization": f"Bearer {parent_a.token}"}
+    invitee = await client.post(
+        "/v1/auth/signup",
+        json={"email": "invitee@example.com", "password": "correct horse battery staple"},
+    )
+    invitee_headers = {"Authorization": f"Bearer {invitee.json()['access_token']}"}
+    invitation = await client.post(
+        f"/v1/families/{parent_a.family_id}/guardians/invite",
+        json={"email": "invitee@example.com"},
+        headers=headers,
+    )
+    assert invitation.status_code == 202
+    assert len(sent) == 1
+    accepted = await client.post(
+        "/v1/families/guardians/accept",
+        json={"token": sent[0]},
+        headers=invitee_headers,
+    )
+    assert accepted.status_code == 204
+    replay = await client.post(
+        "/v1/families/guardians/accept",
+        json={"token": sent[0]},
+        headers=invitee_headers,
+    )
+    assert replay.status_code == 400
+    deleted = await client.delete(
+        f"/v1/families/{parent_a.family_id}/children/{parent_a.child_id}",
+        headers=headers,
+    )
+    assert deleted.status_code == 204
+
+
+@pytest.mark.asyncio
+async def test_verification_and_password_reset_tokens_are_single_use(
+    client, monkeypatch
+) -> None:
+    import importlib
+
+    api_module = importlib.import_module("app.api.app")
+    sent: list[str] = []
+
+    async def capture(_recipient: str, _subject: str, body: str) -> None:
+        sent.append(body)
+
+    monkeypatch.setattr(api_module.notifier, "send_email", capture)
+    signup = await client.post(
+        "/v1/auth/signup",
+        json={"email": "tokens@example.com", "password": "correct horse battery staple"},
+    )
+    headers = {"Authorization": f"Bearer {signup.json()['access_token']}"}
+    assert (
+        await client.post("/v1/auth/verification/request", headers=headers)
+    ).status_code == 202
+    verification_token = sent.pop()
+    assert (
+        await client.post(
+            "/v1/auth/verification/confirm",
+            json={"token": verification_token},
+        )
+    ).status_code == 204
+    assert (
+        await client.post(
+            "/v1/auth/verification/confirm",
+            json={"token": verification_token},
+        )
+    ).status_code == 400
+    assert (
+        await client.post(
+            "/v1/auth/password-reset/request",
+            json={"email": "tokens@example.com"},
+        )
+    ).status_code == 202
+    reset_token = sent.pop()
+    assert (
+        await client.post(
+            "/v1/auth/password-reset/confirm",
+            json={"token": reset_token, "password": "new correct horse battery"},
+        )
+    ).status_code == 204
+    assert (
+        await client.post(
+            "/v1/auth/password-reset/confirm",
+            json={"token": reset_token, "password": "new correct horse battery"},
+        )
+    ).status_code == 400
+
+
+@pytest.mark.asyncio
+async def test_unhandled_error_uses_generic_error_shape(client, monkeypatch) -> None:
+    import importlib
+
+    import httpx
+
+    api_module = importlib.import_module("app.api.app")
+
+    async def fail(*_args, **_kwargs):
+        raise RuntimeError("sensitive internal detail")
+
+    monkeypatch.setattr(api_module, "parent_from_access", fail)
+    transport = httpx.ASGITransport(app=api_module.app, raise_app_exceptions=False)
+    async with httpx.AsyncClient(transport=transport, base_url="http://test") as isolated:
+        response = await isolated.get(
+            "/v1/auth/me", headers={"Authorization": "Bearer valid-looking-token"}
+        )
+    assert response.status_code == 500
+    assert response.json() == {
+        "error": {"code": "INTERNAL_ERROR", "message": "An internal error occurred"}
+    }

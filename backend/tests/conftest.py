@@ -120,6 +120,17 @@ async def parent_b(client: httpx.AsyncClient) -> ParentFamily:
 
 
 @pytest_asyncio.fixture
+async def database_session(test_database_url: str) -> AsyncGenerator[AsyncSession]:
+    engine = create_async_engine(test_database_url, pool_pre_ping=True)
+    factory = async_sessionmaker(engine, expire_on_commit=False)
+    try:
+        async with factory() as session:
+            yield session
+    finally:
+        await engine.dispose()
+
+
+@pytest_asyncio.fixture
 async def paired_device(
     client: httpx.AsyncClient, parent_a: ParentFamily
 ) -> PairedDevice:

@@ -3,7 +3,7 @@ import secrets
 from datetime import UTC, datetime, timedelta
 from uuid import UUID
 
-from fastapi import Depends, FastAPI, HTTPException, status
+from fastapi import Depends, FastAPI, Header, HTTPException, status
 from fastapi.exceptions import RequestValidationError
 from fastapi.security import OAuth2PasswordBearer
 from sqlalchemy import select
@@ -22,11 +22,12 @@ from ..auth.service import (
 from ..children.models import ChildProfile
 from ..core.db import get_session
 from ..core.errors import internal_error_handler, validation_error_handler
+from ..core.idempotency import payload_hash, replay_or_conflict, save_result
 from ..core.notifier import LoggingNotifier
 from ..core.rate_limit import InProcessRateLimiter
 from ..devices.models import Device, DeviceCredential
 from ..devices.service import current_device
-from ..families.models import Family, FamilyGuardian, GuardianRole
+from ..families.models import Family, FamilyGuardian, GuardianInvitation, GuardianRole
 from ..pairing.models import PairingSession
 from ..policies.service import age_band_for_dob, default_policy, validate_timezone
 from .schemas import (
@@ -39,6 +40,8 @@ from .schemas import (
     EventBatchIn,
     FamilyCreate,
     FamilyOut,
+    GuardianAcceptIn,
+    GuardianInviteIn,
     GuardianOut,
     LoginIn,
     PairingOut,
@@ -261,6 +264,18 @@ async def update_child(
     return child
 
 
+@app.delete("/v1/families/{family_id}/children/{child_id}", status_code=204)
+async def delete_child(
+    family_id: UUID,
+    child_id: UUID,
+    parent: Parent = Depends(current_parent),
+    session: AsyncSession = Depends(get_session),
+) -> None:
+    child = await read_child(family_id, child_id, parent, session)
+    await session.delete(child)
+    await session.commit()
+
+
 @app.get("/v1/families/{family_id}/guardians", response_model=list[GuardianOut])
 async def list_guardians(
     family_id: UUID,
@@ -277,6 +292,57 @@ async def list_guardians(
     )
 
 
+@app.post("/v1/families/{family_id}/guardians/invite", status_code=202)
+async def invite_guardian(
+    family_id: UUID,
+    body: GuardianInviteIn,
+    parent: Parent = Depends(current_parent),
+    session: AsyncSession = Depends(get_session),
+) -> None:
+    await family_for_parent(session, parent, family_id)
+    auth_rate_limiter.check(f"guardian-invite:{parent.id}", 5, 60)
+    raw = secrets.token_urlsafe(32)
+    invitation = GuardianInvitation(
+        family_id=family_id,
+        email=body.email.lower(),
+        token_hash=hashlib.sha256(raw.encode()).hexdigest(),
+        expires_at=datetime.now(UTC) + timedelta(days=7),
+    )
+    session.add(invitation)
+    await notifier.send_email(body.email, "Join a Guardian family", raw)
+    await session.commit()
+
+
+@app.post("/v1/families/guardians/accept", status_code=204)
+async def accept_guardian(
+    body: GuardianAcceptIn,
+    parent: Parent = Depends(current_parent),
+    session: AsyncSession = Depends(get_session),
+) -> None:
+    auth_rate_limiter.check(f"guardian-accept:{parent.id}", 10, 60)
+    invitation = await session.scalar(
+        select(GuardianInvitation).where(
+            GuardianInvitation.token_hash == hashlib.sha256(body.token.encode()).hexdigest()
+        )
+    )
+    if (
+        invitation is None
+        or invitation.accepted_at is not None
+        or invitation.expires_at <= datetime.now(UTC)
+        or invitation.email != parent.email
+    ):
+        raise HTTPException(status.HTTP_400_BAD_REQUEST, "Invitation is invalid")
+    invitation.accepted_at = datetime.now(UTC)
+    session.add(
+        FamilyGuardian(
+            family_id=invitation.family_id,
+            parent_id=parent.id,
+            role=GuardianRole.CO_GUARDIAN,
+        )
+    )
+    await session.commit()
+
+
 @app.post(
     "/v1/families/{family_id}/children/{child_id}/pairing",
     response_model=PairingOut,
@@ -287,6 +353,7 @@ async def create_pairing(
     parent: Parent = Depends(current_parent),
     session: AsyncSession = Depends(get_session),
 ) -> PairingOut:
+    auth_rate_limiter.check(f"pairing:create:{parent.id}", 10, 60)
     await read_child(family_id, child_id, parent, session)
     code = f"{secrets.randbelow(1_000_000):06d}"
     row = PairingSession(
@@ -305,8 +372,16 @@ async def create_pairing(
 
 @app.post("/v1/devices/pair", response_model=DeviceCredentialOut)
 async def redeem_pairing(
-    body: PairingRedeemIn, session: AsyncSession = Depends(get_session)
+    body: PairingRedeemIn,
+    idempotency_key: str | None = Header(default=None, alias="Idempotency-Key"),
+    session: AsyncSession = Depends(get_session),
 ) -> DeviceCredentialOut:
+    digest = payload_hash(body.model_dump(mode="json"))
+    if idempotency_key is not None:
+        replay = await replay_or_conflict(session, "pairing_redeem", idempotency_key, digest)
+        if replay is not None:
+            return DeviceCredentialOut.model_validate(replay.response_body)
+    auth_rate_limiter.check(f"pairing:redeem:{body.session_id}", 10, 60)
     row = await session.scalar(select(PairingSession).where(PairingSession.id == body.session_id))
     valid = False
     if row is not None:
@@ -341,8 +416,43 @@ async def redeem_pairing(
             token_hash=hashlib.sha256(raw.encode()).hexdigest(),
         )
     )
+    result = DeviceCredentialOut(device_id=device.id, device_token=raw)
+    if idempotency_key is not None:
+        await save_result(
+            session,
+            "pairing_redeem",
+            idempotency_key,
+            digest,
+            status.HTTP_200_OK,
+            result.model_dump(mode="json"),
+        )
     await session.commit()
-    return DeviceCredentialOut(device_id=device.id, device_token=raw)
+    return result
+
+
+@app.post("/v1/families/{family_id}/devices/{device_id}/revoke", status_code=204)
+async def revoke_device(
+    family_id: UUID,
+    device_id: UUID,
+    parent: Parent = Depends(current_parent),
+    session: AsyncSession = Depends(get_session),
+) -> None:
+    await family_for_parent(session, parent, family_id)
+    device = await session.scalar(
+        select(Device)
+        .join(ChildProfile, ChildProfile.id == Device.child_profile_id)
+        .where(Device.id == device_id, ChildProfile.family_id == family_id)
+    )
+    if device is None:
+        raise HTTPException(status.HTTP_404_NOT_FOUND, "Device not found")
+    now = datetime.now(UTC)
+    device.revoked_at = now
+    credential = await session.scalar(
+        select(DeviceCredential).where(DeviceCredential.device_id == device.id)
+    )
+    if credential is not None:
+        credential.revoked_at = now
+    await session.commit()
 
 
 @app.get("/v1/devices/me/policy")
@@ -381,8 +491,16 @@ async def heartbeat(
 @app.post("/v1/devices/me/events", status_code=202)
 async def ingest_events(
     body: EventBatchIn,
+    idempotency_key: str | None = Header(default=None, alias="Idempotency-Key"),
     device: Device = Depends(current_device),
     session: AsyncSession = Depends(get_session),
 ) -> None:
+    digest = payload_hash(body.model_dump(mode="json"))
+    if idempotency_key is not None:
+        replay = await replay_or_conflict(session, "event_batch", idempotency_key, digest)
+        if replay is not None:
+            return
     device.last_seen_at = datetime.now(UTC)
+    if idempotency_key is not None:
+        await save_result(session, "event_batch", idempotency_key, digest, 202, {})
     await session.commit()
