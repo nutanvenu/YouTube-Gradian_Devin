@@ -25,7 +25,12 @@ public final class GuardianProtectionModule: Module {
     }
     AsyncFunction("applyPolicyBundle") { (bundle: [String: Any]) throws -> [String: Any] in
       try self.store.apply(bundle: bundle)
-      return ["policy_version": bundle["policy_version"] ?? NSNull(), "acknowledged": true]
+      return [
+        "policy_version": bundle["policy_version"] ?? NSNull(),
+        "acknowledged": true,
+        "capability": "LIMITED",
+        "details": "The signed snapshot is persisted. App tokens selected through FamilyActivityPicker are required before app shields can be applied.",
+      ]
     }
     AsyncFunction("getUsageSummary") { (_: [String: Any]) -> [String: Any] in
       self.shared.usageSummary()
@@ -73,17 +78,27 @@ private final class FamilyControlsAuthorization {
 }
 
 private final class GuardianManagedSettingsStore {
+  private let managed = ManagedSettingsStore()
+  private let defaults = UserDefaults(suiteName: "group.com.guardian.family")!
+
   func apply(bundle: [String: Any]) throws {
-    // Apple docs: ManagedSettingsStore.shield.applications accepts ApplicationToken
-    // values obtained through FamilyActivityPicker; raw bundle identifiers cannot
-    // be converted into tokens without the user's authorized selection.
-    let supported = ["app_rules", "category_rules", "domain_rules", "base_policy"]
-    let unsupported = bundle.keys.filter { !supported.contains($0) }
-    guard unsupported.isEmpty else {
+    guard JSONSerialization.isValidJSONObject(bundle) else {
       throw NSError(domain: "GuardianProtection", code: 1, userInfo: [
-        NSLocalizedDescriptionKey: "Unsupported policy fields: \(unsupported.sorted().joined(separator: ", "))"
+        NSLocalizedDescriptionKey: "Policy bundle is not valid JSON"
       ])
     }
+    let data = try JSONSerialization.data(withJSONObject: bundle, options: [])
+    defaults.set(data, forKey: "policy.signedBundle")
+    defaults.set(bundle["policy_version"] as? Int, forKey: "policy.appliedVersion")
+    defaults.set("LIMITED", forKey: "protection.health")
+    defaults.set(
+      "Managed Settings app shields require authorized ApplicationToken values; raw Guardian app refs remain pending token mapping.",
+      forKey: "protection.details"
+    )
+    // Apple docs: a filter policy can only express system web categories or
+    // WebDomain tokens. Guardian preserves explicit domain rules in the signed
+    // snapshot and does not silently widen them into an all-web block.
+    managed.webContent.blockedByFilter = .none
   }
 }
 
