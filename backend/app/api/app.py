@@ -14,7 +14,8 @@ from ..pairing.router import router as pairing_router
 from ..policies.router import router as policies_router
 from ..push.router import router as push_router
 from ..requests.router import router as requests_router
-from .route_handlers import lifespan, notifier
+from .handler_support import notifier
+from .lifecycle import lifespan
 
 app = FastAPI(title="Guardian API", version="0.1.0", lifespan=lifespan)
 app.add_exception_handler(RequestValidationError, validation_error_handler)

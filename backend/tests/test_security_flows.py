@@ -497,7 +497,7 @@ async def test_child_delete_and_guardian_invitation_single_use(
 ) -> None:
     import importlib
 
-    api_module = importlib.import_module("app.api.route_handlers")
+    api_module = importlib.import_module("app.api.handler_support")
     sent: list[str] = []
 
     async def capture(_recipient: str, _subject: str, body: str) -> None:
@@ -597,13 +597,14 @@ async def test_unhandled_error_uses_generic_error_shape(client, monkeypatch) -> 
 
     import httpx
 
-    api_module = importlib.import_module("app.api.route_handlers")
+    api_module = importlib.import_module("app.api.handler_support")
+    app_module = importlib.import_module("app.api.app")
 
     async def fail(*_args, **_kwargs):
         raise RuntimeError("sensitive internal detail")
 
     monkeypatch.setattr(api_module, "parent_from_access", fail)
-    transport = httpx.ASGITransport(app=api_module.app, raise_app_exceptions=False)
+    transport = httpx.ASGITransport(app=app_module.app, raise_app_exceptions=False)
     async with httpx.AsyncClient(transport=transport, base_url="http://test") as isolated:
         response = await isolated.get(
             "/v1/auth/me", headers={"Authorization": "Bearer valid-looking-token"}

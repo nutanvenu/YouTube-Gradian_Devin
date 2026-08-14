@@ -1,6 +1,6 @@
 import pytest
 
-from app.api.route_handlers import signer
+from app.api.handler_support import signer
 from app.core.config import get_settings
 
 

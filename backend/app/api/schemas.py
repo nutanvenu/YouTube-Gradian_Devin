@@ -153,6 +153,7 @@ class PairingRedeemIn(BaseModel):
 class DeviceCredentialOut(BaseModel):
     device_id: UUID
     device_token: str
+    family_id: UUID
 
 
 class DeviceAckIn(BaseModel):
