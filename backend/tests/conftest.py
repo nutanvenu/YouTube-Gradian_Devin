@@ -152,3 +152,13 @@ async def paired_device(
         },
     )
     return PairedDevice(parent_a, redeemed.json()["device_id"], redeemed.json()["device_token"])
+
+
+@pytest_asyncio.fixture
+async def revoked_device(client: httpx.AsyncClient, paired_device: PairedDevice) -> PairedDevice:
+    response = await client.post(
+        f"/v1/families/{paired_device.parent.family_id}/devices/{paired_device.device_id}/revoke",
+        headers={"Authorization": f"Bearer {paired_device.parent.token}"},
+    )
+    assert response.status_code == 204
+    return paired_device
