@@ -1,7 +1,7 @@
 from datetime import datetime
 from uuid import UUID, uuid4
 
-from sqlalchemy import DateTime, ForeignKey, Integer, String
+from sqlalchemy import DateTime, ForeignKey, Index, Integer, String, UniqueConstraint
 from sqlalchemy.dialects.postgresql import JSONB
 from sqlalchemy.dialects.postgresql import UUID as PGUUID
 from sqlalchemy.orm import Mapped, mapped_column
@@ -48,6 +48,7 @@ class UsageAggregate(TimestampMixin, Base):
     occurred_at: Mapped[datetime] = mapped_column(DateTime(timezone=True))
     app_ref: Mapped[str | None] = mapped_column(String(200))
     category: Mapped[str | None] = mapped_column(String(50))
+    timezone: Mapped[str] = mapped_column(String(64), default="UTC")
     duration_seconds: Mapped[int] = mapped_column(Integer, default=0)
 
 
@@ -61,3 +62,24 @@ class ProtectionHealthEvent(TimestampMixin, Base):
     occurred_at: Mapped[datetime] = mapped_column(DateTime(timezone=True))
     protection_state: Mapped[str] = mapped_column(String(30))
     capabilities: Mapped[dict[str, object]] = mapped_column(JSONB)
+
+
+class SafetyNotification(TimestampMixin, Base):
+    __tablename__ = "safety_notifications"
+    __table_args__ = (
+        UniqueConstraint("parent_id", "dedupe_key"),
+        Index("ix_safety_notifications_parent_created", "parent_id", "created_at"),
+    )
+
+    id: Mapped[UUID] = mapped_column(PGUUID(as_uuid=True), primary_key=True, default=uuid4)
+    parent_id: Mapped[UUID] = mapped_column(ForeignKey("parents.id", ondelete="CASCADE"))
+    child_profile_id: Mapped[UUID] = mapped_column(
+        ForeignKey("child_profiles.id", ondelete="CASCADE"), index=True
+    )
+    safety_event_id: Mapped[UUID] = mapped_column(
+        ForeignKey("safety_events.id", ondelete="CASCADE"), index=True
+    )
+    dedupe_key: Mapped[str] = mapped_column(String(255))
+    severity: Mapped[str] = mapped_column(String(20))
+    status: Mapped[str] = mapped_column(String(20))
+    sent_at: Mapped[datetime | None] = mapped_column(DateTime(timezone=True))

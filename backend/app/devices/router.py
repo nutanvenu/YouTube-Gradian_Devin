@@ -39,6 +39,7 @@ from ..api.handler_support import (
     push_sender,
     replay_or_conflict,
     request_action_payload,
+    route_safety_notifications,
     save_result,
     select,
     status,
@@ -120,6 +121,10 @@ async def ingest_events(
         replay = await replay_or_conflict(session, "event_batch", idempotency_key, digest)
         if replay is not None:
             return
+    device_timezone = await session.scalar(
+        select(ChildProfile.timezone).where(ChildProfile.id == device.child_profile_id)
+    )
+    safety_rows: list[SafetyEvent] = []
     for event in body.events:
         event_type = event.event_type.upper()
         values = {
@@ -133,7 +138,9 @@ async def ingest_events(
         if event_type in {"URL", "DOMAIN", "WEB"} or event_type.startswith("WEB_"):
             session.add(WebEvent(**values))
         elif event_type.startswith("SAFETY"):
-            session.add(SafetyEvent(**values))
+            row = SafetyEvent(**values)
+            session.add(row)
+            safety_rows.append(row)
         else:
             session.add(
                 UsageAggregate(
@@ -142,13 +149,18 @@ async def ingest_events(
                     occurred_at=event.occurred_at,
                     app_ref=event.app_ref,
                     category=event.category,
+                    timezone=event.timezone or device_timezone or "UTC",
                     duration_seconds=event.duration_seconds,
                 )
             )
     device.last_seen_at = datetime.now(UTC)
+    await session.flush()
+    deliveries = await route_safety_notifications(session, safety_rows, push_sender)
     if idempotency_key is not None:
         await save_result(session, "event_batch", idempotency_key, digest, 202, {})
     await session.commit()
+    for parent_id, payload in deliveries:
+        await push_sender.send(parent_id, payload)
 
 
 async def ingest_inventory(

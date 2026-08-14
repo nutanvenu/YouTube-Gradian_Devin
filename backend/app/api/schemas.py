@@ -2,6 +2,7 @@ import re
 from datetime import date, datetime
 from typing import Literal
 from uuid import UUID
+from zoneinfo import ZoneInfo
 
 from pydantic import BaseModel, ConfigDict, EmailStr, Field, field_validator, model_validator
 
@@ -185,10 +186,21 @@ class MinimizedEvent(BaseModel):
 
     event_type: str = Field(min_length=1, max_length=50)
     occurred_at: datetime
+    timezone: str | None = Field(default=None, min_length=1, max_length=64)
     app_ref: str | None = Field(default=None, max_length=200)
     domain: str | None = Field(default=None, max_length=253)
     category: str | None = Field(default=None, max_length=50)
     duration_seconds: int = Field(default=0, ge=0, le=86400)
+
+    @field_validator("timezone")
+    @classmethod
+    def validate_timezone(cls, value: str | None) -> str | None:
+        if value is not None:
+            try:
+                ZoneInfo(value)
+            except Exception as error:
+                raise ValueError("Invalid IANA timezone") from error
+        return value
 
 
 class EventBatchIn(BaseModel):
@@ -232,6 +244,17 @@ class ActivityUsagePointOut(BaseModel):
     duration_seconds: int
     event_type: str
     occurred_at: datetime
+
+
+class UsageReportOut(BaseModel):
+    child_profile_id: UUID
+    period_start: date
+    period_end: date
+    timezone: str
+    duration_seconds: int
+    event_count: int
+    by_app: dict[str, int]
+    by_category: dict[str, int]
 
 
 class RequestCreateIn(BaseModel):

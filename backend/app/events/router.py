@@ -1,5 +1,8 @@
 # ruff: noqa: E501
-from fastapi import APIRouter
+from datetime import date
+from typing import Literal
+
+from fastapi import APIRouter, Query
 
 from ..api.handler_support import (
     UUID,
@@ -16,6 +19,7 @@ from ..api.handler_support import (
     PolicyBundle,
     SafetyEvent,
     UsageAggregate,
+    UsageReportOut,
     WebEvent,
     WebSocket,
     WebSocketDisconnect,
@@ -27,6 +31,7 @@ from ..api.handler_support import (
     hashlib,
     parent_from_access,
     select,
+    usage_report,
 )
 
 router = APIRouter()
@@ -117,6 +122,36 @@ async def family_usage(
         }
         for row in rows
     ]
+
+
+async def family_usage_report(
+    family_id: UUID,
+    child_id: UUID | None = None,
+    start: date = Query(...),
+    end: date = Query(...),
+    timezone: str = Query(..., min_length=1, max_length=64),
+    granularity: Literal["DAILY", "WEEKLY"] = Query("DAILY"),
+    parent: Parent = Depends(current_parent),
+    session: AsyncSession = Depends(get_session),
+) -> list[dict[str, object]]:
+    await family_for_parent(session, parent, family_id)
+    if end <= start:
+        raise HTTPException(400, "Report end must be after start")
+    try:
+        from zoneinfo import ZoneInfo
+
+        ZoneInfo(timezone)
+    except Exception:
+        raise HTTPException(422, "Timezone must be a valid IANA timezone") from None
+    return await usage_report(
+        session,
+        family_id=family_id,
+        child_id=child_id,
+        start=start,
+        end=end,
+        timezone=timezone,
+        granularity=granularity,
+    )
 
 
 async def websocket_sync(
@@ -243,4 +278,10 @@ router.add_api_route(
     family_usage,
     methods=["GET"],
     response_model=list[ActivityUsagePointOut],
+)
+router.add_api_route(
+    "/v1/families/{family_id}/usage/reports",
+    family_usage_report,
+    methods=["GET"],
+    response_model=list[UsageReportOut],
 )

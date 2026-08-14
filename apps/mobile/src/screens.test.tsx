@@ -37,6 +37,7 @@ jest.mock("@/api/client", () => ({
     requests: () => Promise.resolve([]),
     activity: () => Promise.resolve([]),
     activityUsage: () => Promise.resolve([]),
+    usageReport: () => Promise.resolve([]),
     childInventory: () => Promise.resolve([]),
     reviewChildApp: (...args: unknown[]) => {
       mockReviewApp(...args);

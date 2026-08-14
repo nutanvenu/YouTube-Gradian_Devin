@@ -81,12 +81,23 @@ export type ActivityUsagePoint = {
   event_type: string;
   occurred_at: string;
 };
+export type UsageReport = {
+  child_profile_id: string;
+  period_start: string;
+  period_end: string;
+  timezone: string;
+  duration_seconds: number;
+  event_count: number;
+  by_app: Record<string, number>;
+  by_category: Record<string, number>;
+};
 export type DeviceEvent = {
   event_type: string;
   occurred_at: string;
   app_ref?: string | null;
   domain?: string | null;
   category?: string | null;
+  timezone?: string;
   duration_seconds?: number;
 };
 export type ObservedApp = {
@@ -206,6 +217,16 @@ export class GuardianApiClient {
   health(familyId: string) { return this.request<Health[]>(`/v1/families/${familyId}/health`); }
   activity(familyId: string) { return this.request<ActivityEvent[]>(`/v1/families/${familyId}/activity`); }
   activityUsage(familyId: string) { return this.request<ActivityUsagePoint[]>(`/v1/families/${familyId}/activity/usage`); }
+  usageReport(familyId: string, input: { childId?: string; start: string; end: string; timezone: string; granularity?: "DAILY" | "WEEKLY" }) {
+    const params = new URLSearchParams({
+      start: input.start,
+      end: input.end,
+      timezone: input.timezone,
+      ...(input.granularity ? { granularity: input.granularity } : {}),
+      ...(input.childId ? { child_id: input.childId } : {}),
+    });
+    return this.request<UsageReport[]>(`/v1/families/${familyId}/usage/reports?${params.toString()}`);
+  }
   childInventory(familyId: string, childId: string) {
     return this.request<ObservedApp[]>(`/v1/families/${familyId}/children/${childId}/inventory`);
   }

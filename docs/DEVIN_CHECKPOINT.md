@@ -1572,5 +1572,41 @@ The child-side sync/classification transport now requests only the event's
 minimized domain, applies full/delta responses locally, and refetches a full
 bundle after `DELTA_GAP`. The live pending/resolve run is now recorded for the
 younger-band path; APNs/FCM delivery remains outside this slice and requires
-provider credentials. Usage aggregation/reports and parent safety notification
-routing remain separate later slices.
+provider credentials.
+
+Phase 2 usage reports and safety notification routing are now implemented.
+`GET /v1/families/{family_id}/usage/reports` derives daily or weekly buckets
+from persisted `usage_aggregates`, joins all devices for the selected child,
+splits durations at local calendar boundaries using an IANA timezone, and
+preserves each event's source timezone. The report contract includes explicit
+period, total duration, event count, per-app, and per-category totals. The
+mobile Activity surface renders the report through the existing loading,
+empty, offline, stale, permission-denied, and error state machinery; absent
+persisted data remains `Unknown` rather than a fabricated zero.
+
+Focused report tests cover a DST transition, a timezone change in the report
+view, weekly aggregation across two devices for one child, and route
+authorization. The live backend was migrated to `0016_safety_notifications`
+and the report endpoint returned an authenticated empty array for the current
+empty family. Runtime evidence is in
+`.scratch/emulator/usage-reports/runtime-status.txt`,
+`.scratch/emulator/usage-reports/live-database-counts.txt`, and
+`.scratch/emulator/usage-reports/live-report.json`. A populated report
+rendering on a rebuilt parent APK remains a follow-up evidence item.
+
+Safety events now pass through severity and age-band-sensitive routing before
+the existing `PushSender`: younger bands receive medium-or-higher alerts,
+TEEN receives high/critical alerts, OLDER_TEEN receives critical alerts,
+quiet hours suppress non-critical alerts, and persisted dedupe keys plus a
+five-per-parent-per-hour bound prevent noisy devices from spamming a parent.
+Payloads contain only structured event metadata. The current sender is the
+provider-independent logging implementation; APNs/FCM delivery and
+notification-provider credentials remain unavailable and are not claimed.
+
+Remaining Phase 3 work, in risk order: communication safety with in-memory raw
+content handling and minimized structured events only; honest iOS capability
+reporting and measured classifier accuracy/performance before any classifier
+ships; tablet/adaptive layouts; accessibility audit (TalkBack, Dynamic Type,
+contrast, focus order, reduced motion, RTL); real-path performance and battery
+measurement; observability completeness; OWASP mobile-code-review workflow;
+Google `play-policy-insights` workflow; and remediation of material findings.

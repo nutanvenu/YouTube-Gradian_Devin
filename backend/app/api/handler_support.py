@@ -48,9 +48,12 @@ from ..events.broadcaster import broadcaster
 from ..events.models import (
     ProtectionHealthEvent,
     SafetyEvent,
+    SafetyNotification,
     UsageAggregate,
     WebEvent,
 )
+from ..events.notifications import route_safety_notifications
+from ..events.reports import usage_report
 from ..families.models import Family, FamilyGuardian, GuardianInvitation, GuardianRole
 from ..pairing.models import PairingSession
 from ..policies.models import PolicyBundle
@@ -111,6 +114,7 @@ from .schemas import (
     TokenConfirmIn,
     TokenRequestIn,
     TokensOut,
+    UsageReportOut,
 )
 
 __all__ = [
@@ -118,6 +122,9 @@ __all__ = [
     'AsyncSession',
     'ActivityEventOut',
     'ActivityUsagePointOut',
+    'UsageReportOut',
+    'SafetyNotification',
+    'route_safety_notifications',
     'Base64Error',
     'ChildCreate',
     'ChildOut',

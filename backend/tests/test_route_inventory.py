@@ -34,6 +34,7 @@ EXPECTED_ROUTES: tuple[ExpectedRoute, ...] = (
     ("/v1/families/{family_id}", "GET", "parent"),
     ("/v1/families/{family_id}/activity", "GET", "parent"),
     ("/v1/families/{family_id}/activity/usage", "GET", "parent"),
+    ("/v1/families/{family_id}/usage/reports", "GET", "parent"),
     ("/v1/families/{family_id}/children", "GET", "parent"),
     ("/v1/families/{family_id}/children", "POST", "parent"),
     ("/v1/families/{family_id}/children/{child_id}", "DELETE", "parent"),

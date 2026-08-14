@@ -421,6 +421,19 @@ export const openApiDocument = {
             "format": "date-time",
             "title": "Occurred At",
             "type": "string"
+          },
+          "timezone": {
+            "anyOf": [
+              {
+                "maxLength": 64,
+                "minLength": 1,
+                "type": "string"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Timezone"
           }
         },
         "required": [
@@ -1091,6 +1104,63 @@ export const openApiDocument = {
           "refresh_token"
         ],
         "title": "TokensOut",
+        "type": "object"
+      },
+      "UsageReportOut": {
+        "properties": {
+          "by_app": {
+            "additionalProperties": {
+              "type": "integer"
+            },
+            "title": "By App",
+            "type": "object"
+          },
+          "by_category": {
+            "additionalProperties": {
+              "type": "integer"
+            },
+            "title": "By Category",
+            "type": "object"
+          },
+          "child_profile_id": {
+            "format": "uuid",
+            "title": "Child Profile Id",
+            "type": "string"
+          },
+          "duration_seconds": {
+            "title": "Duration Seconds",
+            "type": "integer"
+          },
+          "event_count": {
+            "title": "Event Count",
+            "type": "integer"
+          },
+          "period_end": {
+            "format": "date",
+            "title": "Period End",
+            "type": "string"
+          },
+          "period_start": {
+            "format": "date",
+            "title": "Period Start",
+            "type": "string"
+          },
+          "timezone": {
+            "title": "Timezone",
+            "type": "string"
+          }
+        },
+        "required": [
+          "child_profile_id",
+          "period_start",
+          "period_end",
+          "timezone",
+          "duration_seconds",
+          "event_count",
+          "by_app",
+          "by_category"
+        ],
+        "title": "UsageReportOut",
         "type": "object"
       },
       "ValidationError": {
@@ -3094,6 +3164,117 @@ export const openApiDocument = {
         "summary": "Deny Request"
       }
     },
+    "/v1/families/{family_id}/usage/reports": {
+      "get": {
+        "operationId": "family_usage_report_v1_families__family_id__usage_reports_get",
+        "parameters": [
+          {
+            "in": "path",
+            "name": "family_id",
+            "required": true,
+            "schema": {
+              "format": "uuid",
+              "title": "Family Id",
+              "type": "string"
+            }
+          },
+          {
+            "in": "query",
+            "name": "child_id",
+            "required": false,
+            "schema": {
+              "anyOf": [
+                {
+                  "format": "uuid",
+                  "type": "string"
+                },
+                {
+                  "type": "null"
+                }
+              ],
+              "title": "Child Id"
+            }
+          },
+          {
+            "in": "query",
+            "name": "start",
+            "required": true,
+            "schema": {
+              "format": "date",
+              "title": "Start",
+              "type": "string"
+            }
+          },
+          {
+            "in": "query",
+            "name": "end",
+            "required": true,
+            "schema": {
+              "format": "date",
+              "title": "End",
+              "type": "string"
+            }
+          },
+          {
+            "in": "query",
+            "name": "timezone",
+            "required": true,
+            "schema": {
+              "maxLength": 64,
+              "minLength": 1,
+              "title": "Timezone",
+              "type": "string"
+            }
+          },
+          {
+            "in": "query",
+            "name": "granularity",
+            "required": false,
+            "schema": {
+              "default": "DAILY",
+              "enum": [
+                "DAILY",
+                "WEEKLY"
+              ],
+              "title": "Granularity",
+              "type": "string"
+            }
+          }
+        ],
+        "responses": {
+          "200": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "items": {
+                    "$ref": "#/components/schemas/UsageReportOut"
+                  },
+                  "title": "Response Family Usage Report V1 Families  Family Id  Usage Reports Get",
+                  "type": "array"
+                }
+              }
+            },
+            "description": "Successful Response"
+          },
+          "422": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/HTTPValidationError"
+                }
+              }
+            },
+            "description": "Validation Error"
+          }
+        },
+        "security": [
+          {
+            "OAuth2PasswordBearer": []
+          }
+        ],
+        "summary": "Family Usage Report"
+      }
+    },
     "/v1/me/push-tokens": {
       "post": {
         "operationId": "register_push_token_v1_me_push_tokens_post",
@@ -3247,7 +3428,7 @@ export const openApiDocument = {
   }
 } as const;
 
-export type GuardianApiPath = "/health" | "/livez" | "/readiness" | "/readyz" | "/v1/auth/login" | "/v1/auth/logout" | "/v1/auth/me" | "/v1/auth/password-reset/confirm" | "/v1/auth/password-reset/request" | "/v1/auth/refresh" | "/v1/auth/signup" | "/v1/auth/verification/confirm" | "/v1/auth/verification/request" | "/v1/devices/me/events" | "/v1/devices/me/heartbeat" | "/v1/devices/me/inventory" | "/v1/devices/me/policy" | "/v1/devices/me/policy/ack" | "/v1/devices/me/push-tokens" | "/v1/devices/me/reputation" | "/v1/devices/me/reputation/classify" | "/v1/devices/me/requests" | "/v1/devices/pair" | "/v1/families" | "/v1/families/guardians/accept" | "/v1/families/{family_id}" | "/v1/families/{family_id}/activity" | "/v1/families/{family_id}/activity/usage" | "/v1/families/{family_id}/children" | "/v1/families/{family_id}/children/{child_id}" | "/v1/families/{family_id}/children/{child_id}/inventory" | "/v1/families/{family_id}/children/{child_id}/inventory/{platform_app_id}/review" | "/v1/families/{family_id}/children/{child_id}/pairing" | "/v1/families/{family_id}/children/{child_id}/policy/mutations" | "/v1/families/{family_id}/children/{child_id}/reputation" | "/v1/families/{family_id}/devices/{device_id}/revoke" | "/v1/families/{family_id}/guardians" | "/v1/families/{family_id}/guardians/invite" | "/v1/families/{family_id}/health" | "/v1/families/{family_id}/requests" | "/v1/families/{family_id}/requests/{request_id}/approve" | "/v1/families/{family_id}/requests/{request_id}/deny" | "/v1/me/push-tokens" | "/v1/policy/public-key" | "/v1/push/actions/{action_token}/approve" | "/v1/push/actions/{action_token}/deny";
+export type GuardianApiPath = "/health" | "/livez" | "/readiness" | "/readyz" | "/v1/auth/login" | "/v1/auth/logout" | "/v1/auth/me" | "/v1/auth/password-reset/confirm" | "/v1/auth/password-reset/request" | "/v1/auth/refresh" | "/v1/auth/signup" | "/v1/auth/verification/confirm" | "/v1/auth/verification/request" | "/v1/devices/me/events" | "/v1/devices/me/heartbeat" | "/v1/devices/me/inventory" | "/v1/devices/me/policy" | "/v1/devices/me/policy/ack" | "/v1/devices/me/push-tokens" | "/v1/devices/me/reputation" | "/v1/devices/me/reputation/classify" | "/v1/devices/me/requests" | "/v1/devices/pair" | "/v1/families" | "/v1/families/guardians/accept" | "/v1/families/{family_id}" | "/v1/families/{family_id}/activity" | "/v1/families/{family_id}/activity/usage" | "/v1/families/{family_id}/children" | "/v1/families/{family_id}/children/{child_id}" | "/v1/families/{family_id}/children/{child_id}/inventory" | "/v1/families/{family_id}/children/{child_id}/inventory/{platform_app_id}/review" | "/v1/families/{family_id}/children/{child_id}/pairing" | "/v1/families/{family_id}/children/{child_id}/policy/mutations" | "/v1/families/{family_id}/children/{child_id}/reputation" | "/v1/families/{family_id}/devices/{device_id}/revoke" | "/v1/families/{family_id}/guardians" | "/v1/families/{family_id}/guardians/invite" | "/v1/families/{family_id}/health" | "/v1/families/{family_id}/requests" | "/v1/families/{family_id}/requests/{request_id}/approve" | "/v1/families/{family_id}/requests/{request_id}/deny" | "/v1/families/{family_id}/usage/reports" | "/v1/me/push-tokens" | "/v1/policy/public-key" | "/v1/push/actions/{action_token}/approve" | "/v1/push/actions/{action_token}/deny";
 
 export class GeneratedGuardianError extends Error {
   constructor(message: string, readonly status: number) {
