@@ -30,10 +30,10 @@ pytest -q
 90 passed in 7.51s
 ```
 
-The backend route registration is split into domain routers and
-`backend/app/api/routes.py` and `handler_registry.py` have been removed.
-`backend/app/api/route_handlers.py` still contains shared route
-implementations and is a known extraction gap.
+The backend route registration and handler bodies are split into the owning
+domain routers. Shared dependencies and lifecycle support live under
+`backend/app/api/handler_support.py` and `backend/app/api/lifecycle.py`;
+`backend/app/api/route_handlers.py` has been deleted.
 
 ### Mobile foundation
 
@@ -681,13 +681,13 @@ refresh and 401 recovery, SecureStore boundaries, pairing expiry/wrong-code/
 lockout, role persistence and irreversible child-role protection, and the full
 shared §31 state-component matrix still need dedicated tests.
 
-## Remaining Phase 1 work
+## Historical Phase 1 work list
 
 1. Add manual routine activation wiring to the native/local routine context.
 2. Implement device proof-of-possession request signing and server verification.
 3. Generate the OpenAPI client and add the committed-output drift check.
 4. Finish physical extraction of `route_handlers.py` implementations into
-   owning modules.
+   owning modules. (Completed in the current handoff.)
 5. Expand mobile unit/component tests for the new surfaces and §31 states.
 6. Complete later Phase 1 sync, push, and platform work.
 
@@ -725,10 +725,10 @@ shared §31 state-component matrix still need dedicated tests.
 - Android's `getConnectionOwnerUid` remains best-effort for TUN-originated
   tuples, but the clean blocked-domain run attributed the event to
   `com.android.chrome`.
-- Device key proof-of-possession is not yet active.
-- API generation/drift enforcement is absent.
-- `backend/app/api/route_handlers.py` remains as an implementation
-  concentration point even though route registration is modular.
+- Device key proof-of-possession is active for device-authenticated mutations.
+- API generation/drift enforcement is present in the workspace check.
+- Handler implementations are physically located in their owning routers;
+  `backend/app/api/route_handlers.py` is deleted.
 - The emulator cannot prove iOS behavior on this Linux host.
 - The authoritative fresh exact bridge-count evidence is
   `.scratch/emulator/option-b-v7-direct-ipv6-final-logcat.txt` (`count=1`);
@@ -876,10 +876,9 @@ GET /health       200 {"status":"ok"}
 GET /readiness    200 {"status":"ready"}
 ```
 
-Still open and not claimed: a dedicated live parent Rules mutation screenshot
-for every control, a separate parent-edit-to-child WebSocket visual capture,
-full extraction of `backend/app/api/route_handlers.py`, broader screen
-component tests, and Mac-only iOS verification.
+Still open and not claimed: broader screen component tests and Mac-only iOS
+verification. The dedicated two-emulator parent-edit-to-child WebSocket
+capture is recorded below.
 
 Nonce replay rows are pruned during proof validation using the same 300-second
 freshness window as timestamp validation. This bounds `device_request_nonces`
@@ -953,10 +952,9 @@ git diff --check            passed
 
 The active FastAPI application now includes each owning router exactly once;
 family, health, and push duplicate registrations were removed. OpenAPI
-generation completes without duplicate-operation warnings. The handler
-implementations remain in `backend/app/api/route_handlers.py` and are
-imported by the owning routers, so physical function relocation is still
-outstanding even though the active route graph is unique.
+generation completes without duplicate-operation warnings. Handler bodies
+are physically located in their owning routers, with shared support isolated
+under `app/api/handler_support.py`; the former god-file is deleted.
 
 Mobile transport now calls the generated `@guardian/api-client` workspace
 client for request execution while retaining device proof headers and parent
@@ -1040,9 +1038,9 @@ emulator-5554     device
 PostgreSQL        healthy
 ```
 
-The Phase 1 acceptance gate is not fully closed because a dedicated
-parent-to-child WebSocket no-refresh visual capture remains outstanding.
-Phase 2 must not begin until that artifact is captured.
+The Phase 1 acceptance gate's dedicated parent-to-child WebSocket no-refresh
+visual capture is recorded below. Remaining Phase 1 follow-up is broader
+screen/component coverage and Mac-only iOS verification.
 
 ## Phase 1 live evidence update
 
@@ -1103,3 +1101,64 @@ and invalidates `device-policy` when a family event arrives. This code is
 linted and typed, but a two-surface no-refresh visual capture is still
 outstanding because this single-emulator run cannot keep the parent and child
 surfaces simultaneously visible.
+
+## Two-emulator WebSocket evidence and route extraction
+
+The dedicated two-device harness now runs:
+
+```text
+parent: guardian-api35 / emulator-5554
+child:  guardian-api35-child / emulator-5556
+image:  system-images;android-35;google_apis;x86_64
+```
+
+The child was freshly paired through the real UI after the pairing response
+began returning and persisting `family_id`. The child WebSocket hook was also
+corrected to use the paired device token when no parent access token exists.
+The backend log records the accepted device-authenticated subscription:
+
+```text
+WebSocket /v1/ws/sync?family_id=5abf06a7-3f24-4170-ab6b-2b41039dc331 [accepted]
+```
+
+No child interaction occurred between the initial and final captures:
+
+```text
+initial child: policy version 4
+parent Rules mutation: APP_BLOCK, real policy version 5
+final child: policy version 5
+```
+
+Artifacts:
+
+```text
+.scratch/emulator/ws/child-initial-version-4.png
+.scratch/emulator/ws/parent-after-mutation.png
+.scratch/emulator/ws/parent-final-version-5-pending.png
+.scratch/emulator/ws/child-final-version-5.png
+.scratch/emulator/ws/backend-websocket-evidence.log
+```
+
+The parent Rules screen displayed `Pending sync · device has not
+acknowledged version 5` while the child surface changed from version 4 to
+version 5 without refresh, reload, route reopen, or child interaction. The
+child honestly remained in a pending/degraded protection state because the
+emulator's web-protection capability was not enabled.
+
+Physical route extraction is now complete. Handler bodies were moved into
+their owning `auth`, `children`, `devices`, `events`, `families`, `pairing`,
+`policies`, `push`, and `requests` routers. Shared authentication, policy,
+rate-limit, and notifier dependencies live in
+`backend/app/api/handler_support.py`; lifecycle validation lives in
+`backend/app/api/lifecycle.py`. `backend/app/api/route_handlers.py` was
+deleted rather than retained as a wrapper. OpenAPI generation completes
+without duplicate-operation warnings.
+
+Post-extraction verification:
+
+```text
+ruff check app tests       All checks passed
+mypy app                   Success: no issues found in 51 source files
+pytest                    95 passed
+GET /readiness            200 {"status":"ready"}
+```

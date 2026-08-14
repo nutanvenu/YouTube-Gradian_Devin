@@ -47,6 +47,7 @@ export default function ChildPairRoute() {
       const credentials = await api.redeemPairing({ session_id: sessionId, code, child_profile_id: childId, platform: "ANDROID", public_key: toBase64(publicKey) });
       await sessionStorage.setDevicePrivateKey(toBase64(privateKey));
       await sessionStorage.setDeviceToken(credentials.device_token);
+      await sessionStorage.setFamilyId(credentials.family_id);
       router.replace("/child/home");
     } catch (error) { setMessage(error instanceof ApiError ? error.message : `Pairing failed: ${error instanceof Error ? error.message : "check the code and try again."}`); }
   };

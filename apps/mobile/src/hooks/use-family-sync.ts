@@ -9,7 +9,9 @@ export function useFamilySync(familyId: string | undefined, childId?: string) {
     let socket: WebSocket | null = null;
     let cancelled = false;
     const connect = async () => {
-      const token = await sessionStorage.getAccessToken();
+      const token =
+        (await sessionStorage.getAccessToken()) ??
+        (await sessionStorage.getDeviceToken());
       if (cancelled || !token) return;
       const WebSocketWithHeaders = WebSocket as unknown as new (
         url: string,
