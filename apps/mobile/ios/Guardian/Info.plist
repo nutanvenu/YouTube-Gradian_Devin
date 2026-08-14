@@ -69,6 +69,10 @@
     </array>
     <key>UILaunchStoryboardName</key>
     <string>SplashScreen</string>
+    <key>NSFamilyControlsUsageDescription</key>
+    <string>Guardian uses Screen Time controls to apply the family policy you authorize.</string>
+    <key>NSPrivacyTracking</key>
+    <false/>
     <key>UIRequiredDeviceCapabilities</key>
     <array>
       <string>arm64</string>

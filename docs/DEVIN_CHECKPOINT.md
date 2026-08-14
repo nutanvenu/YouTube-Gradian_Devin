@@ -841,10 +841,110 @@ emulator. The parent Rules screen and WebSocket invalidation source paths are
 implemented, but a separate parent-role visual mutation/WebSocket capture
 was not completed in this handoff.
 
-## Exact next task
+## Remaining Phase 1 implementation handoff
 
-Continue with offline child-request queueing and sync, device
-proof-of-possession signing, OpenAPI generation/drift enforcement, remaining
-`route_handlers.py` extraction, and expanded mobile tests. Keep the numeric
-live counter, parent Rules/WebSocket visual capture, and offline
-request-queue limitations explicit.
+This handoff added a durable child request outbox in SecureStore. Requests are
+written locally while offline, carry a stable idempotency key, retry when the
+network becomes reachable, and display a terminal `DEVICE_REVOKED` state when
+the device is revoked before delivery. The child UI explicitly states that a
+queued request unlocks nothing until approval reaches the device. Deterministic
+queue/sync and revoked-device tests are in
+`apps/mobile/src/state/request-outbox.test.ts`.
+
+Device request proof-of-possession is now implemented for
+`POST /v1/devices/me/requests`: the mobile client signs method, path, timestamp,
+nonce, and SHA-256 body digest with the pairing key; the backend verifies the
+stored Ed25519 public key, rejects stale/malformed proofs, and persists a
+per-device nonce to prevent replay. Replay insertion now handles SQL
+`IntegrityError` explicitly and rolls back the failed transaction. Pairing now
+rejects invalid public keys.
+Focused signature tests are in `backend/tests/test_device_auth.py`.
+
+The generated API workspace is `packages/api-client`. Its deterministic output
+comes from `scripts/generate_openapi_client.py`; `pnpm check:openapi` and
+`.github/workflows/openapi.yml` enforce drift. Plain `/health` and `/livez`
+report liveness; `/readiness` and `/readyz` run a database probe and signing-key
+validation, returning 503 when either dependency is unavailable.
+
+Mobile CI now has dedicated state and screen test jobs, with additional pairing,
+request outbox, and 401-refresh coverage. The backend database was migrated to
+the nonce table and the local runtime was restarted with the generated signing
+key:
+
+```text
+GET /health       200 {"status":"ok"}
+GET /readiness    200 {"status":"ready"}
+```
+
+Still open and not claimed: a dedicated live parent Rules mutation screenshot
+for every control, a separate parent-edit-to-child WebSocket visual capture,
+full extraction of `backend/app/api/route_handlers.py`, broader screen
+component tests, and Mac-only iOS verification.
+
+Nonce replay rows are pruned during proof validation using the same 300-second
+freshness window as timestamp validation. This bounds `device_request_nonces`
+while retaining replay protection for every still-fresh proof.
+
+## iOS Slice 1.9 authoring
+
+The iOS native layer is authored under `apps/mobile/ios`:
+
+- `GuardianPolicyCore` is a small Swift Package containing canonical JSON,
+  trusted-key Ed25519 verification through CryptoKit, policy evaluation,
+  atomic active/previous bundle replacement, applied-version persistence, and
+  fixture conformance tests against the exact
+  `packages/test-fixtures/policy-decision-cases.json` file.
+- `Guardian/GuardianProtectionModule.swift` provides the Expo bridge surface,
+  Family Controls authorization/revocation capability reporting, shared
+  App-Group status/usage storage, and honest `LIMITED` web-filtering reporting.
+- Shield configuration/action, Device Activity monitor, and Network Extension
+  data/control provider sources are under `GuardianExtensions`.
+- `plugins/withGuardianIOS.ts` declares Family Controls, Network Extension,
+  App Groups, usage descriptions, and extension targets. `PrivacyInfo.xcprivacy`
+  declares the app's privacy access.
+
+The implementation follows the current Apple contracts:
+
+- Family Controls authorization:
+  https://developer.apple.com/documentation/familycontrols/authorizationcenter/requestauthorization(for:)
+- Managed Settings shields:
+  https://developer.apple.com/documentation/managedsettingsui/shieldconfiguration
+- Device Activity monitoring:
+  https://developer.apple.com/documentation/deviceactivity
+- Network Extension filtering:
+  https://developer.apple.com/documentation/networkextension/nefilterdataprovider
+- CryptoKit signing keys:
+  https://developer.apple.com/documentation/cryptokit
+- Expo iOS config-plugin mods:
+  https://docs.expo.dev/versions/v57.0.0/config-plugins/mods/
+
+Guardian's Android-level package inventory and arbitrary-domain attribution
+are not available from Managed Settings or an NEFilter flow by default. The
+iOS capability surface therefore reports `LIMITED`/`UNAVAILABLE` rather than
+claiming unrestricted visibility. Managed Settings application tokens must
+come from an authorized FamilyActivityPicker selection; raw package
+identifiers in a signed policy cannot be silently treated as tokens.
+
+The following remain explicitly unverifiable on this Linux host and require a
+Mac with Xcode and the approved entitlement:
+
+1. `xcodebuild` compilation of the app, Swift Package, and extension targets.
+2. Family Controls entitlement request/approval in the Apple Developer portal.
+3. iOS simulator execution and Device Activity/Shield/Network Extension runs.
+4. Physical-device authorization, revocation, reboot, and enforcement testing.
+
+The host has not claimed any of those results. A Mac verification entrypoint is
+provided by `scripts/verify_ios_macos.sh` for the first available runner.
+
+Final focused verification for this handoff:
+
+```text
+guardian-mobile lint       passed
+guardian-mobile typecheck  passed
+guardian-mobile Jest       4 suites, 9 tests passed
+backend ruff               passed
+backend focused pytest     3 passed, 6 deselected
+GET /health                200 {"status":"ok"}
+GET /readiness             200 {"status":"ready"}
+git diff --check            passed
+```
