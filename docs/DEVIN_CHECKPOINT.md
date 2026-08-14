@@ -1350,14 +1350,42 @@ mypy app                                                   success, 51 files
 guardian-mobile typecheck                                  passed
 guardian-mobile lint                                       passed
 guardian-mobile Jest                                       7 suites, 25 tests passed
-alembic current                                            0012_event_categories
+alembic current                                            0013_child_app_inventory
 ```
 
 The test posts a real device-authenticated `WEB_BLOCKED` event and an
 `APP_USAGE` point, then reads them through the authenticated family Activity
-endpoints. Dedicated two-emulator visual Activity evidence has not yet been
-captured; no visual claim is made until the parent Activity surface is
-exercised against live emulator data.
+endpoints.
+
+Live two-emulator evidence is now captured for family
+`d654598b-6ef2-4eca-b001-e0017d2180ac` and child
+`ee25390f-e0ec-4865-86e1-0a9437a1bf13`:
+
+```text
+.scratch/emulator/activity-parent-live-web-event.png
+.scratch/emulator/activity-parent-live-web-event.xml
+.scratch/emulator/activity-parent-live-data.png
+.scratch/emulator/activity-child-blocked-live2.png
+.scratch/emulator/activity-child-blocked-live-logcat2.txt
+.scratch/emulator/activity-parent-offline-state.png
+.scratch/emulator/activity-parent-offline-state.xml
+```
+
+The child policy mutation added an explicit `blocked.example.com` block,
+the child VPN was restarted after consent recovery, and Chrome produced a
+real native event:
+
+```text
+WEB_BLOCKED | blocked.example.com | category=null | app_ref=com.android.chrome
+POST /v1/devices/me/events 202 Accepted
+web_events rows: 1
+usage_aggregates rows: 27
+```
+
+The parent Activity visibly rendered `WEB_BLOCKED`,
+`blocked.example.com`, and `Unknown category`, alongside backend-derived
+usage points. A separate airplane-mode run visibly rendered
+`You're offline. Last-known data may be shown.` as the §31 offline state.
 
 ## Phase 2 app-controls review slice
 
@@ -1399,10 +1427,11 @@ inventory.
 The child Activity surface now forwards native `WEB_BLOCKED` events and
 non-zero native usage summaries through the minimized
 `POST /v1/devices/me/events` contract. This path was typechecked, linted, and
-covered by the existing mobile test suite. Live visual Activity evidence is
-still open: the child emulator currently reports `Web protection permission
-is required`, and the backend event tables remained empty during the latest
-run, so no emulator-generated web event or usage point is claimed.
+covered by the existing mobile test suite. Repeated inventory uploads are
+implemented as PostgreSQL upserts that preserve `reviewed_at` and
+`reviewed_by_parent_id`, including duplicate package identifiers in one
+upload. This avoids the previously observed unique-constraint failures during
+repeated device inventory reporting.
 
 Live backend inventory authorization and persistence evidence:
 
@@ -1410,7 +1439,9 @@ Live backend inventory authorization and persistence evidence:
 pytest tests/test_inventory.py tests/test_route_inventory.py   3 passed
 ```
 
-The live two-device Activity evidence remains open until Android VPN consent
-can be granted on the child emulator and native web-block/usage events are
-observed in the parent Activity surface. The current backend and mobile
-runtime must not be interpreted as having that visual evidence.
+The focused inventory regression suite now includes duplicate-upload and
+review-preservation coverage:
+
+```text
+pytest backend/tests/test_inventory.py   3 passed
+```

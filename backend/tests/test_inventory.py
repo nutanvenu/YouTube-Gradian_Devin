@@ -85,3 +85,81 @@ async def test_inventory_requires_child_device_and_family_guardianship(
         headers={"Authorization": f"Bearer {parent_b.token}"},
     )
     assert response.status_code == 404, response.text
+
+
+@pytest.mark.asyncio
+async def test_inventory_upload_deduplicates_apps_and_preserves_review(
+    client, parent_a, paired_device
+) -> None:
+    body = {
+        "apps": [
+            {
+                "platform_app_id": "com.example.duplicate",
+                "display_name": "First name",
+                "category": "GAMES",
+                "observed_at": "2026-08-14T20:00:00Z",
+            },
+            {
+                "platform_app_id": "com.example.duplicate",
+                "display_name": "Latest name",
+                "category": "EDUCATION",
+                "observed_at": "2026-08-14T20:01:00Z",
+            },
+        ]
+    }
+    encoded_body = json.dumps(body, separators=(",", ":")).encode()
+    upload = await client.post(
+        "/v1/devices/me/inventory",
+        headers=paired_device.signed_headers("/v1/devices/me/inventory", encoded_body),
+        content=encoded_body,
+    )
+    assert upload.status_code == 202, upload.text
+
+    parent_headers = {"Authorization": f"Bearer {parent_a.token}"}
+    path = (
+        f"/v1/families/{parent_a.family_id}/children/"
+        f"{parent_a.child_id}/inventory"
+    )
+    inventory = await client.get(path, headers=parent_headers)
+    assert inventory.status_code == 200, inventory.text
+    assert inventory.json() == [
+        {
+            "platform_app_id": "com.example.duplicate",
+            "display_name": "Latest name",
+            "category": "EDUCATION",
+            "observed_at": "2026-08-14T20:01:00Z",
+            "reviewed": False,
+        }
+    ]
+
+    review = await client.post(f"{path}/com.example.duplicate/review", headers=parent_headers)
+    assert review.status_code == 204, review.text
+
+    repeat = {
+        "apps": [
+            {
+                "platform_app_id": "com.example.duplicate",
+                "display_name": "Changed name",
+                "category": "EDUCATION",
+                "observed_at": "2026-08-14T20:02:00Z",
+            }
+        ]
+    }
+    encoded_repeat = json.dumps(repeat, separators=(",", ":")).encode()
+    repeat_upload = await client.post(
+        "/v1/devices/me/inventory",
+        headers=paired_device.signed_headers("/v1/devices/me/inventory", encoded_repeat),
+        content=encoded_repeat,
+    )
+    assert repeat_upload.status_code == 202, repeat_upload.text
+
+    preserved = await client.get(path, headers=parent_headers)
+    assert preserved.json() == [
+        {
+            "platform_app_id": "com.example.duplicate",
+            "display_name": "Changed name",
+            "category": "EDUCATION",
+            "observed_at": "2026-08-14T20:02:00Z",
+            "reviewed": True,
+        }
+    ]

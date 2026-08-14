@@ -1,5 +1,6 @@
 # ruff: noqa: E501
 from fastapi import APIRouter
+from sqlalchemy.dialects.postgresql import insert
 
 from ..api.handler_support import (
     UTC,
@@ -156,26 +157,27 @@ async def ingest_inventory(
     session: AsyncSession = Depends(get_session),
 ) -> None:
     for app in body.apps:
-        existing = await session.scalar(
-            select(ChildAppInventory).where(
-                ChildAppInventory.child_profile_id == device.child_profile_id,
-                ChildAppInventory.platform_app_id == app.platform_app_id,
+        await session.execute(
+            insert(ChildAppInventory)
+            .values(
+                child_profile_id=device.child_profile_id,
+                platform_app_id=app.platform_app_id,
+                display_name=app.display_name,
+                category=app.category,
+                observed_at=app.observed_at,
+            )
+            .on_conflict_do_update(
+                index_elements=[
+                    ChildAppInventory.child_profile_id,
+                    ChildAppInventory.platform_app_id,
+                ],
+                set_={
+                    "display_name": app.display_name,
+                    "category": app.category,
+                    "observed_at": app.observed_at,
+                },
             )
         )
-        if existing is None:
-            session.add(
-                ChildAppInventory(
-                    child_profile_id=device.child_profile_id,
-                    platform_app_id=app.platform_app_id,
-                    display_name=app.display_name,
-                    category=app.category,
-                    observed_at=app.observed_at,
-                )
-            )
-        else:
-            existing.display_name = app.display_name
-            existing.category = app.category
-            existing.observed_at = app.observed_at
     device.last_seen_at = datetime.now(UTC)
     await session.commit()
 
