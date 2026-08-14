@@ -7,9 +7,12 @@
 
 export type AgeBand = "YOUNG_CHILD" | "PRETEEN" | "TEEN" | "OLDER_TEEN";
 export type BasePolicy = {
+  [k: string]: unknown;
+} & {
   timezone: string;
   unknown_domain_policy: UnknownDomainPolicy;
   unknown_app_policy: UnknownAppPolicy;
+  current_manual_routine_id?: string | null;
   unknown_app_daily_minutes?: number;
   daily_device_budget_minutes?: number;
   hard_category_rules: CategoryRule[];
@@ -22,6 +25,8 @@ export type BasePolicy = {
 export type UnknownDomainPolicy = "BLOCK" | "BLOCK_WHILE_CLASSIFYING" | "ALLOW_WHILE_CLASSIFYING" | "ALLOW_AND_NOTIFY";
 export type UnknownAppPolicy = "BLOCK" | "LIMIT_AND_NOTIFY" | "ALLOW_AND_NOTIFY" | "ALLOW";
 export type CategoryRule = {
+  [k: string]: unknown;
+} & {
   rule_id: string;
   category: Category;
   action: Action;
@@ -58,6 +63,8 @@ export type Category =
   | "UNKNOWN";
 export type Action = "ALLOW" | "BLOCK" | "UNLIMITED" | "LIMIT" | "SCHEDULE" | "ASK_PARENT";
 export type AppRule = {
+  [k: string]: unknown;
+} & {
   rule_id: string;
   app_ref: string;
   action: Action;
@@ -66,6 +73,8 @@ export type AppRule = {
   exclude_from_budget?: boolean;
 };
 export type DomainRule = {
+  [k: string]: unknown;
+} & {
   rule_id: string;
   domain: string;
   match?: "EXACT" | "SUBDOMAINS";
@@ -75,6 +84,8 @@ export type DomainRule = {
   exclude_from_budget?: boolean;
 };
 export type Routine = {
+  [k: string]: unknown;
+} & {
   routine_id: string;
   name: string;
   kind: "SCHEDULED" | "MANUAL";
@@ -87,6 +98,8 @@ export type Routine = {
   communication_mode?: "NORMAL" | "ESSENTIAL_ONLY";
 };
 export type TemporaryOverride = {
+  [k: string]: unknown;
+} & {
   rule_id: string;
   target_kind: "APP" | "DOMAIN" | "CATEGORY";
   target_ref: string;

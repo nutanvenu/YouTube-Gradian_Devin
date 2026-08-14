@@ -741,6 +741,13 @@ shared §31 state-component matrix still need dedicated tests.
   service's Back action could close the activity it had just launched. The
   service now delays the launch after Back; the rebuilt APK screenshot and
   activity-manager evidence show the native surface is displayed.
+- Manual routine activation is now carried in the signed policy as
+  `base_policy.current_manual_routine_id`; the child applies that value to its
+  persisted native snapshot and passes it into local app/domain evaluation.
+- Schedule editing, unknown-app policy controls, and manual routine
+  activation are exposed in the parent Rules screen and use real policy
+  mutations. Rules show pending sync until the device acknowledges the
+  resulting signed policy version.
 - Backend startup now refuses missing/invalid signing configuration. The local
   ignored `backend/.env` contains a generated key for the current process.
 
@@ -797,9 +804,47 @@ policy:
 .scratch/emulator/option-b-v7-no-policy-allowed-final.png
 ```
 
+## Manual routine, schedule, and unknown-app implementation
+
+The parent Rules screen now sends `ROUTINE_ACTIVATE` and
+`ROUTINE_DEACTIVATE` mutations in addition to routine CRUD. The backend
+creates a new signed policy version for each activation change, and the
+native evaluator uses the signed `current_manual_routine_id` rather than a
+JS-only flag. Schedule and unknown-app controls likewise send the real policy
+mutation operations and remain pending until device acknowledgement.
+
+Focused backend and native tests passed for activation/deactivation and local
+manual-routine precedence. After rebuilding the debug APK with the trusted
+backend key, a real backend mutation created policy version 18 and activated
+`live-focus-2` as version 19:
+
+```text
+created_version=18
+activated_version=19
+active_manual_routine=live-focus-2
+POLICY_APPLIED {"version":19}
+APP_BLOCKED {"appRef":"com.android.chrome","reasonCode":"MANUAL_ROUTINE"}
+topResumedActivity=...GuardianBlockActivity
+```
+
+Evidence:
+
+```text
+.scratch/emulator/item2-manual-routine-block-2.png
+```
+
+The first attempt correctly reported Accessibility as unavailable; the
+service was then enabled through the real Android Accessibility settings
+screen and the repeated Chrome launch displayed the native block activity.
+This demonstrates the local manual-routine decision and block surface on the
+emulator. The parent Rules screen and WebSocket invalidation source paths are
+implemented, but a separate parent-role visual mutation/WebSocket capture
+was not completed in this handoff.
+
 ## Exact next task
 
-Continue with manual routine activation, proof-of-possession signing, OpenAPI
-generation/drift enforcement, and expanded mobile tests. Keep the numeric live
-counter, manual routine activation, and offline request-queue limitations
-explicit.
+Continue with offline child-request queueing and sync, device
+proof-of-possession signing, OpenAPI generation/drift enforcement, remaining
+`route_handlers.py` extraction, and expanded mobile tests. Keep the numeric
+live counter, parent Rules/WebSocket visual capture, and offline
+request-queue limitations explicit.

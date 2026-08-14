@@ -237,6 +237,8 @@ class PolicyMutationIn(BaseModel):
         "ROUTINE_CREATE",
         "ROUTINE_UPDATE",
         "ROUTINE_DELETE",
+        "ROUTINE_ACTIVATE",
+        "ROUTINE_DEACTIVATE",
         "COMMUNICATION_SENSITIVITY",
         "TEMPORARY_EXCEPTION",
     ]

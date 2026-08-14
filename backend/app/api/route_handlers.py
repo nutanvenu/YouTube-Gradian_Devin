@@ -727,10 +727,17 @@ async def mutate_policy(
         base = policy_mapping(policy, "base_policy")
         base[field] = body.value
         policy["base_policy"] = base
-    elif operation in {"ROUTINE_CREATE", "ROUTINE_UPDATE", "ROUTINE_DELETE"}:
+    elif operation in {"ROUTINE_CREATE", "ROUTINE_UPDATE", "ROUTINE_DELETE", "ROUTINE_ACTIVATE", "ROUTINE_DEACTIVATE"}:
         routines = policy_records(policy, "routines")
         if operation == "ROUTINE_DELETE":
             routines = [routine for routine in routines if routine.get("routine_id") != body.target]
+        elif operation in {"ROUTINE_ACTIVATE", "ROUTINE_DEACTIVATE"}:
+            routine = next((item for item in routines if item.get("routine_id") == body.target), None)
+            if routine is None or routine.get("kind") != "MANUAL":
+                raise HTTPException(status.HTTP_404_NOT_FOUND, "Manual routine not found")
+            base = policy_mapping(policy, "base_policy")
+            base["current_manual_routine_id"] = body.target if operation == "ROUTINE_ACTIVATE" else None
+            policy["base_policy"] = base
         elif not isinstance(body.value, dict):
             raise HTTPException(status.HTTP_422_UNPROCESSABLE_ENTITY, "Routine value required")
         elif operation == "ROUTINE_CREATE":

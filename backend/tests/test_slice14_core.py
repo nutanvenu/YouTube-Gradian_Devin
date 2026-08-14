@@ -102,6 +102,40 @@ async def test_parent_policy_override_surface_records_audit_fields(client, paren
 
 
 @pytest.mark.asyncio
+async def test_manual_routine_activation_is_carried_in_signed_policy(client, parent_a) -> None:
+    headers = {"Authorization": f"Bearer {parent_a.token}"}
+    created = await client.post(
+        f"/v1/families/{parent_a.family_id}/children/{parent_a.child_id}/policy/mutations",
+        headers=headers,
+        json={
+            "operation": "ROUTINE_CREATE",
+            "target": "focus",
+            "value": {
+                "routine_id": "focus",
+                "name": "Focus",
+                "kind": "MANUAL",
+                "blocked_apps": ["com.example.video"],
+            },
+        },
+    )
+    assert created.status_code == 200
+    activated = await client.post(
+        f"/v1/families/{parent_a.family_id}/children/{parent_a.child_id}/policy/mutations",
+        headers=headers,
+        json={"operation": "ROUTINE_ACTIVATE", "target": "focus"},
+    )
+    assert activated.status_code == 200
+    assert activated.json()["bundle"]["base_policy"]["current_manual_routine_id"] == "focus"
+    deactivated = await client.post(
+        f"/v1/families/{parent_a.family_id}/children/{parent_a.child_id}/policy/mutations",
+        headers=headers,
+        json={"operation": "ROUTINE_DEACTIVATE", "target": "focus"},
+    )
+    assert deactivated.status_code == 200
+    assert deactivated.json()["bundle"]["base_policy"]["current_manual_routine_id"] is None
+
+
+@pytest.mark.asyncio
 async def test_device_push_token_registration_is_device_scoped(client, paired_device) -> None:
     headers = {"Authorization": f"Bearer {paired_device.device_token}"}
     response = await client.post(

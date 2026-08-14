@@ -16,9 +16,9 @@ import {
 } from "@/design-system";
 
 type PolicyRecord = Record<string, unknown>;
-type AppRule = { app_ref?: string; action?: string; daily_minutes?: number };
+type AppRule = { app_ref?: string; action?: string; daily_minutes?: number; schedule?: { days?: number[]; start?: string; end?: string } };
 type DomainRule = { domain?: string; action?: string };
-type Routine = { routine_id: string; name: string; kind: "MANUAL" | "SCHEDULED"; blocked_categories?: string[] };
+type Routine = { routine_id: string; name: string; kind: "MANUAL" | "SCHEDULED"; blocked_categories?: string[]; blocked_apps?: string[]; window?: { days?: number[]; start?: string; end?: string } };
 
 function record(value: unknown): PolicyRecord {
   return value && typeof value === "object" ? value as PolicyRecord : {};
@@ -33,6 +33,8 @@ export default function ParentRulesRoute() {
   const queryClient = useQueryClient();
   const [domain, setDomain] = useState("");
   const [minutes, setMinutes] = useState("30");
+  const [scheduleStart, setScheduleStart] = useState("09:00");
+  const [scheduleEnd, setScheduleEnd] = useState("17:00");
   const [message, setMessage] = useState<string | null>(null);
   const children = useQuery({
     queryKey: ["children", familyId],
@@ -94,6 +96,9 @@ export default function ParentRulesRoute() {
                 <SecondaryButton label="Allow" onPress={() => save({ operation: "APP_ALLOW", target: app.platformAppId })} />
                 <SecondaryButton label="Block" onPress={() => save({ operation: "APP_BLOCK", target: app.platformAppId })} />
                 <SecondaryButton label={`Limit to ${minutes || "30"} minutes`} onPress={() => save({ operation: "APP_DAILY_MINUTES", target: app.platformAppId, value: Number(minutes) || 30 })} />
+                <TextField label="Schedule start (HH:MM)" value={scheduleStart} onChangeText={setScheduleStart} />
+                <TextField label="Schedule end (HH:MM)" value={scheduleEnd} onChangeText={setScheduleEnd} />
+                <SecondaryButton label="Save weekday schedule" onPress={() => save({ operation: "APP_SCHEDULE", target: app.platformAppId, value: { days: [1, 2, 3, 4, 5], start: scheduleStart, end: scheduleEnd } })} />
                 <SecondaryButton label="Unlimited" onPress={() => save({ operation: "APP_UNLIMITED", target: app.platformAppId })} />
               </CardSurface>
             );
@@ -109,6 +114,9 @@ export default function ParentRulesRoute() {
           <Text>Unknown websites: {typeof basePolicy.unknown_domain_policy === "string" ? basePolicy.unknown_domain_policy : "Unknown"}</Text>
           <SecondaryButton label="Block unknown websites" onPress={() => save({ operation: "UNKNOWN_DOMAIN_POLICY", target: "unknown", value: "BLOCK" })} />
           <SecondaryButton label="Allow unknown websites with notice" onPress={() => save({ operation: "UNKNOWN_DOMAIN_POLICY", target: "unknown", value: "ALLOW_AND_NOTIFY" })} />
+          <Text>Unknown apps: {typeof basePolicy.unknown_app_policy === "string" ? basePolicy.unknown_app_policy : "Unknown"}</Text>
+          <SecondaryButton label="Block unknown apps" onPress={() => save({ operation: "UNKNOWN_APP_POLICY", target: "unknown", value: "BLOCK" })} />
+          <SecondaryButton label="Allow unknown apps with notice" onPress={() => save({ operation: "UNKNOWN_APP_POLICY", target: "unknown", value: "ALLOW_AND_NOTIFY" })} />
         </SectionSurface>
         <SectionSurface>
           <Text>Category budgets</Text>
@@ -126,6 +134,12 @@ export default function ParentRulesRoute() {
           {routines.map((routine) => (
             <CardSurface key={routine.routine_id}>
               <ListRow label={routine.name} value={routine.kind} />
+              {routine.kind === "MANUAL" ? (
+                <>
+                  <SecondaryButton label="Activate on child's device" onPress={() => save({ operation: "ROUTINE_ACTIVATE", target: routine.routine_id })} />
+                  <SecondaryButton label="Deactivate on child's device" onPress={() => save({ operation: "ROUTINE_DEACTIVATE", target: routine.routine_id })} />
+                </>
+              ) : null}
               <SecondaryButton label="Delete routine" onPress={() => save({ operation: "ROUTINE_DELETE", target: routine.routine_id })} />
             </CardSurface>
           ))}
@@ -137,7 +151,7 @@ export default function ParentRulesRoute() {
               value: { routine_id: `manual-${Date.now()}`, name: "Focus time", kind: "MANUAL", blocked_categories: ["SOCIAL_MEDIA", "GAMES"] },
             })}
           />
-          <Text>Manual activation is shown only when the child device exposes a local routine activation control.</Text>
+          <Text>Manual activation is delivered in the signed policy and becomes active only after the child device acknowledges it.</Text>
         </SectionSurface>
       </DataState>
     </ScreenScaffold>

@@ -39,6 +39,7 @@ object GuardianPolicyRuntime {
           usageTodayMs = 0,
           sessionMs = null,
           activeRoutineIds = emptySet(),
+          currentManualRoutineId = (it.basePolicy["current_manual_routine_id"] as? String),
           signal = null,
         ),
       )
@@ -66,6 +67,7 @@ object GuardianPolicyRuntime {
         usageTodayMs = usage.appMillis,
         sessionMs = null,
         activeRoutineIds = emptySet(),
+        currentManualRoutineId = (current.basePolicy["current_manual_routine_id"] as? String),
         signal = null,
         category = category,
         deviceUsageTodayMs = usage.deviceMillis,
