@@ -21,18 +21,33 @@ export default function ParentActivityRoute() {
     queryKey: ["usage-summary"],
     queryFn: () => GuardianProtection.getUsageSummary({ start: startOfDay(), end: new Date().toISOString() }),
   });
+  const activityEvents = activity.data ?? [];
+  const activityUsagePoints = activityUsage.data ?? [];
+  const usageTargets = usage.data?.byTarget ?? {};
+  const hasData = activityEvents.length > 0 || activityUsagePoints.length > 0 || Object.keys(usageTargets).length > 0;
+  const state = activity.isLoading || activityUsage.isLoading || usage.isLoading
+    ? "loading"
+    : activity.isError || activityUsage.isError || usage.isError
+      ? "error"
+      : isOffline
+        ? "offline"
+        : activity.isStale || activityUsage.isStale || usage.isStale
+          ? "stale"
+          : !activity.data || !activityUsage.data || !usage.data
+            ? "loading"
+            : hasData ? "loaded" : "empty";
   return (
     <ScreenScaffold title="Activity">
-      <DataState state={activity.isLoading || activityUsage.isLoading || usage.isLoading ? "loading" : activity.isError || activityUsage.isError || usage.isError ? "error" : isOffline ? "offline" : activity.isStale || activityUsage.isStale || usage.isStale ? "stale" : "loaded"} onRetry={() => { void activity.refetch(); void activityUsage.refetch(); void usage.refetch(); }}>
+      <DataState state={state} onRetry={() => { void activity.refetch(); void activityUsage.refetch(); void usage.refetch(); }}>
         <SectionSurface>
           <Text>Today’s usage</Text>
-          {usage.data?.byTarget && Object.keys(usage.data.byTarget).length > 0
-            ? Object.entries(usage.data.byTarget).map(([target, seconds]) => <ListRow key={target} label={target} value={`${Math.round(seconds / 60)} min`} />)
+          {Object.keys(usageTargets).length > 0
+            ? Object.entries(usageTargets).map(([target, seconds]) => <ListRow key={target} label={target} value={`${Math.round(seconds / 60)} min`} />)
             : <Text>Unknown · this device has not provided a usage summary.</Text>}
         </SectionSurface>
         <SectionSurface>
           <Text>Usage over time</Text>
-          {activityUsage.data?.length ? activityUsage.data.map((point) => (
+          {activityUsagePoints.length ? activityUsagePoints.map((point) => (
             <CardSurface key={`${point.occurred_at}-${point.app_ref ?? "unknown"}-${point.event_type}`}>
               <ListRow label={point.app_ref ?? "Unknown app"} value={`${Math.round(point.duration_seconds / 60)} min`} />
               <Text>{point.category ?? "Unknown category"} · {new Date(point.occurred_at).toLocaleString()}</Text>
@@ -41,7 +56,7 @@ export default function ParentActivityRoute() {
         </SectionSurface>
         <SectionSurface>
           <Text>Web and safety events</Text>
-          {activity.data?.length ? activity.data.map((event) => (
+          {activityEvents.length ? activityEvents.map((event) => (
             <CardSurface key={event.id}>
               <ListRow label={event.kind === "WEB" ? "Web event" : "Safety event"} value={event.event_type} />
               <Text>{event.domain ?? event.app_ref ?? "Unknown target"}</Text>
@@ -51,6 +66,13 @@ export default function ParentActivityRoute() {
           )) : <Text>Unknown · no backend events are available for this family.</Text>}
         </SectionSurface>
       </DataState>
+      {state === "empty" ? (
+        <SectionSurface>
+          <Text>Unknown · this family has not reported activity yet.</Text>
+          <Text>Unknown · no backend events are available for this family.</Text>
+          <Text>Unknown · no usage aggregates are available for this family.</Text>
+        </SectionSurface>
+      ) : null}
     </ScreenScaffold>
   );
 }

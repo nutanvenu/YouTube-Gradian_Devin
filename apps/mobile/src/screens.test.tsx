@@ -30,6 +30,12 @@ jest.mock("@/api/client", () => ({
     requests: () => Promise.resolve([]),
     activity: () => Promise.resolve([]),
     activityUsage: () => Promise.resolve([]),
+    childInventory: () => Promise.resolve([]),
+    reviewChildApp: (...args: unknown[]) => {
+      mockReviewApp(...args);
+      return Promise.resolve();
+    },
+    ingestInventory: () => Promise.resolve(),
   },
 }));
 
@@ -90,7 +96,7 @@ beforeEach(() => {
 
 test("Rules renders loading and pending-sync states and submits an app limit", async () => {
   setQuery(["children", "family-1"], { isLoading: true });
-  setQuery(["guardian-inventory"], { isLoading: true });
+  setQuery(["child-inventory", "family-1", "child-1"], { isLoading: true });
   const loading = render(<RulesScreen />);
   expect(loading.getByLabelText("Loading")).toBeTruthy();
   loading.unmount();
@@ -102,8 +108,8 @@ test("Rules renders loading and pending-sync states and submits an app limit", a
       policy_document: { app_rules: [], domain_rules: [], base_policy: {} },
     }],
   });
-  setQuery(["guardian-inventory"], {
-    data: [{ platformAppId: "com.example.app", displayName: "Example", iconUri: null }],
+  setQuery(["child-inventory", "family-1", "child-1"], {
+    data: [{ platform_app_id: "com.example.app", display_name: "Example", category: null, reviewed: true }],
   });
   setQuery(["health", "family-1"], { data: [] });
   const screen = render(<RulesScreen />);
@@ -125,15 +131,15 @@ test("Rules keeps a newly observed app in review until the parent marks it revie
     }],
   });
   const refetch = jest.fn();
-  setQuery(["guardian-inventory"], {
-    data: [{ platformAppId: "com.example.new", displayName: "New app", newlyObserved: true, iconUri: null }],
+  setQuery(["child-inventory", "family-1", "child-1"], {
+    data: [{ platform_app_id: "com.example.new", display_name: "New app", category: null, reviewed: false }],
     refetch,
   });
   setQuery(["health", "family-1"], { data: [] });
   const screen = render(<RulesScreen />);
   expect(screen.getByText("This app was newly observed on the child device. Review it before treating it as trusted.")).toBeTruthy();
   fireEvent.press(screen.getByLabelText("Mark app reviewed"));
-  await waitFor(() => expect(mockReviewApp).toHaveBeenCalledWith("com.example.new"));
+  await waitFor(() => expect(mockReviewApp).toHaveBeenCalledWith("family-1", "child-1", "com.example.new"));
   expect(refetch).toHaveBeenCalled();
 });
 
@@ -162,7 +168,7 @@ test("Requests renders retry and terminal approval states", async () => {
 
 test("Rules and Requests render stale and offline states", () => {
   setQuery(["children", "family-1"], { data: [], isStale: true });
-  setQuery(["guardian-inventory"], { data: [] });
+  setQuery(["child-inventory", "family-1", "child-1"], { data: [] });
   const staleRules = render(<RulesScreen />);
   expect(staleRules.getByText("This data may be out of date.")).toBeTruthy();
   staleRules.unmount();
@@ -188,9 +194,10 @@ test("Protection Health renders permission-denied and platform-unavailable capab
   expect(screen.getByText("DEGRADED")).toBeTruthy();
 });
 
-test("Activity renders unknown empty data and retries errors", () => {
+test("Activity renders empty data distinctly from endpoint errors", () => {
   const refetch = jest.fn();
   setQuery(["activity", "family-1"], { data: [], isError: true, refetch });
+  setQuery(["activity-usage", "family-1"], { data: [] });
   setQuery(["usage-summary"], { data: { byTarget: {} } });
   const screen = render(<ActivityScreen />);
   fireEvent.press(screen.getByLabelText("Retry"));
@@ -199,9 +206,12 @@ test("Activity renders unknown empty data and retries errors", () => {
   screen.unmount();
 
   setQuery(["activity", "family-1"], { data: [] });
+  setQuery(["activity-usage", "family-1"], { data: [] });
   const loaded = render(<ActivityScreen />);
+  expect(loaded.getByText("Nothing to show yet.")).toBeTruthy();
+  expect(loaded.getByText("Unknown · this family has not reported activity yet.")).toBeTruthy();
   expect(loaded.getByText("Unknown · no backend events are available for this family.")).toBeTruthy();
-  expect(loaded.getByText("Unknown · this device has not provided a usage summary.")).toBeTruthy();
+  expect(loaded.getByText("Unknown · no usage aggregates are available for this family.")).toBeTruthy();
 });
 
 test("screen test harness can render a state marker", () => {
