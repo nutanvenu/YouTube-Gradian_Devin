@@ -68,7 +68,7 @@ export default function ChildHomeRoute() {
         return;
       }
       await GuardianProtection.startProtection();
-      setProtectionMessage("Web protection is active.");
+      setProtectionMessage("Web protection is active for DNS and known blocked destinations. Other traffic may bypass Guardian.");
     };
     void syncProtection().catch(() => {
       if (!cancelled) setProtectionMessage("Web protection is unavailable.");

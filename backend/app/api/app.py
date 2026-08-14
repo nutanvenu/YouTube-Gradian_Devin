@@ -25,5 +25,4 @@ for router in (
     push_router,
 ):
     app.include_router(router)
-
 __all__ = ["app", "notifier"]

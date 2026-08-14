@@ -132,7 +132,10 @@ class PolicySigner:
         if not settings.policy_private_key:
             raise RuntimeError("GUARDIAN_POLICY_PRIVATE_KEY is not configured")
         if self._private_key is None:
-            raw = base64.b64decode(settings.policy_private_key, validate=True)
+            try:
+                raw = base64.b64decode(settings.policy_private_key, validate=True)
+            except (ValueError, TypeError):
+                raise RuntimeError("GUARDIAN_POLICY_PRIVATE_KEY must be base64") from None
             if len(raw) != 32:
                 raise RuntimeError("GUARDIAN_POLICY_PRIVATE_KEY must decode to 32 bytes")
             self._private_key = Ed25519PrivateKey.from_private_bytes(raw)
@@ -150,6 +153,10 @@ class PolicySigner:
     def public_key(self) -> str:
         raw = self._key().public_key().public_bytes(Encoding.Raw, PublicFormat.Raw)
         return base64.b64encode(raw).decode("ascii")
+
+
+def validate_configured_signing_key() -> None:
+    PolicySigner()._key()
 
 
 signer = PolicySigner()

@@ -32,6 +32,14 @@ export default function ParentHomeRoute() {
             <Text>Usage Access lets Guardian measure foreground time. Accessibility lets Guardian identify the foreground app and enforce limits. Guardian cannot read passwords, messages, or screen content.</Text>
             <ListRow label="Usage Access" value={capabilityState.app_usage.level} onPress={() => void GuardianProtection.openUsageAccessSettings()} />
             <ListRow label="Accessibility" value={capabilityState.accessibility_signals.level} onPress={() => void GuardianProtection.openAccessibilitySettings()} />
+            <ListRow
+              label="Web protection"
+              value={capabilities.data?.web_filtering.level ?? "Checking"}
+            />
+            <Text>
+              Guardian protects DNS requests and destinations identified as blocked by policy.
+              Unrouted traffic, some QUIC/DoH flows, and IP-only traffic may bypass domain attribution.
+            </Text>
           </CardSurface>
           <CardSurface>
             <Text>Installed apps</Text>

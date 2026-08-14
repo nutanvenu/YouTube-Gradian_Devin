@@ -6,6 +6,7 @@ import android.app.NotificationManager
 import android.content.Context
 import android.content.Intent
 import android.net.ConnectivityManager
+import android.net.LinkProperties
 import android.net.Network
 import android.net.NetworkCapabilities
 import android.net.VpnService
@@ -21,24 +22,25 @@ import java.io.FileOutputStream
 import java.net.DatagramPacket
 import java.net.DatagramSocket
 import java.net.InetAddress
-import java.net.InetSocketAddress
-import java.net.Socket
-import java.util.concurrent.ConcurrentHashMap
 import java.util.concurrent.CopyOnWriteArraySet
-import java.util.concurrent.ThreadLocalRandom
 import java.util.concurrent.atomic.AtomicBoolean
 
+/**
+ * Selective-route VPN. Only DNS servers and destinations already classified as
+ * blocked enter the TUN. Ordinary allowed traffic stays on Android's network.
+ */
 class GuardianVpnService : VpnService() {
-  private var interfaceFd: ParcelFileDescriptor? = null
-  private var worker: Thread? = null
-  private var networkCallback: ConnectivityManager.NetworkCallback? = null
+  private val stateLock = Any()
   private val running = AtomicBoolean(false)
-  private val flows = ConcurrentHashMap<FlowKey, Flow>()
+  private val failureReasons = CopyOnWriteArraySet<String>()
+  private val blockedRoutes = BlockedDestinationRoutes(MAX_BLOCKED_DESTINATIONS)
   private val dnsCache = DnsCache()
   private val attribution by lazy { AndroidFlowAttribution(this) }
-  private val outputLock = Any()
-  private val failureReasons = CopyOnWriteArraySet<String>()
+  private var interfaceFd: ParcelFileDescriptor? = null
+  private var worker: Thread? = null
   private var output: FileOutputStream? = null
+  private var networkCallback: ConnectivityManager.NetworkCallback? = null
+  private var dnsServers: List<InetAddress> = emptyList()
 
   override fun onStartCommand(intent: Intent?, flags: Int, startId: Int): Int {
     if (running.compareAndSet(false, true)) {
@@ -51,16 +53,9 @@ class GuardianVpnService : VpnService() {
       }
       ensurePolicyRuntime()
       registerNetworkCallback()
-      interfaceFd = Builder()
-        .setSession("Guardian protection")
-        .setMtu(1500)
-        .addAddress("10.0.0.2", 32)
-        .addAddress("fd00:0:0:0:0:0:0:2", 128)
-        .addRoute("0.0.0.0", 0)
-        .addRoute("::", 0)
-        .addDnsServer("10.0.0.1")
-        .establish()
-      if (interfaceFd == null) {
+      dnsServers = currentDnsServers()
+      addKnownResolverRoutes()
+      if (!establishInterface()) {
         GuardianVpnPreferences.setEnabled(this, false)
         fail("VPN_ESTABLISH_FAILED")
         stopSelf()
@@ -68,8 +63,7 @@ class GuardianVpnService : VpnService() {
       }
       GuardianVpnPreferences.setEnabled(this, true)
       runningState = true
-      worker = Thread(::runPacketLoop, "guardian-vpn")
-      worker?.start()
+      startPacketWorker()
     }
     return START_STICKY
   }
@@ -88,90 +82,85 @@ class GuardianVpnService : VpnService() {
       getSystemService(ConnectivityManager::class.java).unregisterNetworkCallback(it)
     }
     networkCallback = null
-    flows.values.forEach { it.close() }
-    flows.clear()
     worker?.interrupt()
-    interfaceFd?.close()
-    interfaceFd = null
-    output = null
+    synchronized(stateLock) {
+      output?.close()
+      output = null
+      interfaceFd?.close()
+      interfaceFd = null
+    }
+    blockedRoutes.clear()
     super.onDestroy()
   }
 
+  private fun startPacketWorker() {
+    worker = Thread(::runPacketLoop, "guardian-vpn").also { it.start() }
+  }
+
   private fun runPacketLoop() {
-    val fd = interfaceFd ?: return
+    val fd = synchronized(stateLock) { interfaceFd } ?: return
     val input = FileInputStream(fd.fileDescriptor)
-    output = FileOutputStream(fd.fileDescriptor)
+    val localOutput = FileOutputStream(fd.fileDescriptor)
+    synchronized(stateLock) {
+      output = localOutput
+    }
     val packet = ByteArray(32767)
     try {
-      while (running.get()) {
+      while (running.get() && synchronized(stateLock) { interfaceFd === fd }) {
         val length = input.read(packet)
         if (length <= 0) continue
+        if (blockedRoutes.prune()) restartInterface()
         val ip = PacketCodec.parseIp(packet, length) ?: continue
         when (ip.protocol) {
           UDP -> handleUdp(ip)
-          TCP -> handleTcp(ip)
-          else -> failOnce("UNSUPPORTED_IP_PROTOCOL_${ip.protocol}")
+          TCP -> handleBlockedTcp(ip)
+          else -> Unit
         }
       }
     } catch (_: Exception) {
       if (running.get()) fail("VPN_PACKET_LOOP_FAILED")
     } finally {
       input.close()
-      output?.close()
-      output = null
+      localOutput.close()
+      synchronized(stateLock) {
+        if (output === localOutput) output = null
+      }
     }
   }
 
   private fun handleUdp(ip: IpPacket) {
     val datagram = PacketCodec.parseUdp(ip.payload) ?: return
     val key = FlowKey(ip, datagram.sourcePort, datagram.destinationPort)
-    val responsibleApp = attribution.packageNamesForFlow(key.attributionKey()).firstOrNull()
     if (datagram.destinationPort == DNS_PORT) {
-      handleDns(ip, datagram)
+      handleDns(ip, datagram, key)
       return
     }
+    if (!blockedRoutes.contains(ip.destination)) return
     val domain = dnsCache.domainFor(ip.destination)
-    if (datagram.destinationPort == QUIC_PORT && domain == null && GuardianPolicyRuntime.hasActiveSnapshot()) {
-      failOnce("QUIC_DOMAIN_UNRESOLVED")
-      return
-    }
+    val responsibleApp = attribution.packageNamesForFlow(key.attributionKey()).firstOrNull()
     if (domain != null) {
       val decision = GuardianPolicyRuntime.evaluateDomain(domain, ip.destination.hostAddress)
-      if (decision.blocked) {
-        reportBlocked(domain, decision, responsibleApp)
-        return
-      }
-    }
-    val currentFlow = flows[key] as? UdpFlow
-    if (currentFlow != null) {
-      currentFlow.send(datagram.payload)
-      return
-    }
-    if (flows.size >= MAX_FLOWS) {
-      failOnce("FLOW_LIMIT_REACHED")
-      return
-    }
-    val candidate = UdpFlow(key, ip)
-    val claimedFlow = flows.putIfAbsent(key, candidate)
-    if (claimedFlow == null) {
-      candidate.start()
-      candidate.send(datagram.payload)
-    } else {
-      (claimedFlow as? UdpFlow)?.send(datagram.payload)
+      if (decision.blocked) reportBlocked(domain, decision, responsibleApp)
+    } else if (datagram.destinationPort == QUIC_PORT) {
+      failOnce("QUIC_BLOCKED_DESTINATION_UNATTRIBUTED")
     }
   }
 
-  private fun handleDns(ip: IpPacket, datagram: UdpDatagram) {
-    val query = DnsMessage.parse(datagram.payload) ?: return
-    val responsibleApp = attribution.packageNamesForFlow(
-      FlowKey(ip, datagram.sourcePort, datagram.destinationPort).attributionKey(),
-    ).firstOrNull()
-    val decision = GuardianPolicyRuntime.evaluateDomain(query.domain, ip.destination.hostAddress)
+  private fun handleBlockedTcp(ip: IpPacket) {
+    if (!blockedRoutes.contains(ip.destination)) return
+    val segment = PacketCodec.parseTcp(ip.payload) ?: return
+    val key = FlowKey(ip, segment.sourcePort, segment.destinationPort)
+    val domain = dnsCache.domainFor(ip.destination) ?: return
+    val decision = GuardianPolicyRuntime.evaluateDomain(domain, ip.destination.hostAddress)
     if (decision.blocked) {
-      reportBlocked(query.domain, decision, responsibleApp)
-      write(PacketCodec.buildUdp(ip, ip.destination, ip.source, datagram.destinationPort, datagram.sourcePort, query.blockedResponse()))
-      return
+      val responsibleApp = attribution.packageNamesForFlow(key.attributionKey()).firstOrNull()
+      reportBlocked(domain, decision, responsibleApp)
     }
+  }
+
+  private fun handleDns(ip: IpPacket, datagram: UdpDatagram, key: FlowKey) {
+    val query = DnsMessage.parse(datagram.payload) ?: return
+    val responsibleApp = attribution.packageNamesForFlow(key.attributionKey()).firstOrNull()
     val upstream = if (ip.isIpv6) InetAddress.getByName("2606:4700:4700::1111")
     else InetAddress.getByName("1.1.1.1")
     runCatching {
@@ -183,47 +172,37 @@ class GuardianVpnService : VpnService() {
         val response = DatagramPacket(received, received.size)
         socket.receive(response)
         val payload = response.data.copyOf(response.length)
-        dnsCache.record(query.domain, payload)
-        write(PacketCodec.buildUdp(ip, ip.destination, ip.source, datagram.destinationPort, datagram.sourcePort, payload))
+        val decision = GuardianPolicyRuntime.evaluateDomain(query.domain, ip.destination.hostAddress)
+        if (decision.blocked) {
+          val leases = dnsCache.record(query.domain, payload)
+          val routesChanged = leases.any { blockedRoutes.add(it.address, it.expiresAtMillis) }
+          reportBlocked(query.domain, decision, responsibleApp)
+          write(PacketCodec.buildUdp(
+            ip,
+            ip.destination,
+            ip.source,
+            datagram.destinationPort,
+            datagram.sourcePort,
+            query.blockedResponse(),
+          ))
+          if (routesChanged) restartInterface()
+        } else {
+          dnsCache.record(query.domain, payload)
+          write(PacketCodec.buildUdp(
+            ip,
+            ip.destination,
+            ip.source,
+            datagram.destinationPort,
+            datagram.sourcePort,
+            payload,
+          ))
+        }
       }
     }.onFailure { fail("DNS_UPSTREAM_UNAVAILABLE") }
   }
 
-  private fun handleTcp(ip: IpPacket) {
-    val segment = PacketCodec.parseTcp(ip.payload) ?: return
-    val key = FlowKey(ip, segment.sourcePort, segment.destinationPort)
-    val responsibleApp = attribution.packageNamesForFlow(key.attributionKey()).firstOrNull()
-    val existing = flows[key] as? TcpFlow
-    if (existing != null) {
-      existing.accept(segment)
-      return
-    }
-    val domain = dnsCache.domainFor(ip.destination)
-    if (domain != null) {
-      val decision = GuardianPolicyRuntime.evaluateDomain(domain, ip.destination.hostAddress)
-      if (decision.blocked) {
-        reportBlocked(domain, decision, responsibleApp)
-        write(PacketCodec.buildTcp(ip, ip.destination, ip.source, segment.destinationPort, segment.sourcePort, 0, segment.sequence + 1, RST or ACK, 0))
-        return
-      }
-    }
-    if (!segment.syn || segment.ack) return
-    if (flows.size >= MAX_FLOWS) {
-      failOnce("FLOW_LIMIT_REACHED")
-      write(PacketCodec.buildTcp(ip, ip.destination, ip.source, segment.destinationPort, segment.sourcePort, 0, segment.sequence + 1, RST or ACK, 0))
-      return
-    }
-    val flow = TcpFlow(key, ip, segment)
-    val claimedFlow = flows.putIfAbsent(key, flow)
-    if (claimedFlow == null) {
-      flow.start()
-    } else {
-      flow.close()
-    }
-  }
-
   private fun write(packet: ByteArray) {
-    synchronized(outputLock) {
+    synchronized(stateLock) {
       runCatching { output?.write(packet) }.onFailure { fail("VPN_OUTPUT_FAILED") }
     }
   }
@@ -251,11 +230,71 @@ class GuardianVpnService : VpnService() {
     if (!GuardianPolicyRuntime.hasActiveSnapshot()) failOnce("POLICY_UNAVAILABLE")
   }
 
+  private fun establishInterface(): Boolean {
+    val builder = Builder()
+      .setSession("Guardian protection")
+      .setMtu(1500)
+      .addAddress("10.0.0.2", 32)
+      .addAddress("fd00:0:0:0:0:0:0:2", 128)
+    dnsServers.ifEmpty { listOf(InetAddress.getByName("10.0.0.1")) }.forEach { dns ->
+      runCatching {
+        builder.addDnsServer(dns)
+        builder.addRoute(dns, if (dns.address.size == 4) 32 else 128)
+      }.onFailure { failOnce("DNS_ROUTE_CONFIGURATION_FAILED") }
+    }
+    blockedRoutes.addresses().forEach { address ->
+      runCatching {
+        builder.addRoute(address, if (address.address.size == 4) 32 else 128)
+      }.onFailure { failOnce("BLOCKED_ROUTE_CONFIGURATION_FAILED") }
+    }
+    val established = runCatching { builder.establish() }.getOrNull()
+    synchronized(stateLock) {
+      interfaceFd?.close()
+      interfaceFd = established
+    }
+    return established != null
+  }
+
+  private fun restartInterface() {
+    if (!running.get()) return
+    synchronized(stateLock) {
+      running.set(false)
+      worker?.interrupt()
+      output?.close()
+      output = null
+      interfaceFd?.close()
+      interfaceFd = null
+      running.set(true)
+      if (establishInterface()) startPacketWorker()
+      else fail("VPN_REESTABLISH_FAILED")
+    }
+  }
+
+  private fun currentDnsServers(): List<InetAddress> {
+    val connectivity = getSystemService(ConnectivityManager::class.java)
+    val network = connectivity.activeNetwork ?: return emptyList()
+    return connectivity.getLinkProperties(network)?.dnsServers.orEmpty()
+  }
+
+  private fun addKnownResolverRoutes() {
+    val expiresAt = System.currentTimeMillis() + KNOWN_ENDPOINT_TTL_MS
+    KNOWN_DOH_DOT_ENDPOINTS.forEach { endpoint ->
+      runCatching { blockedRoutes.add(InetAddress.getByName(endpoint), expiresAt) }
+    }
+  }
+
   private fun registerNetworkCallback() {
     val manager = getSystemService(ConnectivityManager::class.java)
     val callback = object : ConnectivityManager.NetworkCallback() {
       override fun onLost(network: Network) {
         if (manager.activeNetwork == null) failOnce("NETWORK_UNAVAILABLE")
+      }
+
+      override fun onLinkPropertiesChanged(network: Network, linkProperties: LinkProperties) {
+        if (linkProperties.dnsServers != dnsServers) {
+          dnsServers = linkProperties.dnsServers
+          restartInterface()
+        }
       }
 
       override fun onCapabilitiesChanged(network: Network, capabilities: NetworkCapabilities) {
@@ -299,127 +338,6 @@ class GuardianVpnService : VpnService() {
     }
   }
 
-  private abstract inner class Flow(
-    protected val key: FlowKey,
-    protected val request: IpPacket,
-  ) {
-    abstract fun close()
-  }
-
-  private inner class UdpFlow(
-    key: FlowKey,
-    request: IpPacket,
-  ) : Flow(key, request) {
-    private val socket = DatagramSocket()
-    private val closed = AtomicBoolean(false)
-
-    fun start() {
-      protect(socket)
-      Thread({
-        val buffer = ByteArray(65535)
-        while (!closed.get()) {
-          runCatching {
-            val packet = DatagramPacket(buffer, buffer.size)
-            socket.receive(packet)
-            write(PacketCodec.buildUdp(request, request.destination, request.source, key.destinationPort, key.sourcePort, packet.data.copyOf(packet.length)))
-          }.onFailure {
-            if (!closed.get()) fail("UDP_FORWARD_FAILED")
-            return@Thread
-          }
-        }
-      }, "guardian-udp-${key.sourcePort}").start()
-    }
-
-    fun send(payload: ByteArray) {
-      runCatching {
-        socket.send(DatagramPacket(payload, payload.size, request.destination, key.destinationPort))
-      }.onFailure { fail("UDP_FORWARD_FAILED") }
-    }
-
-    override fun close() {
-      closed.set(true)
-      socket.close()
-    }
-  }
-
-  private inner class TcpFlow(
-    key: FlowKey,
-    request: IpPacket,
-    private val syn: TcpSegment,
-  ) : Flow(key, request) {
-    private val socket = Socket()
-    private val closed = AtomicBoolean(false)
-    private val localSequence = ThreadLocalRandom.current().nextLong(1, UInt.MAX_VALUE.toLong())
-    private var nextClientSequence = syn.sequence + 1
-    private var nextServerSequence = localSequence + 1
-    private var established = false
-
-    fun start() {
-      Thread({
-        runCatching {
-          protect(socket)
-          socket.connect(
-            InetSocketAddress(request.destination, key.destinationPort),
-            TCP_CONNECT_TIMEOUT_MS.toInt(),
-          )
-          write(PacketCodec.buildTcp(request, request.destination, request.source, key.destinationPort, key.sourcePort, localSequence, nextClientSequence, SYN or ACK, TCP_WINDOW))
-          val input = socket.getInputStream()
-          val buffer = ByteArray(32768)
-          while (!closed.get()) {
-            val count = input.read(buffer)
-            if (count < 0) break
-            if (count == 0) continue
-            write(PacketCodec.buildTcp(request, request.destination, request.source, key.destinationPort, key.sourcePort, nextServerSequence, nextClientSequence, PSH or ACK, TCP_WINDOW, buffer.copyOf(count)))
-            nextServerSequence += count
-          }
-          write(PacketCodec.buildTcp(request, request.destination, request.source, key.destinationPort, key.sourcePort, nextServerSequence, nextClientSequence, FIN or ACK, TCP_WINDOW))
-        }.onFailure {
-          write(PacketCodec.buildTcp(request, request.destination, request.source, key.destinationPort, key.sourcePort, localSequence, nextClientSequence, RST or ACK, 0))
-          fail("TCP_FORWARD_FAILED")
-        }.also {
-          close()
-        }
-      }, "guardian-tcp-${key.sourcePort}").start()
-    }
-
-    fun accept(segment: TcpSegment) {
-      if (segment.rst) {
-        close()
-        return
-      }
-      if (!established) {
-        if (segment.ack && segment.acknowledgement == nextServerSequence) {
-          established = true
-          write(PacketCodec.buildTcp(request, request.destination, request.source, key.destinationPort, key.sourcePort, nextServerSequence, nextClientSequence, ACK, TCP_WINDOW))
-        }
-        return
-      }
-      if (segment.sequence != nextClientSequence) {
-        write(PacketCodec.buildTcp(request, request.destination, request.source, key.destinationPort, key.sourcePort, nextServerSequence, nextClientSequence, ACK, TCP_WINDOW))
-        return
-      }
-      if (segment.payload.isNotEmpty()) {
-        runCatching {
-          socket.getOutputStream().write(segment.payload)
-          socket.getOutputStream().flush()
-          nextClientSequence += segment.payload.size
-        }.onFailure { fail("TCP_WRITE_FAILED") }
-      }
-      if (segment.fin) {
-        nextClientSequence++
-        close()
-      }
-      write(PacketCodec.buildTcp(request, request.destination, request.source, key.destinationPort, key.sourcePort, nextServerSequence, nextClientSequence, ACK, TCP_WINDOW))
-    }
-
-    override fun close() {
-      if (closed.compareAndSet(false, true)) {
-        socket.close()
-        flows.remove(key)
-      }
-    }
-  }
-
   private class FlowKey(
     ip: IpPacket,
     val sourcePort: Int,
@@ -439,17 +357,19 @@ class GuardianVpnService : VpnService() {
   }
 
   private class DnsCache {
+    data class Lease(val address: InetAddress, val expiresAtMillis: Long)
     private data class CachedDomain(val domain: String, val expiresAtMillis: Long)
+    private val namesByAddress = linkedMapOf<String, CachedDomain>()
 
-    private val namesByAddress = ConcurrentHashMap<String, CachedDomain>()
-
-    fun record(domain: String, response: ByteArray) {
-      if (response.size < 12) return
+    @Synchronized
+    fun record(domain: String, response: ByteArray): List<Lease> {
+      if (response.size < 12) return emptyList()
+      val leases = mutableListOf<Lease>()
       var offset = skipName(response, 12) + 4
       val answers = ((response[6].toInt() and 0xff) shl 8) or (response[7].toInt() and 0xff)
       repeat(answers) {
         val answer = skipName(response, offset)
-        if (answer + 10 > response.size) return
+        if (answer + 10 > response.size) return@repeat
         val type = ((response[answer].toInt() and 0xff) shl 8) or (response[answer + 1].toInt() and 0xff)
         val ttl = ((response[answer + 4].toLong() and 0xff) shl 24) or
           ((response[answer + 5].toLong() and 0xff) shl 16) or
@@ -458,22 +378,32 @@ class GuardianVpnService : VpnService() {
         val dataLength = ((response[answer + 8].toInt() and 0xff) shl 8) or
           (response[answer + 9].toInt() and 0xff)
         val dataOffset = answer + 10
-        if (dataOffset + dataLength > response.size) return
+        if (dataOffset + dataLength > response.size) return@repeat
         if ((type == 1 && dataLength == 4) || (type == 28 && dataLength == 16)) {
           runCatching {
-            val address = InetAddress.getByAddress(response.copyOfRange(dataOffset, dataOffset + dataLength)).hostAddress ?: return@runCatching
-            namesByAddress[address] = CachedDomain(domain, System.currentTimeMillis() + ttl * 1000)
+            val address = InetAddress.getByAddress(response.copyOfRange(dataOffset, dataOffset + dataLength))
+            val expiresAt = System.currentTimeMillis() + ttl * 1000
+            val key = address.hostAddress ?: return@runCatching
+            namesByAddress[key] = CachedDomain(domain, expiresAt)
+            leases += Lease(address, expiresAt)
           }
         }
         offset = dataOffset + dataLength
       }
+      if (namesByAddress.size > MAX_DNS_CACHE_ENTRIES) {
+        namesByAddress.entries.take(namesByAddress.size - MAX_DNS_CACHE_ENTRIES).forEach {
+          namesByAddress.remove(it.key)
+        }
+      }
+      return leases
     }
 
+    @Synchronized
     fun domainFor(address: InetAddress): String? {
       val key = address.hostAddress ?: return null
       val cached = namesByAddress[key] ?: return null
       if (cached.expiresAtMillis <= System.currentTimeMillis()) {
-        namesByAddress.remove(key, cached)
+        namesByAddress.remove(key)
         return null
       }
       return cached.domain
@@ -533,14 +463,10 @@ class GuardianVpnService : VpnService() {
     private const val UDP = 17
     private const val TCP = 6
     private const val DNS_TIMEOUT_MS = 2000
-    private const val TCP_CONNECT_TIMEOUT_MS = 3000L
-    private const val MAX_FLOWS = 256
-    private const val TCP_WINDOW = 65535
-    private const val SYN = 0x02
-    private const val ACK = 0x10
-    private const val PSH = 0x08
-    private const val FIN = 0x01
-    private const val RST = 0x04
+    private const val MAX_BLOCKED_DESTINATIONS = 1024
+    private const val MAX_DNS_CACHE_ENTRIES = 1024
+    private const val KNOWN_ENDPOINT_TTL_MS = 24 * 60 * 60 * 1000L
+    private val KNOWN_DOH_DOT_ENDPOINTS = listOf("1.1.1.1", "1.0.0.1", "8.8.8.8", "8.8.4.4", "9.9.9.9")
     @Volatile private var runningState = false
 
     fun isRunning(): Boolean = runningState

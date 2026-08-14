@@ -1,6 +1,6 @@
 # VPN architecture research
 
-Status: decision required; no VPN architecture was changed by this report.
+Status: accepted and implemented: Option B with dynamic blocked-destination routing.
 
 ## Evidence
 
@@ -31,3 +31,18 @@ the priority and product accepts explicit loss of non-DNS enforcement and attrib
 **B**. **C** is complementary rather than a standalone replacement. No option removes the need
 to report degraded capability when VPN consent is revoked, another VPN wins, the network is
 unavailable, or policy state is unavailable; ordinary connectivity must remain unbricked.
+
+## Accepted decision
+
+Guardian uses Option B. The TUN routes only the active network's DNS server
+addresses, known DoH/DoT resolver addresses, and a bounded, TTL-aware set of
+IPv4/IPv6 destinations returned for blocked domains. Ordinary allowed traffic
+does not traverse a Guardian userspace transport path. The hand-rolled TCP
+proxy and its retransmission/window/out-of-order debt were removed.
+
+The resulting fidelity is intentionally limited: non-DNS and IP-only traffic
+cannot always be attributed to a domain or app; QUIC/UDP-443 and DoH/DoT to
+unrouted destinations bypass Guardian; and Android VPN bypass/competing-VPN
+conditions remain platform states rather than anti-tamper guarantees. Parent
+and child surfaces report limited web filtering instead of claiming complete
+device-wide enforcement.

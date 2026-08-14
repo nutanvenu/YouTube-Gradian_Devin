@@ -40,6 +40,7 @@ export const HARD_CATEGORIES = hardCategories as unknown as readonly [
 
 export const CAPABILITY_LEVELS = [
   "FULL",
+  "LIMITED",
   "BEST_EFFORT",
   "UNAVAILABLE",
   "REGION_LIMITED"

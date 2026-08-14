@@ -137,5 +137,5 @@ object GuardianPolicyRuntime {
     fun onTimeExpired(targetRef: String) {}
   }
 
-  private const val BLOCK_EVENT_DEDUP_MS = 5_000L
+  private const val BLOCK_EVENT_DEDUP_MS = 60_000L
 }

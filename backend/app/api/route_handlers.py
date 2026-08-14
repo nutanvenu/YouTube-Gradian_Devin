@@ -1,6 +1,7 @@
 import asyncio
 import hashlib
 import secrets
+from contextlib import asynccontextmanager
 from collections.abc import Mapping
 from copy import deepcopy
 from datetime import UTC, datetime, timedelta
@@ -56,7 +57,7 @@ from ..policies.service import (
     default_policy,
     validate_timezone,
 )
-from ..policies.signing import configured_trusted_public_keys, signer
+from ..policies.signing import configured_trusted_public_keys, signer, validate_configured_signing_key
 from ..push.models import PushToken
 from ..requests.models import Request as RequestRow
 from ..requests.models import RequestState
@@ -91,7 +92,13 @@ from .schemas import (
     TokensOut,
 )
 
-app = FastAPI(title="Guardian API", version="0.1.0")
+@asynccontextmanager
+async def lifespan(_: FastAPI):
+    validate_configured_signing_key()
+    yield
+
+
+app = FastAPI(title="Guardian API", version="0.1.0", lifespan=lifespan)
 app.add_exception_handler(RequestValidationError, validation_error_handler)
 app.add_exception_handler(HTTPException, http_exception_handler)
 app.add_exception_handler(Exception, internal_error_handler)

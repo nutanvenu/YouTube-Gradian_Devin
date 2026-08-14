@@ -2,9 +2,11 @@
 
 ## Current phase
 
-Phase 1, Slice 1.8 in progress: Android screen time, app inventory, and app controls.
-Slice 1.7 has been accepted with emulator evidence; the hand-rolled full-route
-TCP path remains a ship-blocking architecture decision documented separately in
+Phase 1, Slice 1.8 implementation is present but emulator acceptance remains
+open. Slice 1.7 was accepted under the prior full-route implementation; the
+accepted replacement is now Option B selective routing with dynamic
+blocked-destination routes. The old hand-rolled TCP proxy has been removed from
+the service and the architecture decision is recorded in
 `docs/VPN_ARCHITECTURE_RESEARCH.md`.
 
 The repository is on local `main`. No GitHub remote is configured and no PR has
@@ -104,42 +106,44 @@ BUILD SUCCESSFUL
 Node 22.12.0 was used for JavaScript checks:
 
 ```text
-corepack pnpm --filter guardian-mobile test --runInBand
-Test Suites: 2 passed, 2 total
-Tests:       2 passed, 2 total
+corepack pnpm test -- --runInBand
+Test Files 6 passed (6)
+Tests 60 passed (60)
 
-pnpm --filter guardian-mobile lint
+corepack pnpm --filter guardian-mobile lint
 passed
 
-pnpm --filter guardian-mobile typecheck
+corepack pnpm --filter guardian-mobile typecheck
 passed
 ```
 
-Native unit tests:
+Backend signing tests, using the configured Python 3.13.1 interpreter:
 
 ```text
-./gradlew :guardian-protection:testDebugUnitTest --no-daemon
-BUILD SUCCESSFUL in 26s
+/home/ubuntu/.pyenv/versions/3.13.1/bin/python -m pytest -q tests/test_policy_signing.py
+4 passed in 0.02s
 ```
 
-The focused packet-codec run passed after adding IPv6 extension-header and
-fragment handling coverage:
+The valid local backend remained reachable after startup validation:
 
 ```text
-./gradlew :guardian-protection:testDebugUnitTest --no-daemon \
-  --tests expo.modules.guardianprotection.vpn.PacketCodecTest
-BUILD SUCCESSFUL
+curl ... http://127.0.0.1:8000/v1/policy/public-key
+policy_public_key_http=200
 ```
 
-Android builds:
+After the selective-routing packet-loop and event-dedup fixes:
 
 ```text
-./gradlew :app:assembleDebug --no-daemon
-BUILD SUCCESSFUL in 2m 42s
-
-./gradlew :app:assembleRelease --no-daemon
-BUILD SUCCESSFUL in 49s
+./gradlew :guardian-protection:testDebugUnitTest :app:assembleDebug --no-daemon
+BUILD SUCCESSFUL in 20s
+Performing Streamed Install
+Success
 ```
+
+Unsupported protocols such as ICMP are now ignored when they enter the
+selective TUN. Repeated `WEB_BLOCKED` reports are deduplicated for 60 seconds
+by domain so DNS and subsequent blocked packets produce one semantic event for
+an attempt.
 
 The module's emulator instrumented test also passed:
 
@@ -189,6 +193,60 @@ The development build logged:
 ReactNativeJS: Running "main" with {"rootTag":1,"initialProps":{},"fabric":true}
 ```
 
+## Fresh selective-routing evidence
+
+The standalone debug APK was installed on `guardian-api35` and the persisted
+signed policy was active at version 5:
+
+```text
+DOMAIN_BLOCK blocked.example.com
+DOMAIN_ALLOW example.com
+Policy version: 5
+```
+
+Android reported the VPN's selective routes rather than a default route:
+
+```text
+VPN CONNECTED ... sessionId=Guardian protection
+Routes: 10.0.2.3/32, 1.1.1.1/32, 1.0.0.1/32, 8.8.8.8/32,
+8.8.4.4/32, 9.9.9.9/32, 10.0.0.2/32, fd00::2/128
+```
+
+Both navigation attempts were launched as Chrome, not from an adb shell. The
+allowed-domain screenshot is:
+
+```text
+.scratch/emulator/option-b-allowed-after-fix.png
+```
+
+The clean blocked-domain attempt produced this screenshot and filtered bridge
+evidence:
+
+```text
+.scratch/emulator/option-b-blocked-dedup.png
+.scratch/emulator/option-b-blocked-dedup-events.txt
+```
+
+The event file contains exactly one semantic event:
+
+```text
+web_blocked_count=1
+'GUARDIAN_BRIDGE_EVENT',
+'{"type":"WEB_BLOCKED","domain":"blocked.example.com","category":null,"appRef":"com.android.chrome","reasonCode":"EXPLICIT_TARGET_RULE"}'
+```
+
+No packet-level bridge event was present in the filtered output. A subsequent
+attempt before the deduplication fix emitted a second event without app
+attribution after six seconds; that finding caused the 60-second fix.
+
+The full acceptance gate is not complete on this run. The selected
+`blocked.example.com` response did not provide an A/AAAA lease, so the live
+route dump did not contain a dynamic route for that hostname. The direct-IP
+blocked-destination requirement is therefore unproven; the known resolver
+routes are not a substitute. Reboot, VPN-consent revocation/re-consent,
+backend-down, and no-policy cases also require a fresh post-fix run rather
+than relying on older evidence.
+
 ## Slice 1.8 implementation status
 
 Implemented in the local module, but not yet accepted on the emulator:
@@ -229,27 +287,19 @@ corepack pnpm --filter guardian-mobile typecheck
 tsc --noEmit
 ```
 
-The full connected native test was attempted but is currently blocked by the
-running backend configuration. It reached the real emulator and failed during
-test fixture setup because the backend's signing key is absent:
+The earlier connected-test signing-key failure is resolved. The backend now
+validates its key through the FastAPI lifespan, and the running local process
+uses the generated ignored `backend/.env` key. The current backend endpoint
+check returned HTTP 200 as recorded above.
 
-```text
-./gradlew :guardian-protection:connectedDebugAndroidTest --no-daemon
-POST /v1/families/.../children -> 500
-RuntimeError: GUARDIAN_POLICY_PRIVATE_KEY is not configured
-```
+## VPN architecture decision
 
-This is an environment/configuration blocker, not a silently skipped test.
-The inventory/capability test, which does not require the backend, passed on
-the emulator as shown above.
-
-## VPN architecture research
-
-`docs/VPN_ARCHITECTURE_RESEARCH.md` records official Android documentation and
-ecosystem evidence. No VPN architecture was changed. The decision is between
-full-route TUN with a pinned mature userspace stack and selective DNS/blocked
-range routing; Android `VpnManager` is a lifecycle/profile primitive, not a
-general replacement for local inspection.
+`docs/VPN_ARCHITECTURE_RESEARCH.md` records official Android documentation,
+ecosystem evidence, and the accepted Option B decision. The TUN routes only
+active DNS servers, known DoH/DoT resolver addresses, and a bounded TTL-aware
+IPv4/IPv6 blocked-destination set. Ordinary allowed traffic bypasses Guardian;
+this intentionally loses comprehensive non-DNS attribution, unrouted QUIC/DoH
+enforcement, and complete IP-only enforcement.
 
 ## Verification in the Slice 1.7 acceptance run
 
@@ -342,15 +392,15 @@ the emulator, Metro, and VPN were left running at handoff.
 
 ### Slice 1.7 VPN enforcement
 
-`GuardianVpnService` is a real foreground `VpnService` with full IPv4/IPv6
-default routes, TUN packet parsing, protected UDP forwarding, a userspace TCP
-proxy, DNS inspection/upstream forwarding, DNS-to-IP correlation with TTL
-expiry, and semantic `WEB_BLOCKED` reporting. IPv6 hop-by-hop, routing,
+`GuardianVpnService` is a real foreground `VpnService` with selective IPv4/IPv6
+routes, DNS inspection/upstream forwarding, TTL-aware DNS-to-IP correlation,
+bounded blocked-destination route updates, and semantic `WEB_BLOCKED`
+reporting. Ordinary TCP/UDP traffic is not forwarded through userspace. TCP
+and UDP packets that enter the TUN for a blocked destination are dropped and
+evaluated against the local compiled snapshot; QUIC/UDP-443 is handled only
+when its destination is in the routed set. IPv6 hop-by-hop, routing,
 destination, and AH extension headers are parsed; fragmented IPv6 packets are
-explicitly rejected because this service does not reassemble fragments.
-Unknown-domain UDP/443 is dropped with `QUIC_DOMAIN_UNRESOLVED` only while an
-active policy snapshot exists; if policy is unavailable, it is allowed so the
-service cannot silently brick connectivity.
+rejected because reassembly is not implemented.
 
 Lifecycle handling is implemented for VPN consent revocation and competing VPN
 revocation (`onRevoke`), process-kill restart (`START_STICKY`), persisted boot
@@ -359,12 +409,9 @@ networks, TUN setup failure, packet-loop failure, and upstream forwarding
 failure. Failures are surfaced through protection health events and an
 explicit stop path clears the persisted enabled state.
 
-The live acceptance run above demonstrates blocked/allowed app traffic,
-semantic bridge delivery, Chrome attribution, reboot recovery, and
-connectivity with the backend unavailable. The exact bridge count is
-established by the filtered logcat file; the visible child-screen count is
-not used as the count assertion because the screen had prior events in its
-session.
+The latest run demonstrates selective route installation, one blocked semantic
+event, and Chrome attribution. It does not yet demonstrate every acceptance
+condition listed in the fresh-evidence section.
 
 The VPN-revocation exercise used the Android VPN settings disconnect action
 plus an emulator-only `appops` denial to make `VpnService.prepare()` report
@@ -437,31 +484,35 @@ shared §31 state-component matrix still need dedicated tests.
 
 - Captive-portal and competing-VPN behavior remain code-path/test evidence
   rather than separately captured live emulator scenarios.
-- TCP proxy retransmission, congestion/window management, and out-of-order
-  packet handling are not production-grade yet.
-- Android's `getConnectionOwnerUid` cannot be proven to recover the original
-  app for a TUN-originated tuple on this emulator; attribution remains
-  best-effort and is not live-verified.
+- Selective routing cannot enforce or attribute unrouted IP-only, QUIC, DoH,
+  or competing-VPN traffic; this is a documented product limitation, not an
+  anti-tamper claim.
+- Android's `getConnectionOwnerUid` remains best-effort for TUN-originated
+  tuples, but the clean blocked-domain run attributed the event to
+  `com.android.chrome`.
 - Device key proof-of-possession is not yet active.
 - API generation/drift enforcement is absent.
 - `backend/app/api/route_handlers.py` remains as an implementation
   concentration point even though route registration is modular.
 - The emulator cannot prove iOS behavior on this Linux host.
-- The exact bridge-count evidence is from the clean prior run in
-  `.scratch/emulator/55-bridge-events.txt`; later Chrome runs were affected by
-  Chrome startup/negative-DNS cache and are not used as the count assertion.
-- Slice 1.8 has no valid end-to-end acceptance evidence yet. A real emulator
-  run cannot create a new signed child policy while
-  `GUARDIAN_POLICY_PRIVATE_KEY` is absent from the backend process environment.
-- The current live backend returned HTTP 500 for child creation; the captured
-  traceback is `RuntimeError: GUARDIAN_POLICY_PRIVATE_KEY is not configured`.
+- The latest exact bridge-count evidence is
+  `.scratch/emulator/option-b-blocked-dedup-events.txt`; the earlier
+  `.scratch/emulator/55-bridge-events.txt` remains historical evidence.
+- Direct-IP dynamic blocked routing is not yet live-proven because the selected
+  blocked test hostname returned no A/AAAA lease.
+- Slice 1.8 has no valid end-to-end acceptance evidence yet.
+- Backend startup now refuses missing/invalid signing configuration. The local
+  ignored `backend/.env` contains a generated key for the current process.
 
 ## Exact next task
 
-Provide the backend's configured policy signing key to the running local
-development process, then run Slice 1.8 emulator acceptance: pair a child,
-apply a signed one-minute app limit and a routine, observe the real
+Complete the remaining fresh selective-routing Slice 1.7 acceptance cases:
+apply a real policy with a blocked hostname that returns A/AAAA answers, prove
+its derived IPv4/IPv6 destination routes reject direct-IP access, then capture
+reboot recovery, VPN revocation/re-consent, backend-down, and no-policy
+connectivity. After that run Slice 1.8 emulator acceptance:
+pair a child, apply a signed short app limit and routine, observe the real
 Accessibility block surface and semantic events, cross the routine boundary,
 revoke Usage Access and verify degraded health, reboot and verify persisted
-counters/enforcement, and capture evidence. Do not claim Slice 1.8 accepted
+counters/enforcement, and capture evidence. Do not claim either acceptance
 until those scenarios pass.

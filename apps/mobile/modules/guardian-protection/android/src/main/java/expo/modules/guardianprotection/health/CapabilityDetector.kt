@@ -26,9 +26,9 @@ class CapabilityDetector(private val context: Context) {
         if (accessibilityGranted()) "Accessibility app blocking" else "Accessibility permission",
       ),
       "web_filtering" to status(
-        if (GuardianVpnService.isRunning()) "FULL" else "UNAVAILABLE",
+        if (GuardianVpnService.isRunning()) "LIMITED" else "UNAVAILABLE",
         now,
-        "VPN DNS inspection",
+        "DNS and dynamically blocked destinations; ordinary, unrouted traffic bypasses Guardian",
       ),
       "communication_risk_signals" to status(if (notificationAccessGranted() || accessibilityGranted()) "BEST_EFFORT" else "UNAVAILABLE", now, "Signal sources"),
     )

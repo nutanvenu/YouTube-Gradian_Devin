@@ -15,6 +15,7 @@ describe("contract type guards", () => {
 
   it("accept only canonical capability levels", () => {
     expect(isCapabilityLevel("BEST_EFFORT")).toBe(true);
+    expect(isCapabilityLevel("LIMITED")).toBe(true);
     expect(isCapabilityLevel("PARTIAL")).toBe(false);
   });
 
