@@ -56,6 +56,32 @@ async def read_family(
 ) -> Family:
     return await family_for_parent(session, parent, family_id)
 
+async def family_health(
+    family_id: UUID,
+    parent: Parent = Depends(current_parent),
+    session: AsyncSession = Depends(get_session),
+) -> list[dict[str, object]]:
+    await family_for_parent(session, parent, family_id)
+    devices = list(
+        (
+            await session.scalars(
+                select(Device)
+                .join(ChildProfile, ChildProfile.id == Device.child_profile_id)
+                .where(ChildProfile.family_id == family_id)
+            )
+        ).all()
+    )
+    return [
+        {
+            "child_profile_id": str(device.child_profile_id),
+            "device_id": str(device.id),
+            "state": device.protection_state,
+            "last_seen_at": device.last_seen_at.isoformat() if device.last_seen_at else None,
+            "policy_version_applied": device.policy_version_applied,
+        }
+        for device in devices
+    ]
+
 async def list_guardians(
     family_id: UUID,
     parent: Parent = Depends(current_parent),
@@ -149,6 +175,7 @@ async def revoke_device(
 
 router.add_api_route("/v1/families", create_family, methods=["POST"], status_code=201, response_model=None)
 router.add_api_route("/v1/families/{family_id}", read_family, methods=["GET"], response_model=None)
+router.add_api_route("/v1/families/{family_id}/health", family_health, methods=["GET"], response_model=None)
 router.add_api_route("/v1/families/{family_id}/guardians", list_guardians, methods=["GET"], response_model=None)
 router.add_api_route("/v1/families/{family_id}/guardians/invite", invite_guardian, methods=["POST"], status_code=202, response_model=None)
 router.add_api_route("/v1/families/guardians/accept", accept_guardian, methods=["POST"], status_code=204, response_model=None)

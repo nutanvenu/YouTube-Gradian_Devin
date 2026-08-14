@@ -50,12 +50,14 @@ jobs:
       - uses: actions/setup-python@v5
         with:
           python-version-file: .python-version
-      - run: python -m pip install --upgrade pip
-      - run: python -m pip install -e '.[dev]'
-      - run: alembic upgrade head
+      - uses: astral-sh/setup-uv@v5
+        with:
+          version-file: .uv-version
+      - run: uv sync --locked --extra dev
+      - run: uv run alembic upgrade head
         env:
           GUARDIAN_DATABASE_URL: postgresql+asyncpg://guardian:guardian@localhost:5432/guardian
           GUARDIAN_JWT_SECRET: ci-only-secret-with-at-least-32-bytes
-      - run: ruff check app tests
-      - run: mypy app
-      - run: pytest
+      - run: uv run ruff check app tests
+      - run: uv run mypy app
+      - run: uv run pytest

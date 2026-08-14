@@ -6,10 +6,16 @@ Alembic migrations, and PostgreSQL 16. Application code never calls
 
 ```bash
 docker compose up -d postgres
-source "$HOME/.pyenv/bin/pyenv" 2>/dev/null || true
-alembic upgrade head
-uvicorn app.main:app --reload
+uv sync --locked --extra dev
+uv run alembic upgrade head
+uv run uvicorn app.main:app --reload
 ```
+
+Python dependencies are managed exclusively with `uv`. The repository pins
+the tool version in `.uv-version`, pins application and development
+dependencies in `pyproject.toml`, and records the resolved artifacts in
+`uv.lock`. Use `uv sync --locked` locally and in CI; do not maintain a
+parallel `requirements.txt` file.
 
 Authentication uses Argon2id password hashes, short-lived access JWTs, and
 hashed rotating refresh tokens. Configure secrets through environment

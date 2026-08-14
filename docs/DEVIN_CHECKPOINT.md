@@ -1212,3 +1212,84 @@ The live development database is at Alembic revision `0011_push_actions`.
 The backend was restarted after applying the migration; APNs/FCM delivery
 itself remains intentionally unclaimed until provider credentials are
 available.
+
+## Fresh two-emulator WebSocket and push-action evidence
+
+The two-device run was repeated with the parent app on `emulator-5554` and
+the paired child app on `emulator-5556`. The parent Rules screen performed a
+real `APP_BLOCK` mutation while the child remained on its home surface:
+
+```text
+child before: Policy version: 6
+parent mutation: policy version 7, Pending sync
+child after: Policy version: 7
+```
+
+The child changed without refresh, route reopen, reload, or child
+interaction. The visual artifacts and UI hierarchy are:
+
+```text
+.scratch/emulator/ws-current/child-before-version6.png
+.scratch/emulator/ws-current/parent-after-mutation-version7-pending.png
+.scratch/emulator/ws-current/child-after-websocket-version7.png
+.scratch/emulator/ws-current/child-after-websocket-version7.xml
+.scratch/emulator/ws-current/backend-websocket-evidence.log
+```
+
+The backend evidence contains the successful parent mutation, accepted
+WebSocket subscription, and the child's subsequent policy fetch. The
+emulator still reports a pending/degraded protection state because its web
+protection capability is unavailable; this does not affect policy-version
+propagation.
+
+Provider delivery was not claimed. For the action path that does not require
+APNs/FCM, a real pending child request was paired with a backend-generated
+approve/deny payload and delivered to the running app's
+`handleRequestPushAction` handler on `emulator-5554`. The handler called the
+opaque approve path and the backend returned 200:
+
+```text
+request: 673affb0-6561-4ed5-8f1f-569bc3872b2b
+terminal state: APPROVED
+decision reason: Approved from notification
+```
+
+Artifacts:
+
+```text
+.scratch/emulator/push/synthetic-payload-redacted.json
+.scratch/emulator/push/synthetic-handler.png
+.scratch/emulator/push/synthetic-handler.xml
+.scratch/emulator/push/backend-synthetic-action.log
+```
+
+APNs/FCM provider delivery and notification-tap plumbing remain unverified
+pending provider credentials. The family-scoped health route used by the
+parent UI was also added at `GET /v1/families/{family_id}/health`; an
+authenticated live request returned the device health records, and the
+generated client contract was regenerated accordingly.
+
+## Route inventory and reproducible backend dependencies
+
+The missing family health route exposed a failure mode in which route
+registrations could disappear during extraction without a compile-time error.
+`backend/tests/test_route_inventory.py` now defines the complete expected
+application inventory as `(path, method, auth kind)` entries, including the
+WebSocket route. It derives the registered table from the FastAPI app,
+rejects duplicate entries, and compares the result to the explicit inventory.
+The current audit found no other missing HTTP routes:
+
+```text
+registered HTTP routes: 41
+OpenAPI HTTP routes:     41
+missing from OpenAPI:    []
+extra in OpenAPI:        []
+WebSocket routes:        /v1/ws/sync
+```
+
+Backend dependency installation now has one story: `uv`, pinned by
+`.uv-version`, with exact project requirements in `backend/pyproject.toml`
+and resolved artifacts in `backend/uv.lock`. CI uses
+`uv sync --locked --extra dev` and executes migrations, lint, type checking,
+and tests through `uv run`. The OpenAPI drift job uses the same locked
+environment.
