@@ -101,6 +101,9 @@ BUILD SUCCESSFUL
 Node 22.12.0 was used for JavaScript checks:
 
 ```text
+pnpm test
+6 files passed, 60 tests passed
+
 pnpm --filter guardian-mobile lint
 passed
 
@@ -112,15 +115,16 @@ Native unit tests:
 
 ```text
 ./gradlew :guardian-protection:testDebugUnitTest --no-daemon
-BUILD SUCCESSFUL in 12s
+BUILD SUCCESSFUL in 20s
 ```
 
-The focused conformance run also passed:
+The focused packet-codec run passed after adding IPv6 extension-header and
+fragment handling coverage:
 
 ```text
 ./gradlew :guardian-protection:testDebugUnitTest --no-daemon \
-  --tests expo.modules.guardianprotection.policy.SharedFixtureConformanceTest
-BUILD SUCCESSFUL in 13s
+  --tests expo.modules.guardianprotection.vpn.PacketCodecTest
+BUILD SUCCESSFUL
 ```
 
 Android builds:
@@ -130,7 +134,16 @@ Android builds:
 BUILD SUCCESSFUL in 2m 42s
 
 ./gradlew :app:assembleRelease --no-daemon
-BUILD SUCCESSFUL in 41s
+BUILD SUCCESSFUL in 40s
+```
+
+The module's emulator instrumented test also passed:
+
+```text
+./gradlew :guardian-protection:connectedDebugAndroidTest --no-daemon
+Starting 1 tests on guardian-api35(AVD) - 15
+Finished 1 tests on guardian-api35(AVD) - 15
+BUILD SUCCESSFUL in 33s
 ```
 
 Release manifest inspection found no cleartext attribute in the main source
@@ -145,22 +158,54 @@ The API client uses `http://10.0.2.2:8000` only in development and rejects a
 non-HTTPS configured URL in release. The documented configuration is in
 `apps/mobile/.env.example`.
 
+The missing development-client splash-screen runtime dependency was fixed by
+adding the Expo SDK 57 `expo-splash-screen` package. After rebuilding and
+starting Metro, the development build loaded the real role-selection screen;
+the dev-client menu was dismissed after the app bundle started. Evidence:
+
+```text
+.scratch/emulator/31-debug-role-selection-metro.png
+.scratch/emulator/33-debug-role-selection-loaded.png
+.scratch/emulator/34-role-selection.png
+```
+
+The development build logged:
+
+```text
+ReactNativeJS: Running "main" with {"rootTag":1,"initialProps":{},"fabric":true}
+```
+
 ## Partially complete
 
 ### Slice 1.7 VPN enforcement
 
-`GuardianVpnService` is a real foreground `VpnService` with TUN establishment,
-semantic protection-status/failure reporting, and a DNS-specific IPv4 UDP
-baseline. It can inspect DNS names, evaluate them against the active compiled
-snapshot, return a blocked DNS response, and forward allowed DNS queries
-through a protected upstream socket.
+`GuardianVpnService` is a real foreground `VpnService` with full IPv4/IPv6
+default routes, TUN packet parsing, protected UDP forwarding, a userspace TCP
+proxy, DNS inspection/upstream forwarding, DNS-to-IP correlation with TTL
+expiry, and semantic `WEB_BLOCKED` reporting. IPv6 hop-by-hop, routing,
+destination, and AH extension headers are parsed; fragmented IPv6 packets are
+explicitly rejected because this service does not reassemble fragments.
+Unknown-domain UDP/443 is dropped with `QUIC_DOMAIN_UNRESOLVED` only while an
+active policy snapshot exists; if policy is unavailable, it is allowed so the
+service cannot silently brick connectivity.
 
-The requested full enforcement is not complete. The service currently routes
-only the DNS endpoint rather than all traffic. IPv6, general TCP forwarding,
-general UDP forwarding, QUIC/UDP-443 policy handling, complete flow
-attribution, boot persistence, competing-VPN handling, captive-portal
-classification, and emulator proof of blocked/allowed domain behavior through
-the bridge remain open.
+Lifecycle handling is implemented for VPN consent revocation and competing VPN
+revocation (`onRevoke`), process-kill restart (`START_STICKY`), persisted boot
+restart (`BOOT_COMPLETED`), no network, unvalidated/captive-portal-like
+networks, TUN setup failure, packet-loop failure, and upstream forwarding
+failure. Failures are surfaced through protection health events and an
+explicit stop path clears the persisted enabled state.
+
+The native implementation and packet-codec tests are verified, but the strict
+Slice 1.7 acceptance gate is still open: no valid live app run has yet
+observed a policy-blocked domain fail, an allowed domain succeed, and a
+semantic `WEB_BLOCKED` event across the bridge. The debug dev-client install
+currently shows a blank surface because the installed dev launcher reports
+`ClassNotFoundException: expo.modules.splashscreen.SplashScreenManager`; the
+standalone release APK launches and was captured at
+`.scratch/emulator/29-release-role-selection.png`, but local backend access is
+HTTPS-only in release and therefore cannot be used for the debug backend
+acceptance flow.
 
 No anti-tamper claim is made beyond standard Android installation behavior.
 
@@ -219,7 +264,14 @@ shared §31 state-component matrix still need dedicated tests.
 
 ## Known defects and limitations
 
-- Full VPN packet forwarding and enforcement are not yet production complete.
+- Live VPN consent, blocked/allowed domain traffic, semantic event delivery,
+  reboot recovery, and revocation recovery remain unobserved acceptance
+  evidence.
+- TCP proxy retransmission, congestion/window management, and out-of-order
+  packet handling are not production-grade yet.
+- Android's `getConnectionOwnerUid` cannot be proven to recover the original
+  app for a TUN-originated tuple on this emulator; attribution remains
+  best-effort and is not live-verified.
 - Device key proof-of-possession is not yet active.
 - API generation/drift enforcement is absent.
 - `backend/app/api/route_handlers.py` remains as an implementation
@@ -230,9 +282,9 @@ shared §31 state-component matrix still need dedicated tests.
 
 ## Exact next task
 
-Implement the remaining Slice 1.7 VPN engine: full-route IPv4/IPv6 TCP and UDP
-forwarding with DNS inspection, QUIC/UDP-443 policy behavior, flow
-attribution, explicit VPN lifecycle/failure-mode handling, and an emulator
-test that observes one blocked domain fail and one allowed domain succeed while
-receiving only a semantic `WEB_BLOCKED` event through the bridge. Do not
-advance to Slice 1.8 until that evidence exists.
+Resolve the debug dev-client launch defect, then exercise real VPN consent and
+the full acceptance matrix on `guardian-api35`: a blocked domain must fail, an
+allowed domain must succeed, only a semantic `WEB_BLOCKED` event may cross the
+bridge, and protection must recover after reboot and VPN revocation. Capture
+adb/logcat/screenshots in `.scratch/emulator/`. Do not advance to Slice 1.8
+until that evidence exists.

@@ -126,10 +126,24 @@ internal object PacketCodec {
     val payloadLength = u16(packet, 4)
     val end = 40 + payloadLength
     if (end > length) return null
-    val protocol = packet[6].toInt() and 0xff
     val source = InetAddress.getByAddress(packet.copyOfRange(8, 24))
     val destination = InetAddress.getByAddress(packet.copyOfRange(24, 40))
-    return IpPacket(6, protocol, source, destination, packet.copyOfRange(40, end), packet[7].toInt() and 0xff)
+    var protocol = packet[6].toInt() and 0xff
+    var cursor = 40
+    while (protocol in IPV6_EXTENSION_HEADERS) {
+      if (protocol == IPV6_FRAGMENT_HEADER) return null
+      if (cursor + 2 > end) return null
+      val next = packet[cursor].toInt() and 0xff
+      val headerLength = if (protocol == IPV6_AH_HEADER) {
+        ((packet[cursor + 1].toInt() and 0xff) + 2) * 4
+      } else {
+        ((packet[cursor + 1].toInt() and 0xff) + 1) * 8
+      }
+      if (headerLength < 8 || cursor + headerLength > end) return null
+      protocol = next
+      cursor += headerLength
+    }
+    return IpPacket(6, protocol, source, destination, packet.copyOfRange(cursor, end), packet[7].toInt() and 0xff)
   }
 
   private fun buildIp(
@@ -230,4 +244,17 @@ internal object PacketCodec {
     bytes[offset + 2] = (value ushr 8).toByte()
     bytes[offset + 3] = value.toByte()
   }
+
+  private const val IPV6_HOP_BY_HOP = 0
+  private const val IPV6_ROUTING = 43
+  private const val IPV6_FRAGMENT_HEADER = 44
+  private const val IPV6_AH_HEADER = 51
+  private const val IPV6_DESTINATION = 60
+  private val IPV6_EXTENSION_HEADERS = setOf(
+    IPV6_HOP_BY_HOP,
+    IPV6_ROUTING,
+    IPV6_FRAGMENT_HEADER,
+    IPV6_AH_HEADER,
+    IPV6_DESTINATION,
+  )
 }

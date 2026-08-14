@@ -75,6 +75,7 @@ class GuardianVpnService : VpnService() {
   }
 
   override fun onRevoke() {
+    GuardianVpnPreferences.setEnabled(this, false)
     fail("VPN_REVOKED")
     stopSelf()
     super.onRevoke()
@@ -130,7 +131,7 @@ class GuardianVpnService : VpnService() {
       return
     }
     val domain = dnsCache.domainFor(ip.destination)
-    if (datagram.destinationPort == QUIC_PORT && domain == null) {
+    if (datagram.destinationPort == QUIC_PORT && domain == null && GuardianPolicyRuntime.hasActiveSnapshot()) {
       failOnce("QUIC_DOMAIN_UNRESOLVED")
       return
     }
@@ -335,9 +336,9 @@ class GuardianVpnService : VpnService() {
     fun start() {
       Thread({
         runCatching {
+          write(PacketCodec.buildTcp(request, request.destination, request.source, key.destinationPort, key.sourcePort, localSequence, nextClientSequence, SYN or ACK, TCP_WINDOW))
           protect(socket)
           socket.connect(InetSocketAddress(request.destination, key.destinationPort), TCP_CONNECT_TIMEOUT_MS.toInt())
-          write(PacketCodec.buildTcp(request, request.destination, request.source, key.destinationPort, key.sourcePort, localSequence, nextClientSequence, SYN or ACK, TCP_WINDOW))
           val input = socket.getInputStream()
           val buffer = ByteArray(32768)
           while (!closed.get()) {
@@ -414,29 +415,45 @@ class GuardianVpnService : VpnService() {
   }
 
   private class DnsCache {
-    private val namesByAddress = ConcurrentHashMap<String, String>()
+    private data class CachedDomain(val domain: String, val expiresAtMillis: Long)
+
+    private val namesByAddress = ConcurrentHashMap<String, CachedDomain>()
 
     fun record(domain: String, response: ByteArray) {
       if (response.size < 12) return
       var offset = skipName(response, 12) + 4
       val answers = ((response[6].toInt() and 0xff) shl 8) or (response[7].toInt() and 0xff)
       repeat(answers) {
-        if (offset + 12 > response.size) return
-        val type = ((response[offset + 2].toInt() and 0xff) shl 8) or (response[offset + 3].toInt() and 0xff)
-        val dataLength = ((response[offset + 10].toInt() and 0xff) shl 8) or (response[offset + 11].toInt() and 0xff)
-        offset = skipName(response, offset) + 10
-        if (offset + dataLength > response.size) return
+        val answer = skipName(response, offset)
+        if (answer + 10 > response.size) return
+        val type = ((response[answer].toInt() and 0xff) shl 8) or (response[answer + 1].toInt() and 0xff)
+        val ttl = ((response[answer + 4].toLong() and 0xff) shl 24) or
+          ((response[answer + 5].toLong() and 0xff) shl 16) or
+          ((response[answer + 6].toLong() and 0xff) shl 8) or
+          (response[answer + 7].toLong() and 0xff)
+        val dataLength = ((response[answer + 8].toInt() and 0xff) shl 8) or
+          (response[answer + 9].toInt() and 0xff)
+        val dataOffset = answer + 10
+        if (dataOffset + dataLength > response.size) return
         if ((type == 1 && dataLength == 4) || (type == 28 && dataLength == 16)) {
           runCatching {
-            val address = InetAddress.getByAddress(response.copyOfRange(offset, offset + dataLength)).hostAddress ?: return@runCatching
-            namesByAddress[address] = domain
+            val address = InetAddress.getByAddress(response.copyOfRange(dataOffset, dataOffset + dataLength)).hostAddress ?: return@runCatching
+            namesByAddress[address] = CachedDomain(domain, System.currentTimeMillis() + ttl * 1000)
           }
         }
-        offset += dataLength
+        offset = dataOffset + dataLength
       }
     }
 
-    fun domainFor(address: InetAddress): String? = address.hostAddress?.let { namesByAddress[it] }
+    fun domainFor(address: InetAddress): String? {
+      val key = address.hostAddress ?: return null
+      val cached = namesByAddress[key] ?: return null
+      if (cached.expiresAtMillis <= System.currentTimeMillis()) {
+        namesByAddress.remove(key, cached)
+        return null
+      }
+      return cached.domain
+    }
 
     private fun skipName(packet: ByteArray, start: Int): Int {
       var offset = start

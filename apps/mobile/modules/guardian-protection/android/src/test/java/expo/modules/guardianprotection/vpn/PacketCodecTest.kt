@@ -1,6 +1,8 @@
 package expo.modules.guardianprotection.vpn
 
 import java.net.InetAddress
+import java.nio.ByteBuffer
+import java.nio.ByteOrder
 import org.junit.Assert.assertArrayEquals
 import org.junit.Assert.assertEquals
 import org.junit.Assert.assertNotNull
@@ -36,5 +38,45 @@ class PacketCodecTest {
     assertEquals(443, tcp.destinationPort)
     assertEquals(10, tcp.sequence)
     assertEquals(true, tcp.syn)
+  }
+
+  @Test
+  fun parsesIpv6HopByHopExtensionBeforeUdp() {
+    val source = InetAddress.getByName("fd00:0:0:0:0:0:0:2")
+    val destination = InetAddress.getByName("2606:4700:4700::1111")
+    val udp = ByteArray(11).also {
+      ByteBuffer.wrap(it).order(ByteOrder.BIG_ENDIAN).apply {
+        putShort(40000.toShort())
+        putShort(53.toShort())
+        putShort(11.toShort())
+        put(1.toByte())
+        put(2.toByte())
+        put(3.toByte())
+      }
+    }
+    val packet = ByteArray(40 + 8 + udp.size)
+    packet[0] = 0x60
+    ByteBuffer.wrap(packet).order(ByteOrder.BIG_ENDIAN).putShort(4, (8 + udp.size).toShort())
+    packet[6] = 0
+    packet[7] = 64
+    source.address.copyInto(packet, 8)
+    destination.address.copyInto(packet, 24)
+    packet[40] = 17
+    packet[41] = 0
+    udp.copyInto(packet, 48)
+
+    val parsed = PacketCodec.parseIp(packet) ?: error("IPv6 extension packet did not parse")
+    assertEquals(17, parsed.protocol)
+    assertArrayEquals(udp, parsed.payload)
+  }
+
+  @Test
+  fun dropsFragmentedIpv6PacketsWithoutReassembly() {
+    val packet = ByteArray(48)
+    packet[0] = 0x60
+    ByteBuffer.wrap(packet).order(ByteOrder.BIG_ENDIAN).putShort(4, 8)
+    packet[6] = 44
+    packet[7] = 64
+    assertEquals(null, PacketCodec.parseIp(packet))
   }
 }
