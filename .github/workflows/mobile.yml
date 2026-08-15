@@ -21,13 +21,13 @@ jobs:
     runs-on: ubuntu-latest
     steps:
       - uses: actions/checkout@v4
+      - uses: pnpm/action-setup@v4
+        with:
+          version: 10.14.0
       - uses: actions/setup-node@v4
         with:
           node-version-file: ".nvmrc"
           cache: pnpm
-      - uses: pnpm/action-setup@v4
-        with:
-          version: 10.14.0
       - run: pnpm install --frozen-lockfile
       - run: pnpm --filter guardian-mobile lint
       - run: pnpm --filter guardian-mobile typecheck
@@ -37,13 +37,13 @@ jobs:
     runs-on: ubuntu-latest
     steps:
       - uses: actions/checkout@v4
+      - uses: pnpm/action-setup@v4
+        with:
+          version: 10.14.0
       - uses: actions/setup-node@v4
         with:
           node-version-file: ".nvmrc"
           cache: pnpm
-      - uses: pnpm/action-setup@v4
-        with:
-          version: 10.14.0
       - uses: actions/setup-java@v4
         with:
           distribution: temurin
@@ -58,13 +58,13 @@ jobs:
     runs-on: ubuntu-latest
     steps:
       - uses: actions/checkout@v4
+      - uses: pnpm/action-setup@v4
+        with:
+          version: 10.14.0
       - uses: actions/setup-node@v4
         with:
           node-version-file: ".nvmrc"
           cache: pnpm
-      - uses: pnpm/action-setup@v4
-        with:
-          version: 10.14.0
       - run: pnpm install --frozen-lockfile
       - run: pnpm --filter guardian-mobile test --runInBand src/api src/state src/auth
 
@@ -72,12 +72,12 @@ jobs:
     runs-on: ubuntu-latest
     steps:
       - uses: actions/checkout@v4
+      - uses: pnpm/action-setup@v4
+        with:
+          version: 10.14.0
       - uses: actions/setup-node@v4
         with:
           node-version-file: ".nvmrc"
           cache: pnpm
-      - uses: pnpm/action-setup@v4
-        with:
-          version: 10.14.0
       - run: pnpm install --frozen-lockfile
-      - run: pnpm --filter guardian-mobile test --runInBand src/app
+      - run: pnpm --filter guardian-mobile exec jest --runInBand src/new-routes.test.tsx src/screens.test.tsx
