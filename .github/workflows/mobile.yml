@@ -49,7 +49,7 @@ jobs:
           distribution: temurin
           java-version: "17"
       - run: pnpm install --frozen-lockfile
-      - run: npx expo prebuild --no-install
+      - run: npx expo prebuild --platform android --no-install
         working-directory: apps/mobile
       - run: ./gradlew :guardian-protection:assembleDebug :guardian-protection:testDebugUnitTest
         working-directory: apps/mobile/android
