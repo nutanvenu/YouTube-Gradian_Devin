@@ -65,7 +65,8 @@ async def test_request_push_actions_are_real_idempotent_and_authorized(
     )
     assert current_bundle is not None
     assert current_bundle.new_value["temporary_overrides"][-1]["target_kind"] == "DEVICE"
-    assert current_bundle.new_value["temporary_overrides"][-1]["daily_minutes"] == 15
+    assert current_bundle.new_value["temporary_overrides"][-1]["target_ref"] == "device"
+    assert current_bundle.new_value["temporary_overrides"][-1]["daily_minutes"] == 195
     repeated = await client.post(approve_path, json={})
     assert repeated.status_code == 200
     assert repeated.json()["state"] == "APPROVED"
@@ -101,6 +102,77 @@ async def test_request_push_actions_are_real_idempotent_and_authorized(
     await database_session.commit()
     expired = await client.post(expired_path, json={})
     assert expired.status_code == 410
+
+
+@pytest.mark.asyncio
+async def test_more_time_approval_targets_app_and_domain_grants(
+    client, paired_device, database_session
+) -> None:
+    parent_headers = {"Authorization": f"Bearer {paired_device.parent.token}"}
+    limited = await client.post(
+        f"/v1/families/{paired_device.parent.family_id}/children/{paired_device.parent.child_id}/policy/mutations",
+        headers=parent_headers,
+        json={"operation": "APP_DAILY_MINUTES", "target": "com.example.chrome", "value": 30},
+    )
+    assert limited.status_code == 200, limited.text
+
+    async def create_request(subject: str, key: str) -> str:
+        body = json.dumps(
+            {"request_type": "MORE_TIME", "subject": subject, "reason": "Homework"},
+            separators=(",", ":"),
+        ).encode()
+        path = "/v1/devices/me/requests"
+        response = await client.post(
+            path,
+            content=body,
+            headers={
+                **paired_device.signed_headers(path, body),
+                "Content-Type": "application/json",
+                "Idempotency-Key": key,
+            },
+        )
+        assert response.status_code == 201, response.text
+        return response.json()["id"]
+
+    app_request_id = await create_request("com.example.chrome", "more-time-app")
+    app_approved = await client.post(
+        f"/v1/families/{paired_device.parent.family_id}/requests/{app_request_id}/approve",
+        headers=parent_headers,
+        json={"reason": "Approved for homework"},
+    )
+    assert app_approved.status_code == 200, app_approved.text
+    current_bundle = await database_session.scalar(
+        select(PolicyBundle).where(
+            PolicyBundle.child_profile_id == paired_device.parent.child_id,
+            PolicyBundle.is_current.is_(True),
+        )
+    )
+    assert current_bundle is not None
+    app_override = current_bundle.new_value["temporary_overrides"][-1]
+    assert app_override["target_kind"] == "APP"
+    assert app_override["target_ref"] == "com.example.chrome"
+    assert app_override["action"] == "LIMIT"
+    assert app_override["daily_minutes"] == 45
+
+    domain_request_id = await create_request("EXAMPLE.COM.", "more-time-domain")
+    domain_approved = await client.post(
+        f"/v1/families/{paired_device.parent.family_id}/requests/{domain_request_id}/approve",
+        headers=parent_headers,
+        json={"reason": "Approved for research"},
+    )
+    assert domain_approved.status_code == 200, domain_approved.text
+    current_bundle = await database_session.scalar(
+        select(PolicyBundle).where(
+            PolicyBundle.child_profile_id == paired_device.parent.child_id,
+            PolicyBundle.is_current.is_(True),
+        )
+    )
+    assert current_bundle is not None
+    domain_override = current_bundle.new_value["temporary_overrides"][-1]
+    assert domain_override["target_kind"] == "DOMAIN"
+    assert domain_override["target_ref"] == "example.com"
+    assert domain_override["action"] == "ALLOW"
+    assert "daily_minutes" not in domain_override
 
 
 @pytest.mark.asyncio

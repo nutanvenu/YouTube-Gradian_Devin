@@ -27,12 +27,33 @@ export default function ChildTimeRoute() {
   })();
   const extraMinutes = (() => {
     const bundle = policy.data?.bundle as { temporary_overrides?: unknown } | undefined;
-    const override = Array.isArray(bundle?.temporary_overrides)
-      ? bundle.temporary_overrides.find((item) => typeof item === "object" && item !== null && (item as Record<string, unknown>).target_kind === "DEVICE")
-      : null;
-    return typeof override === "object" && override !== null && typeof (override as Record<string, unknown>).daily_minutes === "number"
-      ? Number((override as Record<string, unknown>).daily_minutes)
-      : 0;
+    if (!Array.isArray(bundle?.temporary_overrides)) return [];
+    const now = Date.now();
+    return bundle.temporary_overrides.flatMap((item) => {
+      if (typeof item !== "object" || item === null) return [];
+      const override = item as Record<string, unknown>;
+      if (override.action !== "LIMIT" && override.action !== "ALLOW") return [];
+      if (typeof override.starts_at !== "string" || typeof override.expires_at !== "string") return [];
+      const startsAt = Date.parse(override.starts_at);
+      const expiresAt = Date.parse(override.expires_at);
+      if (!Number.isFinite(startsAt) || !Number.isFinite(expiresAt) || now < startsAt || now >= expiresAt) return [];
+      const targetKind = override.target_kind;
+      const targetRef = override.target_ref;
+      if (
+        (targetKind !== "APP" && targetKind !== "DOMAIN" && targetKind !== "DEVICE") ||
+        typeof targetRef !== "string"
+      ) {
+        return [];
+      }
+      return [{
+        minutes: typeof override.daily_minutes === "number" ? Number(override.daily_minutes) : null,
+        target: targetKind === "DEVICE"
+          ? "this device"
+          : targetKind === "APP"
+            ? `app ${targetRef}`
+            : `website ${targetRef}`,
+      }];
+    });
   })();
   return (
     <ScreenScaffold title="My time">
@@ -43,10 +64,12 @@ export default function ChildTimeRoute() {
           ? appBudgets.map((budget) => {
               const usedSeconds = usage.data.byTarget[budget.app_ref] ?? 0;
               const remainingSeconds = Math.max(0, budget.daily_minutes * 60 - usedSeconds);
-              return <Text key={budget.app_ref}>{budget.app_ref}: {Math.ceil(remainingSeconds / 60)} minutes remaining.</Text>;
+              return <Text key={budget.app_ref}>{budget.app_ref}: {remainingSeconds > 0 ? `${Math.floor(remainingSeconds / 60)} minutes remaining.` : "No time left today."}</Text>;
             })
           : null}
-        {extraMinutes > 0 ? <Text>Parent-approved extra time: {extraMinutes} minutes.</Text> : null}
+        {extraMinutes.map((extra) => (
+          <Text key={`${extra.target}-${extra.minutes}`}>Parent-approved extra time for {extra.target}{extra.minutes === null ? "." : `: ${extra.minutes} minutes.`}</Text>
+        ))}
         <Text>Need a change? Ask a parent for more time or to unblock an app or website.</Text>
         <PrimaryButton label="Ask for help" onPress={() => router.push("/child/requests")} />
         <PrimaryButton label="Open time-up help" onPress={() => router.push("/child/time-up")} />

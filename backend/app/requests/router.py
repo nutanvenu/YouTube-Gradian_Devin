@@ -33,6 +33,7 @@ from ..api.handler_support import (
     timedelta,
     transition,
 )
+from ..policies.temporary import build_more_time_override
 
 router = APIRouter()
 
@@ -91,16 +92,16 @@ async def decide_request(
         overrides = list(raw_overrides) if isinstance(raw_overrides, list) else []
         expires_at = datetime.now(UTC) + timedelta(hours=1)
         if row.request_type == "MORE_TIME":
+            starts_at = datetime.now(UTC).isoformat().replace("+00:00", "Z")
             overrides.append(
-                {
-                    "rule_id": f"request-{row.id}",
-                    "target_kind": "DEVICE",
-                    "target_ref": "device",
-                    "action": "LIMIT",
-                    "daily_minutes": 15,
-                    "starts_at": datetime.now(UTC).isoformat().replace("+00:00", "Z"),
-                    "expires_at": expires_at.isoformat().replace("+00:00", "Z"),
-                }
+                build_more_time_override(
+                    policy,
+                    row.subject,
+                    15,
+                    f"request-{row.id}",
+                    starts_at,
+                    expires_at.isoformat().replace("+00:00", "Z"),
+                )
             )
         else:
             overrides.append(

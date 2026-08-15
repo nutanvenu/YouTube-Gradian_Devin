@@ -100,7 +100,7 @@ class PolicyEvaluatorTest {
           "target_kind" to "DEVICE",
           "starts_at" to "2026-01-01T00:00:00Z",
           "expires_at" to "2026-01-02T00:00:00Z",
-          "daily_minutes" to 15,
+          "daily_minutes" to 75,
         ),
       ),
       routines = emptyList(),

@@ -59,9 +59,11 @@ export default function ChildHomeRoute() {
 
   useEffect(() => {
     let mounted = true;
-    void sessionStorage.getFamilyId().then((value) => {
-      if (mounted) setFamilyId(value ?? undefined);
-    });
+    void sessionStorage.getFamilyId()
+      .then((value) => {
+        if (mounted) setFamilyId(value ?? undefined);
+      })
+      .catch(() => undefined);
     return () => {
       mounted = false;
     };

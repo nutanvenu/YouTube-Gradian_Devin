@@ -31,6 +31,7 @@ from ..api.handler_support import (
     signer,
     status,
 )
+from .temporary import build_screen_time_override
 
 router = APIRouter()
 
@@ -206,15 +207,14 @@ async def mutate_policy(
             raise HTTPException(status.HTTP_422_UNPROCESSABLE_ENTITY, "Future expiry required")
         policy["temporary_overrides"] = [
             *policy_records(policy, "temporary_overrides"),
-            {
-                "rule_id": rule_id,
-                "target_kind": "DEVICE",
-                "target_ref": body.target,
-                "action": "LIMIT",
-                "daily_minutes": body.value,
-                "starts_at": datetime.now(UTC).isoformat().replace("+00:00", "Z"),
-                "expires_at": body.expires_at.isoformat().replace("+00:00", "Z"),
-            },
+            build_screen_time_override(
+                policy,
+                body.target,
+                body.value,
+                rule_id,
+                datetime.now(UTC).isoformat().replace("+00:00", "Z"),
+                body.expires_at.isoformat().replace("+00:00", "Z"),
+            ),
         ]
     elif operation in {"PAUSE_INTERNET", "RESUME_INTERNET"}:
         routines = [

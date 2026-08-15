@@ -154,8 +154,35 @@ async def test_parent_time_extension_is_signed_and_expires(client, parent_a) -> 
     assert response.status_code == 200, response.text
     override = response.json()["bundle"]["temporary_overrides"][-1]
     assert override["target_kind"] == "DEVICE"
-    assert override["daily_minutes"] == 15
+    assert override["target_ref"] == "device"
+    assert override["daily_minutes"] == 195
     assert response.json()["bundle"]["signature"]
+
+
+@pytest.mark.asyncio
+async def test_parent_time_extension_targets_existing_app_rule_additively(client, parent_a) -> None:
+    headers = {"Authorization": f"Bearer {parent_a.token}"}
+    limited = await client.post(
+        f"/v1/families/{parent_a.family_id}/children/{parent_a.child_id}/policy/mutations",
+        headers=headers,
+        json={"operation": "APP_DAILY_MINUTES", "target": "com.example.chrome", "value": 30},
+    )
+    assert limited.status_code == 200, limited.text
+    response = await client.post(
+        f"/v1/families/{parent_a.family_id}/children/{parent_a.child_id}/policy/mutations",
+        headers=headers,
+        json={
+            "operation": "TEMPORARY_SCREEN_TIME",
+            "target": "com.example.chrome",
+            "value": 15,
+            "expires_at": "2099-01-01T00:00:00Z",
+        },
+    )
+    assert response.status_code == 200, response.text
+    override = response.json()["bundle"]["temporary_overrides"][-1]
+    assert override["target_kind"] == "APP"
+    assert override["target_ref"] == "com.example.chrome"
+    assert override["daily_minutes"] == 45
 
 
 @pytest.mark.asyncio

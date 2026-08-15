@@ -23,6 +23,11 @@ function reportRange() {
   };
 }
 
+function formatUsageMinutes(seconds: number): string {
+  if (seconds > 0 && seconds < 60) return "<1 min";
+  return `${Math.floor(seconds / 60)} min`;
+}
+
 export default function ParentActivityRoute() {
   const { familyId } = useLocalSearchParams<{ familyId: string }>();
   const router = useRouter();
@@ -67,7 +72,7 @@ export default function ParentActivityRoute() {
           <SectionSurface>
             <Text>Today’s usage</Text>
             {Object.keys(usageTargets).length > 0
-              ? Object.entries(usageTargets).map(([target, seconds]) => <ListRow key={target} label={target} value={`${Math.round(seconds / 60)} min`} />)
+              ? Object.entries(usageTargets).map(([target, seconds]) => <ListRow key={target} label={target} value={formatUsageMinutes(seconds)} />)
               : <Text>Unknown · this device has not provided a usage summary.</Text>}
           </SectionSurface>
           <SectionSurface>
@@ -75,8 +80,8 @@ export default function ParentActivityRoute() {
             {reportBuckets.length
               ? reportBuckets.map((bucket) => (
                 <CardSurface key={`${bucket.child_profile_id}-${bucket.period_start}`}>
-                  <ListRow label={bucket.period_start} value={`${Math.round(bucket.duration_seconds / 60)} min`} />
-                  <Text>{Object.entries(bucket.by_category).map(([category, seconds]) => `${category}: ${Math.round(seconds / 60)} min`).join(" · ")}</Text>
+                  <ListRow label={bucket.period_start} value={formatUsageMinutes(bucket.duration_seconds)} />
+                  <Text>{Object.entries(bucket.by_category).map(([category, seconds]) => `${category}: ${formatUsageMinutes(seconds)}`).join(" · ")}</Text>
                 </CardSurface>
               ))
               : <Text>Unknown · no persisted usage is available for this report.</Text>}
@@ -85,7 +90,7 @@ export default function ParentActivityRoute() {
             <Text>Usage over time</Text>
             {activityUsagePoints.length ? activityUsagePoints.map((point) => (
               <CardSurface key={`${point.occurred_at}-${point.app_ref ?? "unknown"}-${point.event_type}`}>
-                <ListRow label={point.app_ref ?? "Unknown app"} value={`${Math.round(point.duration_seconds / 60)} min`} />
+                <ListRow label={point.app_ref ?? "Unknown app"} value={formatUsageMinutes(point.duration_seconds)} />
                 <Text>{point.category ?? "Unknown category"} · {new Date(point.occurred_at).toLocaleString()}</Text>
                 <SecondaryButton label="Open activity detail" onPress={() => router.push({ pathname: "/parent/activity-detail", params: { familyId, ...(point.app_ref ? { appId: point.app_ref } : { category: point.category ?? "UNKNOWN" }) } })} />
               </CardSurface>

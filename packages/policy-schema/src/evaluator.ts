@@ -126,8 +126,16 @@ function actionForRule(
   if (rule.action === "LIMIT") {
     const exhausted = usageSeconds >= (rule.daily_minutes ?? 0) * 60;
     return {
-      action: exhausted ? "LIMIT_REACHED" : "ALLOW_WITH_BUDGET",
-      reason_code: exhausted ? "BUDGET_EXHAUSTED" : "BUDGET_AVAILABLE",
+      action: exhausted
+        ? "LIMIT_REACHED"
+        : reason === "TEMPORARY_PARENT_OVERRIDE"
+          ? "ALLOW"
+          : "ALLOW_WITH_BUDGET",
+      reason_code: exhausted
+        ? "BUDGET_EXHAUSTED"
+        : reason === "TEMPORARY_PARENT_OVERRIDE"
+          ? "TEMPORARY_PARENT_OVERRIDE"
+          : "BUDGET_AVAILABLE",
       policy_rule_id: rule.rule_id,
       budget_exempt: budgetExempt
     };
@@ -146,7 +154,23 @@ function candidateDecision(
   context: DecisionContext,
   stale: boolean
 ): PolicyDecision {
-  const deviceBudget = bundle.base_policy.daily_device_budget_minutes;
+  const activeDeviceOverride = bundle.temporary_overrides.find(
+    (override) =>
+      override.target_kind === "DEVICE" &&
+      Temporal.Instant.compare(
+        Temporal.Instant.from(context.timestamp),
+        Temporal.Instant.from(override.starts_at)
+      ) >= 0 &&
+      Temporal.Instant.compare(
+        Temporal.Instant.from(context.timestamp),
+        Temporal.Instant.from(override.expires_at)
+      ) < 0
+  );
+  const deviceBudgets = [
+    bundle.base_policy.daily_device_budget_minutes,
+    activeDeviceOverride?.daily_minutes
+  ].filter((value): value is number => value !== undefined);
+  const deviceBudget = deviceBudgets.length > 0 ? Math.max(...deviceBudgets) : undefined;
   if (
     deviceBudget !== undefined &&
     context.usage.device_seconds_today >= deviceBudget * 60 &&
