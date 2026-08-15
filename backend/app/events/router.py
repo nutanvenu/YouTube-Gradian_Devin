@@ -1,5 +1,5 @@
 # ruff: noqa: E501
-from datetime import date, datetime
+from datetime import UTC, date, datetime, timedelta
 from typing import Literal
 from zoneinfo import ZoneInfo
 
@@ -108,14 +108,21 @@ async def family_usage(
     session: AsyncSession = Depends(get_session),
 ) -> list[dict[str, object]]:
     await family_for_parent(session, parent, family_id)
+    usage_end = datetime.now(UTC)
+    usage_start = usage_end - timedelta(days=7)
     rows = latest_usage_snapshots(
         (
             await session.execute(
                 select(UsageAggregate, Device.child_profile_id)
                 .join(Device, Device.id == UsageAggregate.device_id)
                 .join(ChildProfile, ChildProfile.id == Device.child_profile_id)
-                .where(ChildProfile.family_id == family_id)
-                .order_by(UsageAggregate.occurred_at)
+                .where(
+                    ChildProfile.family_id == family_id,
+                    UsageAggregate.occurred_at >= usage_start,
+                    UsageAggregate.occurred_at <= usage_end,
+                )
+                .order_by(UsageAggregate.occurred_at.desc())
+                .limit(500)
             )
         ).tuples().all()
     )

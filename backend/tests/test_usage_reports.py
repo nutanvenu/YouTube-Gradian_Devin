@@ -1,5 +1,5 @@
 import json
-from datetime import UTC, datetime
+from datetime import UTC, datetime, timedelta
 
 import pytest
 
@@ -66,20 +66,31 @@ async def test_daily_report_splits_duration_at_dst_boundary(client, parent_a, pa
 async def test_reports_and_activity_use_latest_cumulative_snapshot_per_target(
     client, parent_a, paired_device
 ):
+    latest = datetime.now(UTC).replace(second=0, microsecond=0)
+    first = latest - timedelta(minutes=1)
+    report_day = first.date().isoformat()
+    next_day = (first.date() + timedelta(days=1)).isoformat()
     await ingest(
         client,
         paired_device,
         [
             {
                 "event_type": "APP_USAGE",
-                "occurred_at": "2024-01-02T06:57:00Z",
+                "occurred_at": (latest - timedelta(days=8)).isoformat().replace("+00:00", "Z"),
+                "timezone": "UTC",
+                "app_ref": "com.example.old",
+                "duration_seconds": 9999,
+            },
+            {
+                "event_type": "APP_USAGE",
+                "occurred_at": first.isoformat().replace("+00:00", "Z"),
                 "timezone": "UTC",
                 "app_ref": "com.example.chrome",
                 "duration_seconds": 1015,
             },
             {
                 "event_type": "APP_USAGE",
-                "occurred_at": "2024-01-02T06:58:00Z",
+                "occurred_at": latest.isoformat().replace("+00:00", "Z"),
                 "timezone": "UTC",
                 "app_ref": "com.example.chrome",
                 "duration_seconds": 1018,
@@ -91,8 +102,8 @@ async def test_reports_and_activity_use_latest_cumulative_snapshot_per_target(
         f"/v1/families/{parent_a.family_id}/usage/reports",
         params={
             "child_id": parent_a.child_id,
-            "start": "2024-01-02",
-            "end": "2024-01-03",
+            "start": report_day,
+            "end": next_day,
             "timezone": "UTC",
         },
         headers=headers,

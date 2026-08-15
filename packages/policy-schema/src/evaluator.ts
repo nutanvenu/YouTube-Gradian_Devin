@@ -99,6 +99,26 @@ function lastMatching<T>(items: T[], predicate: (item: T) => boolean): T | undef
   return undefined;
 }
 
+function mostSpecificDomainRule(
+  rules: DomainRule[],
+  target: string,
+): DomainRule | undefined {
+  const candidate = normalizedDomain(target);
+  if (!candidate) return undefined;
+  let selected: DomainRule | undefined;
+  let selectedSpecificity = -1;
+  for (const rule of rules) {
+    if (!domainMatches(rule, candidate)) continue;
+    const configured = normalizedDomain(rule.domain);
+    const specificity = configured.length + (rule.match === "SUBDOMAINS" ? 2 : 0);
+    if (specificity >= selectedSpecificity) {
+      selected = rule;
+      selectedSpecificity = specificity;
+    }
+  }
+  return selected;
+}
+
 function categoryForTarget(
   target: DecisionContext["target"]
 ): Category | undefined {
@@ -324,7 +344,7 @@ export function evaluatePolicy(
     target.kind === "APP"
       ? lastMatching(bundle.app_rules, (rule) => rule.app_ref === target.ref)
       : target.kind === "DOMAIN"
-        ? lastMatching(bundle.domain_rules, (rule) => domainMatches(rule, target.ref))
+        ? mostSpecificDomainRule(bundle.domain_rules, target.ref)
         : lastMatching(
             bundle.category_rules,
             (rule) => rule.category === categoryForTarget(target)
