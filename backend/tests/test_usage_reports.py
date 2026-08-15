@@ -1,5 +1,5 @@
 import json
-from datetime import UTC, datetime
+from datetime import UTC, datetime, timedelta
 
 import pytest
 
@@ -60,6 +60,64 @@ async def test_daily_report_splits_duration_at_dst_boundary(client, parent_a, pa
             "by_category": {"EDUCATION": 7200},
         }
     ]
+
+
+@pytest.mark.asyncio
+async def test_reports_and_activity_use_latest_cumulative_snapshot_per_target(
+    client, parent_a, paired_device
+):
+    latest = datetime.now(UTC).replace(second=0, microsecond=0)
+    first = latest - timedelta(minutes=1)
+    report_day = first.date().isoformat()
+    next_day = (first.date() + timedelta(days=1)).isoformat()
+    await ingest(
+        client,
+        paired_device,
+        [
+            {
+                "event_type": "APP_USAGE",
+                "occurred_at": (latest - timedelta(days=8)).isoformat().replace("+00:00", "Z"),
+                "timezone": "UTC",
+                "app_ref": "com.example.old",
+                "duration_seconds": 9999,
+            },
+            {
+                "event_type": "APP_USAGE",
+                "occurred_at": first.isoformat().replace("+00:00", "Z"),
+                "timezone": "UTC",
+                "app_ref": "com.example.chrome",
+                "duration_seconds": 1015,
+            },
+            {
+                "event_type": "APP_USAGE",
+                "occurred_at": latest.isoformat().replace("+00:00", "Z"),
+                "timezone": "UTC",
+                "app_ref": "com.example.chrome",
+                "duration_seconds": 1018,
+            },
+        ],
+    )
+    headers = {"Authorization": f"Bearer {parent_a.token}"}
+    report = await client.get(
+        f"/v1/families/{parent_a.family_id}/usage/reports",
+        params={
+            "child_id": parent_a.child_id,
+            "start": report_day,
+            "end": next_day,
+            "timezone": "UTC",
+        },
+        headers=headers,
+    )
+    activity = await client.get(
+        f"/v1/families/{parent_a.family_id}/activity/usage", headers=headers
+    )
+
+    assert report.status_code == 200, report.text
+    assert report.json()[0]["duration_seconds"] == 1018
+    assert report.json()[0]["by_app"] == {"com.example.chrome": 1018}
+    assert activity.status_code == 200, activity.text
+    assert activity.json()[0]["duration_seconds"] == 1018
+    assert len(activity.json()) == 1
 
 
 @pytest.mark.asyncio

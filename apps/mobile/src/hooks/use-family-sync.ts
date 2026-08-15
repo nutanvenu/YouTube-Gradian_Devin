@@ -32,14 +32,16 @@ export function useFamilySync(familyId: string | undefined, childId?: string) {
           socket?.send("pong");
           return;
         }
-        void queryClient.invalidateQueries({ queryKey: ["children", familyId] });
-        void queryClient.invalidateQueries({ queryKey: ["health", familyId] });
-        void queryClient.invalidateQueries({ queryKey: ["requests", familyId] });
-        void queryClient.invalidateQueries({ queryKey: ["activity", familyId] });
-        void queryClient.invalidateQueries({ queryKey: ["device-policy"] });
+        void Promise.all([
+          queryClient.invalidateQueries({ queryKey: ["children", familyId] }),
+          queryClient.invalidateQueries({ queryKey: ["health", familyId] }),
+          queryClient.invalidateQueries({ queryKey: ["requests", familyId] }),
+          queryClient.invalidateQueries({ queryKey: ["activity", familyId] }),
+          queryClient.invalidateQueries({ queryKey: ["device-policy"] }),
+        ]).catch(() => undefined);
       };
     };
-    void connect();
+    void connect().catch(() => undefined);
     return () => {
       cancelled = true;
       socket?.close();

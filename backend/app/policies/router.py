@@ -36,6 +36,26 @@ from .temporary import build_screen_time_override
 router = APIRouter()
 
 
+def _replace_rule(
+    records: list[dict[str, object]],
+    field: str,
+    target: object,
+    replacement: dict[str, object],
+) -> list[dict[str, object]]:
+    result: list[dict[str, object]] = []
+    replaced = False
+    for record in records:
+        if record.get(field) == target:
+            if not replaced:
+                result.append(replacement)
+                replaced = True
+            continue
+        result.append(record)
+    if not replaced:
+        result.append(replacement)
+    return result
+
+
 async def policy_public_key() -> dict[str, object]:
     settings = get_settings()
     trusted = configured_trusted_public_keys()
@@ -94,16 +114,18 @@ async def mutate_policy(
             if not isinstance(body.value, dict):
                 raise HTTPException(status.HTTP_422_UNPROCESSABLE_ENTITY, "Schedule required")
             rule["schedule"] = body.value
-        policy["app_rules"] = [*policy_records(policy, "app_rules"), rule]
+        policy["app_rules"] = _replace_rule(
+            policy_records(policy, "app_rules"), "app_ref", body.target, rule
+        )
     elif operation in {"DOMAIN_ALLOW", "DOMAIN_BLOCK"}:
-        policy["domain_rules"] = [
-            *policy_records(policy, "domain_rules"),
-            {
-                "rule_id": rule_id,
-                "domain": body.target,
-                "action": "ALLOW" if operation == "DOMAIN_ALLOW" else "BLOCK",
-            },
-        ]
+        rule = {
+            "rule_id": rule_id,
+            "domain": body.target,
+            "action": "ALLOW" if operation == "DOMAIN_ALLOW" else "BLOCK",
+        }
+        policy["domain_rules"] = _replace_rule(
+            policy_records(policy, "domain_rules"), "domain", body.target, rule
+        )
     elif operation in {"CATEGORY_DAILY_MINUTES", "WEB_CATEGORY_ALLOW", "WEB_CATEGORY_BLOCK"}:
         if operation == "WEB_CATEGORY_ALLOW":
             action = "ALLOW"
@@ -114,15 +136,15 @@ async def mutate_policy(
         if not isinstance(body.value, int) or body.value < 0:
             if operation == "CATEGORY_DAILY_MINUTES":
                 raise HTTPException(status.HTTP_422_UNPROCESSABLE_ENTITY, "Daily minutes required")
-        policy["category_rules"] = [
-            *policy_records(policy, "category_rules"),
-            {
-                "rule_id": rule_id,
-                "category": body.target,
-                "action": action,
-                **({"daily_minutes": body.value} if action == "LIMIT" else {}),
-            },
-        ]
+        rule = {
+            "rule_id": rule_id,
+            "category": body.target,
+            "action": action,
+            **({"daily_minutes": body.value} if action == "LIMIT" else {}),
+        }
+        policy["category_rules"] = _replace_rule(
+            policy_records(policy, "category_rules"), "category", body.target, rule
+        )
     elif operation == "UNKNOWN_DOMAIN_POLICY" or operation == "UNKNOWN_APP_POLICY":
         allowed = (
             {"BLOCK", "BLOCK_WHILE_CLASSIFYING", "ALLOW_WHILE_CLASSIFYING", "ALLOW_AND_NOTIFY"}

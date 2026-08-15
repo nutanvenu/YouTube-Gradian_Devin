@@ -203,7 +203,11 @@ export default function ChildHomeRoute() {
       if (!cancelled) setProtectionMessage("Web protection is unavailable.");
     });
     const subscription = AppState.addEventListener("change", (state) => {
-      if (state === "active") void syncProtection();
+      if (state === "active") {
+        void syncProtection().catch(() => {
+          if (!cancelled) setProtectionMessage("Web protection is unavailable.");
+        });
+      }
     });
     return () => {
       cancelled = true;

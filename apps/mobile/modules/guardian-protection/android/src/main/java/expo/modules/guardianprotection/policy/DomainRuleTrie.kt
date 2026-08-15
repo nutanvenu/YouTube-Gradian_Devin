@@ -3,11 +3,15 @@ package expo.modules.guardianprotection.policy
 import java.net.IDN
 
 class DomainRuleTrie(rules: List<Map<String, Any?>>) {
-  private data class Entry(val domain: String, val rule: Map<String, Any?>)
-  private val entries = rules.mapNotNull { rule ->
-    val domain = normalize(rule["domain"] as? String ?: return@mapNotNull null)
+  private data class Entry(val domain: String, val rule: Map<String, Any?>, val order: Int)
+  private val entries = rules.mapIndexedNotNull { index, rule ->
+    val domain = normalize(rule["domain"] as? String ?: return@mapIndexedNotNull null)
     val match = rule["match"] as? String ?: "EXACT"
-    if (domain.isEmpty() || isPublicSuffix(domain)) null else Entry(if (match == "SUBDOMAINS") "*.$domain" else domain, rule)
+    if (domain.isEmpty() || isPublicSuffix(domain)) {
+      null
+    } else {
+      Entry(if (match == "SUBDOMAINS") "*.$domain" else domain, rule, index)
+    }
   }
 
   fun match(value: String): Map<String, Any?>? {
@@ -18,7 +22,7 @@ class DomainRuleTrie(rules: List<Map<String, Any?>>) {
         entry.domain == candidate ||
           (entry.domain.startsWith("*.") && (candidate == entry.domain.drop(2) || candidate.endsWith(".${entry.domain.drop(2)}")))
       }
-      .maxByOrNull { it.domain.length }
+      .maxWithOrNull(compareBy<Entry> { it.domain.length }.thenBy { it.order })
       ?.rule
   }
 

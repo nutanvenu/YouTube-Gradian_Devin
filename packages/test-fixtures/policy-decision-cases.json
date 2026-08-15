@@ -71,6 +71,70 @@
       },
       "signature": "fixture-signature"
     },
+    "domain-specificity-narrow-first": {
+      "schema_version": 1,
+      "policy_version": 11,
+      "family_id": "fam_fixture",
+      "child_profile_id": "child_domain_specificity",
+      "issued_at": "2026-01-01T00:00:00Z",
+      "expires_soft_at": "2026-01-08T00:00:00Z",
+      "age_band": "TEEN",
+      "base_policy": {
+        "timezone": "UTC",
+        "unknown_domain_policy": "BLOCK",
+        "unknown_app_policy": "BLOCK",
+        "hard_category_rules": [],
+        "default_category_rules": [],
+        "safety_allowlist": []
+      },
+      "app_rules": [],
+      "domain_rules": [
+        {"rule_id": "narrow-allow", "action": "ALLOW", "domain": "foo.example.com", "match": "EXACT"},
+        {"rule_id": "broad-block", "action": "BLOCK", "domain": "example.com", "match": "SUBDOMAINS"}
+      ],
+      "category_rules": [],
+      "routines": [],
+      "temporary_overrides": [],
+      "communication_safety": {
+        "enabled": false,
+        "severity_threshold": "HIGH",
+        "android_notification_signals": false,
+        "android_accessibility_signals": false
+      },
+      "signature": "fixture-signature"
+    },
+    "domain-specificity-broad-first": {
+      "schema_version": 1,
+      "policy_version": 12,
+      "family_id": "fam_fixture",
+      "child_profile_id": "child_domain_specificity",
+      "issued_at": "2026-01-01T00:00:00Z",
+      "expires_soft_at": "2026-01-08T00:00:00Z",
+      "age_band": "TEEN",
+      "base_policy": {
+        "timezone": "UTC",
+        "unknown_domain_policy": "BLOCK",
+        "unknown_app_policy": "BLOCK",
+        "hard_category_rules": [],
+        "default_category_rules": [],
+        "safety_allowlist": []
+      },
+      "app_rules": [],
+      "domain_rules": [
+        {"rule_id": "broad-block", "action": "BLOCK", "domain": "example.com", "match": "SUBDOMAINS"},
+        {"rule_id": "narrow-allow", "action": "ALLOW", "domain": "foo.example.com", "match": "EXACT"}
+      ],
+      "category_rules": [],
+      "routines": [],
+      "temporary_overrides": [],
+      "communication_safety": {
+        "enabled": false,
+        "severity_threshold": "HIGH",
+        "android_notification_signals": false,
+        "android_accessibility_signals": false
+      },
+      "signature": "fixture-signature"
+    },
     "young": {
       "schema_version": 1,
       "policy_version": 2,
@@ -444,6 +508,8 @@
     {"id": "budget-override-exemption", "description": "Active temporary override is exempt from device budget", "bundle_ref": "budget", "context": {"target": {"kind": "APP", "ref": "com.example.override"}, "timestamp": "2026-01-01T12:00:00Z", "usage": {"device_seconds_today": 600, "app_seconds_today": {}, "category_seconds_today": {}}}, "expected": {"action": "ALLOW", "reason_code": "TEMPORARY_PARENT_OVERRIDE", "policy_rule_id": "budget-override", "bundle_stale": false}},
     {"id": "budget-unlimited-exemption", "description": "UNLIMITED rule is exempt from device budget", "bundle_ref": "budget", "context": {"target": {"kind": "APP", "ref": "com.example.unlimited"}, "timestamp": "2026-01-01T12:00:00Z", "usage": {"device_seconds_today": 600, "app_seconds_today": {}, "category_seconds_today": {}}}, "expected": {"action": "ALLOW", "reason_code": "EXPLICIT_TARGET_RULE", "policy_rule_id": "budget-unlimited", "bundle_stale": false}},
     {"id": "budget-rule-exemption", "description": "A rule marked exclude_from_budget is exempt", "bundle_ref": "budget", "context": {"target": {"kind": "APP", "ref": "com.example.excluded"}, "timestamp": "2026-01-01T12:00:00Z", "usage": {"device_seconds_today": 600, "app_seconds_today": {}, "category_seconds_today": {}}}, "expected": {"action": "ALLOW", "reason_code": "EXPLICIT_TARGET_RULE", "policy_rule_id": "budget-excluded", "bundle_stale": false}},
+    {"id": "domain-specificity-narrow-first", "description": "A narrower domain rule wins when written before a broader rule", "bundle_ref": "domain-specificity-narrow-first", "context": {"target": {"kind": "DOMAIN", "ref": "foo.example.com"}, "timestamp": "2026-01-05T20:00:00Z", "usage": {"device_seconds_today": 0, "app_seconds_today": {}, "category_seconds_today": {}}}, "expected": {"action": "ALLOW", "reason_code": "EXPLICIT_TARGET_RULE", "policy_rule_id": "narrow-allow", "bundle_stale": false}},
+    {"id": "domain-specificity-broad-first", "description": "A narrower domain rule wins when written after a broader rule", "bundle_ref": "domain-specificity-broad-first", "context": {"target": {"kind": "DOMAIN", "ref": "foo.example.com"}, "timestamp": "2026-01-05T20:00:00Z", "usage": {"device_seconds_today": 0, "app_seconds_today": {}, "category_seconds_today": {}}}, "expected": {"action": "ALLOW", "reason_code": "EXPLICIT_TARGET_RULE", "policy_rule_id": "narrow-allow", "bundle_stale": false}},
     {"id": "tampered-signature", "description": "Tampered signature fails closed at the verification layer", "bundle_ref": "precedence", "context": {"target": {"kind": "APP", "ref": "com.example.video"}, "timestamp": "2026-01-05T20:00:00Z", "usage": {"device_seconds_today": 0, "app_seconds_today": {}, "category_seconds_today": {}}}, "expected": {"action": "BLOCK", "reason_code": "TAMPERED_SIGNATURE", "policy_rule_id": null, "bundle_stale": false}}
   ]
 }

@@ -58,6 +58,50 @@ async def test_parent_policy_mutation_is_versioned_and_idempotent(client, parent
 
 
 @pytest.mark.asyncio
+async def test_parent_rule_mutations_replace_same_target(client, parent_a) -> None:
+    url = (
+        f"/v1/families/{parent_a.family_id}/children/{parent_a.child_id}"
+        "/policy/mutations"
+    )
+    headers = {"Authorization": f"Bearer {parent_a.token}"}
+    operations = [
+        {"operation": "APP_DAILY_MINUTES", "target": "com.example.app", "value": 1},
+        {"operation": "APP_DAILY_MINUTES", "target": "com.example.app", "value": 30},
+        {"operation": "APP_UNLIMITED", "target": "com.example.app"},
+        {"operation": "DOMAIN_BLOCK", "target": "example.com"},
+        {"operation": "DOMAIN_ALLOW", "target": "example.com"},
+        {"operation": "WEB_CATEGORY_BLOCK", "target": "GAMES"},
+        {"operation": "CATEGORY_DAILY_MINUTES", "target": "GAMES", "value": 45},
+    ]
+    response = None
+    for operation in operations:
+        response = await client.post(url, headers=headers, json=operation)
+        assert response.status_code == 200, response.text
+
+    assert response is not None
+    bundle = response.json()["bundle"]
+    app_rules = [rule for rule in bundle["app_rules"] if rule["app_ref"] == "com.example.app"]
+    domain_rules = [rule for rule in bundle["domain_rules"] if rule["domain"] == "example.com"]
+    category_rules = [rule for rule in bundle["category_rules"] if rule["category"] == "GAMES"]
+    assert app_rules == [{
+        "rule_id": app_rules[0]["rule_id"],
+        "app_ref": "com.example.app",
+        "action": "UNLIMITED",
+    }]
+    assert domain_rules == [{
+        "rule_id": domain_rules[0]["rule_id"],
+        "domain": "example.com",
+        "action": "ALLOW",
+    }]
+    assert category_rules == [{
+        "rule_id": category_rules[0]["rule_id"],
+        "category": "GAMES",
+        "action": "LIMIT",
+        "daily_minutes": 45,
+    }]
+
+
+@pytest.mark.asyncio
 async def test_parent_policy_override_surface_records_audit_fields(client, parent_a) -> None:
     headers = {"Authorization": f"Bearer {parent_a.token}"}
     operations = [

@@ -288,7 +288,27 @@ test("Activity aggregates only today's backend child usage by target", () => {
       event_type: "CATEGORY_USAGE",
       occurred_at: "2026-08-14T10:00:00Z",
     },
-  ], now)).toEqual({ "APP:com.example.app": 120 });
+  ], now)).toEqual({ "APP:com.example.app": 90 });
+});
+
+test("Activity keeps the latest cumulative point instead of summing uploads", () => {
+  const now = new Date("2026-08-15T12:00:00Z");
+  expect(aggregateTodayUsage([
+    {
+      app_ref: "com.example.chrome",
+      category: "BROWSER",
+      duration_seconds: 1015,
+      event_type: "APP_USAGE",
+      occurred_at: "2026-08-15T09:00:00Z",
+    },
+    {
+      app_ref: "com.example.chrome",
+      category: "BROWSER",
+      duration_seconds: 1018,
+      event_type: "APP_USAGE",
+      occurred_at: "2026-08-15T09:01:00Z",
+    },
+  ], now)).toEqual({ "APP:com.example.chrome": 1018 });
 });
 
 test("Child usage uploads only app-prefixed usage buckets", () => {

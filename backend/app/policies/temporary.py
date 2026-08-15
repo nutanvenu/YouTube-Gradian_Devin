@@ -23,7 +23,11 @@ def build_screen_time_override(
     expires_at: str,
 ) -> dict[str, object]:
     app_rule = next(
-        (rule for rule in _records(policy, "app_rules") if rule.get("app_ref") == target),
+        (
+            rule
+            for rule in reversed(_records(policy, "app_rules"))
+            if rule.get("app_ref") == target
+        ),
         None,
     )
     if app_rule is not None:
