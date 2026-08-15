@@ -13,6 +13,7 @@ export type QueuedAccessRequest = {
 };
 
 type Storage = Pick<typeof SecureStore, "getItemAsync" | "setItemAsync"> | Map<string, string>;
+const flushes = new WeakMap<object, Promise<QueuedAccessRequest[]>>();
 
 async function get(storage: Storage): Promise<string | null> {
   return storage instanceof Map
@@ -52,6 +53,19 @@ export async function enqueueRequest(
 export async function flushRequestOutbox(
   send: (request: QueuedAccessRequest) => Promise<unknown>,
   storage: Storage = SecureStore,
+): Promise<QueuedAccessRequest[]> {
+  const inFlight = flushes.get(storage);
+  if (inFlight) return inFlight;
+  const operation = flushRequestOutboxOnce(send, storage);
+  flushes.set(storage, operation);
+  return operation.finally(() => {
+    if (flushes.get(storage) === operation) flushes.delete(storage);
+  });
+}
+
+async function flushRequestOutboxOnce(
+  send: (request: QueuedAccessRequest) => Promise<unknown>,
+  storage: Storage,
 ): Promise<QueuedAccessRequest[]> {
   const queue = await readRequestOutbox(storage);
   const remaining: QueuedAccessRequest[] = [];

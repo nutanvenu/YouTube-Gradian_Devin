@@ -45,3 +45,34 @@ test("keeps a queued request terminal when its device is revoked", async () => {
   }, storage);
   expect((await readRequestOutbox(storage))[0].state).toBe("DEVICE_REVOKED");
 });
+
+test("serializes reconnect and foreground flushes so a queued request sends once", async () => {
+  const storage = new Map<string, string>();
+  await enqueueRequest(
+    {
+      id: "local-race",
+      idempotencyKey: "request-race",
+      request_type: "MORE_TIME",
+      subject: null,
+      reason: null,
+      state: "QUEUED",
+    },
+    storage,
+  );
+  let release!: () => void;
+  const sendStarted = new Promise<void>((resolve) => {
+    release = resolve;
+  });
+  const send = jest.fn(async () => {
+    await sendStarted;
+  });
+
+  const reconnectFlush = flushRequestOutbox(send, storage);
+  const foregroundFlush = flushRequestOutbox(send, storage);
+  await new Promise<void>((resolve) => setTimeout(resolve, 0));
+  expect(send).toHaveBeenCalledTimes(1);
+  release();
+  await Promise.all([reconnectFlush, foregroundFlush]);
+  expect(send).toHaveBeenCalledTimes(1);
+  expect(await readRequestOutbox(storage)).toEqual([]);
+});

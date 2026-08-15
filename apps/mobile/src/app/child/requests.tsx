@@ -1,5 +1,5 @@
-import { useEffect, useState } from "react";
-import { Text } from "react-native";
+import { useCallback, useEffect, useState } from "react";
+import { AppState, Text } from "react-native";
 import { api } from "@/api/client";
 import { useNetworkStatus } from "@/state/network";
 import {
@@ -16,7 +16,7 @@ export default function ChildRequestsRoute() {
   const [reason, setReason] = useState("");
   const [message, setMessage] = useState<string | null>(null);
   const [outbox, setOutbox] = useState<QueuedAccessRequest[]>([]);
-  const sync = async () => {
+  const sync = useCallback(async () => {
     try {
       const remaining = await flushRequestOutbox((item) =>
         api.createRequest({
@@ -38,7 +38,7 @@ export default function ChildRequestsRoute() {
       setOutbox(queued);
       setMessage("The request is still queued and will retry when online.");
     }
-  };
+  }, []);
   useEffect(() => {
     void readRequestOutbox().then(setOutbox).catch(() => setOutbox([]));
   }, []);
@@ -48,7 +48,17 @@ export default function ChildRequestsRoute() {
         setMessage("The request is still queued and will retry when online.");
       });
     }
-  }, [isOffline]);
+  }, [isOffline, sync]);
+  useEffect(() => {
+    const subscription = AppState.addEventListener("change", (state) => {
+      if (state === "active") {
+        void sync().catch(() => {
+          setMessage("The request is still queued and will retry when online.");
+        });
+      }
+    });
+    return () => subscription.remove();
+  }, [sync]);
   const create = async (
     requestType: "MORE_TIME" | "UNBLOCK_APP" | "UNBLOCK_SITE",
   ) => {

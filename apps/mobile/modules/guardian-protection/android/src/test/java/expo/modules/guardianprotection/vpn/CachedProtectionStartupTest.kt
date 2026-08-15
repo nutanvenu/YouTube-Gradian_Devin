@@ -36,4 +36,19 @@ class CachedProtectionStartupTest {
       ),
     )
   }
+
+  @Test
+  fun userInitiatedEnableHasItsOwnIntentGateWithoutWeakeningSilentRestore() {
+    assertTrue(UserInitiatedProtectionStartup.shouldStart(true, true))
+    assertFalse(UserInitiatedProtectionStartup.shouldStart(false, true))
+    assertFalse(UserInitiatedProtectionStartup.shouldStart(true, false))
+
+    assertFalse(
+      CachedProtectionStartup.shouldStart(
+        protectionEnabled = false,
+        hasVerifiedSnapshot = true,
+        vpnConsentGranted = true,
+      ),
+    )
+  }
 }
