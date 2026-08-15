@@ -398,6 +398,55 @@ test("Child My Time floors fractional minutes instead of rounding them up", () =
   expect(screen.queryByText("com.example.app: 1 minutes remaining.")).toBeNull();
 });
 
+test("Child My Time renders no time left when app usage reaches its limit", () => {
+  setQuery(["child-usage"], {
+    data: {
+      totalSeconds: 1800,
+      byTarget: { "APP:com.example.app": 1800, DEVICE: 1800 },
+    },
+  });
+  setQuery(["device-policy"], {
+    data: {
+      bundle: {
+        app_rules: [{ app_ref: "com.example.app", action: "LIMIT", daily_minutes: 30 }],
+        temporary_overrides: [],
+      },
+    },
+  });
+  const screen = render(<ChildTimeScreen />);
+  expect(screen.getByText("com.example.app: No time left today.")).toBeTruthy();
+  expect(screen.queryByText("com.example.app: 0 minutes remaining.")).toBeNull();
+});
+
+test("Child My Time remaining time decreases as app usage grows", () => {
+  setQuery(["child-usage"], {
+    data: {
+      totalSeconds: 600,
+      byTarget: { "APP:com.example.app": 600, DEVICE: 600 },
+    },
+  });
+  setQuery(["device-policy"], {
+    data: {
+      bundle: {
+        app_rules: [{ app_ref: "com.example.app", action: "LIMIT", daily_minutes: 30 }],
+        temporary_overrides: [],
+      },
+    },
+  });
+  const first = render(<ChildTimeScreen />);
+  expect(first.getByText("com.example.app: 20 minutes remaining.")).toBeTruthy();
+  first.unmount();
+
+  setQuery(["child-usage"], {
+    data: {
+      totalSeconds: 1200,
+      byTarget: { "APP:com.example.app": 1200, DEVICE: 1200 },
+    },
+  });
+  const second = render(<ChildTimeScreen />);
+  expect(second.getByText("com.example.app: 10 minutes remaining.")).toBeTruthy();
+});
+
 test("Child request sync turns offline delivery failures into queued messaging", async () => {
   mockFlushRequest.mockRejectedValueOnce(new Error("fetch failed"));
   const screen = render(<ChildRequestsScreen />);
