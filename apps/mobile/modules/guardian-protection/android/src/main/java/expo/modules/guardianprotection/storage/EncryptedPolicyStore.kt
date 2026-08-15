@@ -10,6 +10,7 @@ import java.security.KeyStore
 import javax.crypto.Cipher
 import javax.crypto.KeyGenerator
 import javax.crypto.spec.GCMParameterSpec
+import expo.modules.guardianprotection.usage.deviceTotalSeconds
 
 class EncryptedPolicyStore(
   context: Context,
@@ -59,7 +60,7 @@ class EncryptedPolicyStore(
     val byTarget = usageCounters().mapValues { it.value.totalSeconds }
     return mapOf(
       "range" to range,
-      "totalSeconds" to byTarget.values.sum(),
+      "totalSeconds" to deviceTotalSeconds(byTarget),
       "byTarget" to byTarget,
     )
   }

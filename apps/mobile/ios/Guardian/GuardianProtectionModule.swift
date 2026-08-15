@@ -32,8 +32,8 @@ public final class GuardianProtectionModule: Module {
         "details": "The signed snapshot is persisted. App tokens selected through FamilyActivityPicker are required before app shields can be applied.",
       ]
     }
-    AsyncFunction("getUsageSummary") { (_: [String: Any]) -> [String: Any] in
-      self.shared.usageSummary()
+    AsyncFunction("getUsageSummary") { (range: [String: Any]) -> [String: Any] in
+      self.shared.usageSummary(range: range)
     }
     AsyncFunction("getObservedApps") {
       self.shared.observedApps()
@@ -117,10 +117,14 @@ private final class GuardianSharedStore {
     ]
   }
 
-  func usageSummary() -> [String: Any] {
+  func usageSummary(range: [String: Any]) -> [String: Any] {
+    var byTarget = defaults.dictionary(forKey: "usage.byTarget") ?? [:]
+    let deviceSeconds = defaults.integer(forKey: "usage.deviceSeconds")
+    byTarget["DEVICE"] = deviceSeconds
     [
-      "byTarget": defaults.dictionary(forKey: "usage.byTarget") ?? [:],
-      "deviceSeconds": defaults.integer(forKey: "usage.deviceSeconds"),
+      "range": range,
+      "totalSeconds": deviceSeconds,
+      "byTarget": byTarget,
     ]
   }
 

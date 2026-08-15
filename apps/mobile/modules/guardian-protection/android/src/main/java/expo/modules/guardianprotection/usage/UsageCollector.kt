@@ -67,7 +67,7 @@ class UsageCollector(
       .mapValues { (_, values) -> values.sum() }
     return mapOf(
       "range" to range,
-      "totalSeconds" to byTarget.values.sum(),
+      "totalSeconds" to deviceTotalSeconds(byTarget),
       "byTarget" to byTarget,
     )
   }

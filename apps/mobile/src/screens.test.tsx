@@ -96,9 +96,10 @@ jest.mock("@/state/network", () => ({ useNetworkStatus: () => ({ isOffline: mock
 import RulesScreen from "@/app/parent/rules";
 import RequestsScreen from "@/app/parent/requests";
 import HealthScreen from "@/app/parent/health";
-import ActivityScreen from "@/app/parent/activity";
+import ActivityScreen, { aggregateTodayUsage } from "@/app/parent/activity";
 import ChildRequestsScreen from "@/app/child/requests";
 import ChildTimeScreen from "@/app/child/time";
+import { appUsageEvents } from "@/app/child/home";
 
 function setQuery(key: unknown[], state: Record<string, unknown>) {
   mockQueryState.set(JSON.stringify(key), state);
@@ -217,8 +218,7 @@ test("Protection Health renders permission-denied and platform-unavailable capab
 test("Activity renders empty data distinctly from endpoint errors", () => {
   const refetch = jest.fn();
   setQuery(["activity", "family-1"], { data: [], isError: true, refetch });
-  setQuery(["activity-usage", "family-1"], { data: [] });
-  setQuery(["usage-summary"], { data: { byTarget: {} } });
+  setQuery(["activity-usage", "family-1"], { data: [], isError: true });
   const screen = render(<ActivityScreen />);
   fireEvent.press(screen.getByLabelText("Retry"));
   expect(refetch).toHaveBeenCalled();
@@ -227,6 +227,7 @@ test("Activity renders empty data distinctly from endpoint errors", () => {
 
   setQuery(["activity", "family-1"], { data: [] });
   setQuery(["activity-usage", "family-1"], { data: [] });
+  setQuery(["usage-report", "family-1"], { data: [] });
   const loaded = render(<ActivityScreen />);
   expect(loaded.getByText("Nothing to show yet.")).toBeTruthy();
   expect(loaded.getByText("Unknown · this family has not reported activity yet.")).toBeTruthy();
@@ -239,7 +240,7 @@ test("Activity renders permission-denied for an expired session", () => {
   const ApiError = mockedClient.ApiError;
   setQuery(["activity", "family-1"], { error: new ApiError("Unauthorized", 401), isError: true });
   setQuery(["activity-usage", "family-1"], { data: [] });
-  setQuery(["usage-summary"], { data: { byTarget: {} } });
+  setQuery(["usage-report", "family-1"], { data: [] });
   const screen = render(<ActivityScreen />);
   expect(screen.getByText("Permission is required to continue.")).toBeTruthy();
   expect(screen.queryByText("We couldn't load this data.")).toBeNull();
@@ -247,19 +248,67 @@ test("Activity renders permission-denied for an expired session", () => {
 
 test("Activity renders sub-minute usage without rounding it to zero", () => {
   setQuery(["activity", "family-1"], { data: [] });
-  setQuery(["activity-usage", "family-1"], { data: [] });
-  setQuery(["usage-summary"], { data: { byTarget: { "com.example.short": 30 } } });
+  setQuery(["activity-usage", "family-1"], {
+    data: [{
+      app_ref: "com.example.short",
+      category: "EDUCATION",
+      duration_seconds: 30,
+      event_type: "APP_USAGE",
+      occurred_at: new Date().toISOString(),
+    }],
+  });
   setQuery(["usage-report", "family-1"], { data: [] });
   const screen = render(<ActivityScreen />);
-  expect(screen.getByText("<1 min")).toBeTruthy();
+  expect(screen.getByText("APP:com.example.short")).toBeTruthy();
+  expect(screen.getAllByText("<1 min")).toHaveLength(2);
   expect(screen.queryByText("0 min")).toBeNull();
+});
+
+test("Activity aggregates only today's backend child usage by target", () => {
+  const now = new Date("2026-08-15T12:00:00Z");
+  expect(aggregateTodayUsage([
+    {
+      app_ref: "com.example.app",
+      category: "EDUCATION",
+      duration_seconds: 30,
+      event_type: "APP_USAGE",
+      occurred_at: "2026-08-15T09:00:00Z",
+    },
+    {
+      app_ref: "com.example.app",
+      category: "EDUCATION",
+      duration_seconds: 90,
+      event_type: "APP_USAGE",
+      occurred_at: "2026-08-15T10:00:00Z",
+    },
+    {
+      app_ref: null,
+      category: "EDUCATION",
+      duration_seconds: 120,
+      event_type: "CATEGORY_USAGE",
+      occurred_at: "2026-08-14T10:00:00Z",
+    },
+  ], now)).toEqual({ "APP:com.example.app": 120 });
+});
+
+test("Child usage uploads only app-prefixed usage buckets", () => {
+  expect(appUsageEvents({
+    "APP:com.example.app": 61,
+    "CATEGORY:EDUCATION": 120,
+    DEVICE: 181,
+  }, "2026-08-15T12:00:00Z")).toEqual([{
+    event_type: "APP_USAGE",
+    occurred_at: "2026-08-15T12:00:00Z",
+    app_ref: "com.example.app",
+    duration_seconds: 61,
+  }]);
 });
 
 test("Child My Time reports exhausted app budgets and scoped parent grants", () => {
   setQuery(["child-usage"], {
     data: {
       totalSeconds: 1860,
-      byTarget: { "com.example.app": 1800 },
+      byTarget: { "APP:com.example.app": 1800, DEVICE: 1860 },
     },
   });
   setQuery(["device-policy"], {
@@ -267,8 +316,25 @@ test("Child My Time reports exhausted app budgets and scoped parent grants", () 
       bundle: {
         app_rules: [{ app_ref: "com.example.app", action: "LIMIT", daily_minutes: 30 }],
         temporary_overrides: [{
+          rule_id: "app-grant",
           target_kind: "APP",
           target_ref: "com.example.app",
+          action: "LIMIT",
+          daily_minutes: 45,
+          starts_at: new Date(Date.now() - 60_000).toISOString(),
+          expires_at: new Date(Date.now() + 60_000).toISOString(),
+        }, {
+          rule_id: "device-grant-one",
+          target_kind: "DEVICE",
+          target_ref: "device",
+          action: "LIMIT",
+          daily_minutes: 45,
+          starts_at: new Date(Date.now() - 60_000).toISOString(),
+          expires_at: new Date(Date.now() + 60_000).toISOString(),
+        }, {
+          rule_id: "device-grant-two",
+          target_kind: "DEVICE",
+          target_ref: "device",
           action: "LIMIT",
           daily_minutes: 45,
           starts_at: new Date(Date.now() - 60_000).toISOString(),
@@ -278,15 +344,17 @@ test("Child My Time reports exhausted app budgets and scoped parent grants", () 
     },
   });
   const screen = render(<ChildTimeScreen />);
+  expect(screen.getByText("31 minutes recorded on this device.")).toBeTruthy();
   expect(screen.getByText("com.example.app: 15 minutes remaining.")).toBeTruthy();
   expect(screen.getByText("Parent-approved extra time for app com.example.app: 45 minutes.")).toBeTruthy();
+  expect(screen.getAllByText("Parent-approved extra time for this device: 45 minutes.")).toHaveLength(2);
 });
 
 test("Child My Time applies a device grant when it is the effective app limit", () => {
   setQuery(["child-usage"], {
     data: {
       totalSeconds: 2400,
-      byTarget: { "com.example.app": 1200 },
+      byTarget: { "APP:com.example.app": 1200, DEVICE: 2400 },
     },
   });
   setQuery(["device-policy"], {
@@ -295,6 +363,7 @@ test("Child My Time applies a device grant when it is the effective app limit", 
         base_policy: { daily_device_budget_minutes: 30 },
         app_rules: [{ app_ref: "com.example.app", action: "LIMIT", daily_minutes: 60 }],
         temporary_overrides: [{
+          rule_id: "device-grant",
           target_kind: "DEVICE",
           target_ref: "device",
           action: "LIMIT",
@@ -313,7 +382,7 @@ test("Child My Time floors fractional minutes instead of rounding them up", () =
   setQuery(["child-usage"], {
     data: {
       totalSeconds: 1790,
-      byTarget: { "com.example.app": 1790 },
+      byTarget: { "APP:com.example.app": 1790, DEVICE: 1790 },
     },
   });
   setQuery(["device-policy"], {
@@ -327,6 +396,55 @@ test("Child My Time floors fractional minutes instead of rounding them up", () =
   const screen = render(<ChildTimeScreen />);
   expect(screen.getByText("com.example.app: 0 minutes remaining.")).toBeTruthy();
   expect(screen.queryByText("com.example.app: 1 minutes remaining.")).toBeNull();
+});
+
+test("Child My Time renders no time left when app usage reaches its limit", () => {
+  setQuery(["child-usage"], {
+    data: {
+      totalSeconds: 1800,
+      byTarget: { "APP:com.example.app": 1800, DEVICE: 1800 },
+    },
+  });
+  setQuery(["device-policy"], {
+    data: {
+      bundle: {
+        app_rules: [{ app_ref: "com.example.app", action: "LIMIT", daily_minutes: 30 }],
+        temporary_overrides: [],
+      },
+    },
+  });
+  const screen = render(<ChildTimeScreen />);
+  expect(screen.getByText("com.example.app: No time left today.")).toBeTruthy();
+  expect(screen.queryByText("com.example.app: 0 minutes remaining.")).toBeNull();
+});
+
+test("Child My Time remaining time decreases as app usage grows", () => {
+  setQuery(["child-usage"], {
+    data: {
+      totalSeconds: 600,
+      byTarget: { "APP:com.example.app": 600, DEVICE: 600 },
+    },
+  });
+  setQuery(["device-policy"], {
+    data: {
+      bundle: {
+        app_rules: [{ app_ref: "com.example.app", action: "LIMIT", daily_minutes: 30 }],
+        temporary_overrides: [],
+      },
+    },
+  });
+  const first = render(<ChildTimeScreen />);
+  expect(first.getByText("com.example.app: 20 minutes remaining.")).toBeTruthy();
+  first.unmount();
+
+  setQuery(["child-usage"], {
+    data: {
+      totalSeconds: 1200,
+      byTarget: { "APP:com.example.app": 1200, DEVICE: 1200 },
+    },
+  });
+  const second = render(<ChildTimeScreen />);
+  expect(second.getByText("com.example.app: 10 minutes remaining.")).toBeTruthy();
 });
 
 test("Child request sync turns offline delivery failures into queued messaging", async () => {
