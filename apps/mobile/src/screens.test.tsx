@@ -587,11 +587,12 @@ test("Child home reports cached protection as active while the policy server is 
   });
   expect(screen.getByText("This data may be out of date.")).toBeTruthy();
   expect(screen.getByText("Policy acknowledged by this device.")).toBeTruthy();
-  expect(screen.queryByLabelText("Retry")).toBeNull();
+  expect(screen.getByLabelText("Retry")).toBeTruthy();
   expect(screen.queryByText("Web protection is unavailable.")).toBeNull();
 });
 
 test("Child home shows an error and retry when no policy data is available", async () => {
+  mockOffline = true;
   mockGuardianCapabilities = {
     vpn_filtering: { level: "FULL" },
     web_filtering: { level: "LIMITED" },
@@ -600,9 +601,13 @@ test("Child home shows an error and retry when no policy data is available", asy
   mockGuardianProtectionStatus = { active: true, health: "HEALTHY" };
   setQuery(["device-policy"], { isError: true });
   const screen = render(<ChildHomeScreen />);
-  await waitFor(() => expect(screen.getByText("We couldn't load this data.")).toBeTruthy());
+  await waitFor(() => {
+    expect(screen.getByText("You're offline. Last-known data may be shown.")).toBeTruthy();
+    expect(screen.getByText("Web protection is active for DNS and known blocked destinations. Other traffic may bypass Guardian.")).toBeTruthy();
+  });
   expect(screen.getByLabelText("Retry")).toBeTruthy();
-  expect(screen.queryByText("Policy status:")).toBeNull();
+  expect(screen.getByText("Policy status is not available yet.")).toBeTruthy();
+  expect(screen.queryByText("Policy acknowledged by this device.")).toBeNull();
   screen.unmount();
 });
 

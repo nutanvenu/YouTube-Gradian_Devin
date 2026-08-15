@@ -10,6 +10,7 @@ import {
   PrimaryButton,
   ProtectionRemovedState,
   ScreenScaffold,
+  SecondaryButton,
   SectionSurface,
 } from "@/design-system";
 import { GuardianProtection } from "../../../modules/guardian-protection/src";
@@ -48,6 +49,17 @@ export default function ChildHomeRoute() {
   const [acknowledgedVersion, setAcknowledgedVersion] = useState<number | null>(null);
   const usageUploaded = useRef(false);
   const inventoryUploaded = useRef(false);
+  const policyUnavailable = isOffline || policy.isError;
+  const policyState = policy.isLoading
+    ? "loading"
+    : policyUnavailable
+      ? "stale"
+      : "loaded";
+  const policyStateMessage = policy.data
+    ? undefined
+    : isOffline
+      ? "You're offline. Last-known data may be shown."
+      : "We couldn't load this data.";
 
   const syncReputation = async () => {
     const status = await GuardianProtection.getReputationStatus();
@@ -277,16 +289,8 @@ export default function ChildHomeRoute() {
         <ProtectionRemovedState onRecover={() => router.replace("/role-selection")} />
       ) : (
         <DataState
-          state={
-            policy.isLoading
-              ? "loading"
-              : isOffline || policy.isError
-                ? policy.data
-                  ? "stale"
-                  : "error"
-                : "loaded"
-          }
-          onRetry={() => void policy.refetch()}
+          state={policyState}
+          message={policyStateMessage}
         >
           <SectionSurface>
             <Text>Policy version: {policy.data?.policy_version ?? "Unknown"}</Text>
@@ -297,6 +301,12 @@ export default function ChildHomeRoute() {
                   ? "Policy acknowledged by this device."
                   : "Policy status is not available yet."}
             </Text>
+            {policyUnavailable ? (
+              <SecondaryButton
+                label="Retry"
+                onPress={() => void policy.refetch().catch(() => undefined)}
+              />
+            ) : null}
             <Text>{protectionMessage}</Text>
             {appBlockingAvailable === false ? (
               <>
