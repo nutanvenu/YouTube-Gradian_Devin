@@ -15,6 +15,17 @@ import {
 import { GuardianProtection } from "../../../modules/guardian-protection/src";
 import type { GuardianNativeEvent } from "@guardian/contracts";
 
+export function appUsageEvents(byTarget: Record<string, number>, occurredAt: string) {
+  return Object.entries(byTarget)
+    .filter(([target, seconds]) => target.startsWith("APP:") && seconds > 0)
+    .map(([target, seconds]) => ({
+      event_type: "APP_USAGE",
+      occurred_at: occurredAt,
+      app_ref: target.slice("APP:".length),
+      duration_seconds: Math.min(Math.round(seconds), 86400),
+    }));
+}
+
 function isRevokedDeviceError(error: unknown): boolean {
   if (error instanceof ApiError) return error.status === 401 || error.status === 403;
   if (typeof error !== "object" || error === null || !("status" in error)) return false;
@@ -168,14 +179,7 @@ export default function ChildHomeRoute() {
           end: new Date().toISOString(),
         });
         const occurredAt = new Date().toISOString();
-        const events = Object.entries(usage.byTarget)
-          .filter(([, seconds]) => seconds > 0)
-          .map(([appRef, seconds]) => ({
-            event_type: "APP_USAGE",
-            occurred_at: occurredAt,
-            app_ref: appRef,
-            duration_seconds: Math.min(Math.round(seconds), 86400),
-          }));
+        const events = appUsageEvents(usage.byTarget, occurredAt);
         if (events.length) await api.ingestEvents(events);
       }
       if (!inventoryUploaded.current) {

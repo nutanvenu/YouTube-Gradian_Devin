@@ -14,6 +14,7 @@ function todayRange() {
 type ActiveGrantDescriptor = {
   action: "LIMIT" | "ALLOW";
   minutes: number | null;
+  ruleId: string;
   targetKind: "APP" | "DOMAIN" | "DEVICE";
   targetRef: string;
   target: string;
@@ -50,15 +51,18 @@ export default function ChildTimeRoute() {
       if (!Number.isFinite(startsAt) || !Number.isFinite(expiresAt) || now < startsAt || now >= expiresAt) return [];
       const targetKind = override.target_kind;
       const targetRef = override.target_ref;
+      const ruleId = override.rule_id;
       if (
         (targetKind !== "APP" && targetKind !== "DOMAIN" && targetKind !== "DEVICE") ||
-        typeof targetRef !== "string"
+        typeof targetRef !== "string" ||
+        typeof ruleId !== "string"
       ) {
         return [];
       }
       return [{
         action: override.action,
         minutes: typeof override.daily_minutes === "number" ? Number(override.daily_minutes) : null,
+        ruleId,
         targetKind,
         targetRef,
         target: targetKind === "DEVICE"
@@ -81,14 +85,15 @@ export default function ChildTimeRoute() {
     (minutes): minutes is number => minutes !== undefined,
   );
   const deviceLimit = deviceLimits.length > 0 ? Math.max(...deviceLimits) : undefined;
+  const deviceUsedSeconds = usage.data?.byTarget.DEVICE ?? usage.data?.totalSeconds ?? 0;
   return (
     <ScreenScaffold title="My time">
       <SectionSurface>
         <Text>Time used today</Text>
-        {usage.data ? <Text>{Math.round(usage.data.totalSeconds / 60)} minutes recorded on this device.</Text> : <Text>Unknown · Usage Access is unavailable or has not reported yet.</Text>}
+        {usage.data ? <Text>{Math.round(deviceUsedSeconds / 60)} minutes recorded on this device.</Text> : <Text>Unknown · Usage Access is unavailable or has not reported yet.</Text>}
         {usage.data && appBudgets.length > 0
           ? appBudgets.map((budget) => {
-              const usedSeconds = usage.data.byTarget[budget.app_ref] ?? 0;
+              const usedSeconds = usage.data.byTarget[`APP:${budget.app_ref}`] ?? 0;
               const appGrant = activeGrantDescriptors.find(
                 (grant) => grant.targetKind === "APP" && grant.targetRef === budget.app_ref,
               );
@@ -100,14 +105,14 @@ export default function ChildTimeRoute() {
                 : budget.daily_minutes;
               const appRemainingSeconds = appLimit * 60 - usedSeconds;
               const deviceRemainingSeconds = !appGrant && deviceLimit !== undefined
-                ? deviceLimit * 60 - usage.data.totalSeconds
+                ? deviceLimit * 60 - deviceUsedSeconds
                 : Number.POSITIVE_INFINITY;
               const remainingSeconds = Math.max(0, Math.min(appRemainingSeconds, deviceRemainingSeconds));
               return <Text key={budget.app_ref}>{budget.app_ref}: {remainingSeconds > 0 ? `${Math.floor(remainingSeconds / 60)} minutes remaining.` : "No time left today."}</Text>;
             })
           : null}
         {activeGrantDescriptors.map((grant) => (
-          <Text key={`${grant.target}-${grant.minutes}`}>Parent-approved extra time for {grant.target}{grant.minutes === null ? "." : `: ${grant.minutes} minutes.`}</Text>
+          <Text key={grant.ruleId}>Parent-approved extra time for {grant.target}{grant.minutes === null ? "." : `: ${grant.minutes} minutes.`}</Text>
         ))}
         <Text>Need a change? Ask a parent for more time or to unblock an app or website.</Text>
         <PrimaryButton label="Ask for help" onPress={() => router.push("/child/requests")} />

@@ -3,14 +3,8 @@ import { useLocalSearchParams, useRouter } from "expo-router";
 import { useQuery } from "@tanstack/react-query";
 import { ApiError, api } from "@/api/client";
 import { useNetworkStatus } from "@/state/network";
-import { GuardianProtection } from "../../../modules/guardian-protection/src";
 import { CardSurface, DataState, ListRow, ResponsiveColumns, ScreenScaffold, SectionSurface, SecondaryButton } from "@/design-system";
-
-function startOfDay() {
-  const value = new Date();
-  value.setHours(0, 0, 0, 0);
-  return value.toISOString();
-}
+import type { ActivityUsagePoint } from "@/api/client";
 
 function reportRange() {
   const now = new Date();
@@ -28,6 +22,29 @@ function formatUsageMinutes(seconds: number): string {
   return `${Math.floor(seconds / 60)} min`;
 }
 
+export function aggregateTodayUsage(
+  points: ActivityUsagePoint[],
+  now = new Date(),
+): Record<string, number> {
+  return points.reduce<Record<string, number>>((totals, point) => {
+    const occurredAt = new Date(point.occurred_at);
+    if (
+      occurredAt.getFullYear() !== now.getFullYear() ||
+      occurredAt.getMonth() !== now.getMonth() ||
+      occurredAt.getDate() !== now.getDate()
+    ) {
+      return totals;
+    }
+    const target = point.app_ref
+      ? `APP:${point.app_ref}`
+      : point.category
+        ? `CATEGORY:${point.category}`
+        : "DEVICE";
+    totals[target] = (totals[target] ?? 0) + point.duration_seconds;
+    return totals;
+  }, {});
+}
+
 export default function ParentActivityRoute() {
   const { familyId } = useLocalSearchParams<{ familyId: string }>();
   const router = useRouter();
@@ -39,41 +56,38 @@ export default function ParentActivityRoute() {
     queryFn: () => api.usageReport(familyId, { ...reportRange(), granularity: "DAILY" }),
     enabled: Boolean(familyId),
   });
-  const usage = useQuery({
-    queryKey: ["usage-summary"],
-    queryFn: () => GuardianProtection.getUsageSummary({ start: startOfDay(), end: new Date().toISOString() }),
-  });
   const activityEvents = activity.data ?? [];
   const activityUsagePoints = activityUsage.data ?? [];
   const reportBuckets = report.data ?? [];
-  const usageTargets = usage.data?.byTarget ?? {};
+  const now = new Date();
+  const usageTargets = aggregateTodayUsage(activityUsagePoints, now);
   const hasData = activityEvents.length > 0 || activityUsagePoints.length > 0 || Object.keys(usageTargets).length > 0 || reportBuckets.length > 0;
   const permissionDenied =
-    [activity.error, activityUsage.error, usage.error, report.error].some(
+    [activity.error, activityUsage.error, report.error].some(
       (error) => error instanceof ApiError && error.status === 401,
     );
-  const state = activity.isLoading || activityUsage.isLoading || usage.isLoading || report.isLoading
+  const state = activity.isLoading || activityUsage.isLoading || report.isLoading
     ? "loading"
     : permissionDenied
       ? "permission-denied"
-    : activity.isError || activityUsage.isError || usage.isError || report.isError
+    : activity.isError || activityUsage.isError || report.isError
       ? "error"
       : isOffline
         ? "offline"
-        : activity.isStale || activityUsage.isStale || usage.isStale
+        : activity.isStale || activityUsage.isStale
           ? "stale"
-          : !activity.data || !activityUsage.data || !usage.data
+          : !activity.data || !activityUsage.data || !report.data
         ? "loading"
             : hasData ? "loaded" : "empty";
   return (
     <ScreenScaffold title="Activity">
-      <DataState state={state} onRetry={() => { void activity.refetch(); void activityUsage.refetch(); void usage.refetch(); void report.refetch(); }}>
+      <DataState state={state} onRetry={() => { void activity.refetch(); void activityUsage.refetch(); void report.refetch(); }}>
         <ResponsiveColumns>
           <SectionSurface>
             <Text>Today’s usage</Text>
             {Object.keys(usageTargets).length > 0
               ? Object.entries(usageTargets).map(([target, seconds]) => <ListRow key={target} label={target} value={formatUsageMinutes(seconds)} />)
-              : <Text>Unknown · this device has not provided a usage summary.</Text>}
+              : <Text>Unknown · no child usage was reported today.</Text>}
           </SectionSurface>
           <SectionSurface>
             <Text>Daily usage report</Text>
