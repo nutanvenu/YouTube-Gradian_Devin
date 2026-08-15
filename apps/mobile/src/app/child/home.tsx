@@ -10,6 +10,7 @@ import {
   PrimaryButton,
   ProtectionRemovedState,
   ScreenScaffold,
+  SecondaryButton,
   SectionSurface,
 } from "@/design-system";
 import { GuardianProtection } from "../../../modules/guardian-protection/src";
@@ -40,6 +41,7 @@ export default function ChildHomeRoute() {
   const [familyId, setFamilyId] = useState<string>();
   const revoked = isRevokedDeviceError(policy.error);
   const [protectionMessage, setProtectionMessage] = useState("Checking web protection…");
+  const [appBlockingAvailable, setAppBlockingAvailable] = useState<boolean | null>(null);
   const [blockedEvent, setBlockedEvent] = useState<Extract<GuardianNativeEvent, { type: "WEB_BLOCKED" }> | null>(null);
   const [blockedEventCount, setBlockedEventCount] = useState(0);
   const [appBlockedMessage, setAppBlockedMessage] = useState<string | null>(null);
@@ -47,6 +49,17 @@ export default function ChildHomeRoute() {
   const [acknowledgedVersion, setAcknowledgedVersion] = useState<number | null>(null);
   const usageUploaded = useRef(false);
   const inventoryUploaded = useRef(false);
+  const policyUnavailable = isOffline || policy.isError;
+  const policyState = policy.isLoading
+    ? "loading"
+    : policyUnavailable
+      ? "stale"
+      : "loaded";
+  const policyStateMessage = policy.data
+    ? undefined
+    : isOffline
+      ? "You're offline. Last-known data may be shown."
+      : "We couldn't load this data.";
 
   const syncReputation = async () => {
     const status = await GuardianProtection.getReputationStatus();
@@ -66,6 +79,29 @@ export default function ChildHomeRoute() {
         throw new Error(`Reputation bundle rejected: ${result.reason}`);
       }
     }
+  };
+
+  const refreshNativeProtection = async () => {
+    const [status, capabilities] = await Promise.all([
+      GuardianProtection.getProtectionStatus(),
+      GuardianProtection.getCapabilities(),
+    ]);
+    const vpnCapability = capabilities.vpn_filtering;
+    const webCapability = capabilities.web_filtering;
+    const appBlockingCapability = capabilities.app_blocking;
+    const vpnActive =
+      status.active &&
+      vpnCapability.level === "FULL";
+    setProtectionMessage(
+      !vpnActive
+        ? vpnCapability.level === "FULL"
+          ? "Web protection is unavailable."
+          : "Web protection permission is required."
+        : webCapability.level === "LIMITED"
+          ? "Web protection is active for DNS and known blocked destinations. Other traffic may bypass Guardian."
+          : "Web protection is active, but coverage may be limited. Some traffic may bypass Guardian.",
+    );
+    setAppBlockingAvailable(appBlockingCapability.level === "FULL");
   };
 
   useEffect(() => {
@@ -138,8 +174,31 @@ export default function ChildHomeRoute() {
       if (event.type === "TIME_EXPIRED") {
         setTimeMessage(`${event.targetRef} · time expired`);
       }
+      if (event.type === "PROTECTION_STATUS_CHANGED" || event.type === "PERMISSION_STATE_CHANGED") {
+        void refreshNativeProtection().catch(() => undefined);
+      }
     });
     return () => subscription.remove();
+  }, []);
+
+  useEffect(() => {
+    let cancelled = false;
+    const refresh = () => {
+      void refreshNativeProtection().catch(() => {
+        if (!cancelled) {
+          setProtectionMessage("Web protection is unavailable.");
+          setAppBlockingAvailable(null);
+        }
+      });
+    };
+    refresh();
+    const subscription = AppState.addEventListener("change", (state) => {
+      if (state === "active") refresh();
+    });
+    return () => {
+      cancelled = true;
+      subscription.remove();
+    };
   }, []);
 
   useEffect(() => {
@@ -198,14 +257,23 @@ export default function ChildHomeRoute() {
         const metrics = await GuardianProtection.getPerformanceMetrics();
         console.info("GUARDIAN_PERFORMANCE_METRICS_AFTER_SYNC", JSON.stringify(metrics));
       }
+      await refreshNativeProtection();
     };
     void syncProtection().catch(() => {
-      if (!cancelled) setProtectionMessage("Web protection is unavailable.");
+      if (!cancelled) {
+        void refreshNativeProtection().catch(() => {
+          if (!cancelled) setProtectionMessage("Web protection is unavailable.");
+        });
+      }
     });
     const subscription = AppState.addEventListener("change", (state) => {
       if (state === "active") {
         void syncProtection().catch(() => {
-          if (!cancelled) setProtectionMessage("Web protection is unavailable.");
+          if (!cancelled) {
+            void refreshNativeProtection().catch(() => {
+              if (!cancelled) setProtectionMessage("Web protection is unavailable.");
+            });
+          }
         });
       }
     });
@@ -221,25 +289,34 @@ export default function ChildHomeRoute() {
         <ProtectionRemovedState onRecover={() => router.replace("/role-selection")} />
       ) : (
         <DataState
-          state={
-            policy.isLoading
-              ? "loading"
-              : isOffline
-                ? "offline"
-                : policy.isError
-                  ? "error"
-                  : "loaded"
-          }
-          onRetry={() => void policy.refetch()}
+          state={policyState}
+          message={policyStateMessage}
         >
           <SectionSurface>
             <Text>Policy version: {policy.data?.policy_version ?? "Unknown"}</Text>
             <Text>
               {policy.data?.version_mismatch && acknowledgedVersion !== policy.data.policy_version
                 ? "Waiting for device acknowledgement."
-                : "Policy acknowledged by this device."}
+                : policy.data
+                  ? "Policy acknowledged by this device."
+                  : "Policy status is not available yet."}
             </Text>
+            {policyUnavailable ? (
+              <SecondaryButton
+                label="Retry"
+                onPress={() => void policy.refetch().catch(() => undefined)}
+              />
+            ) : null}
             <Text>{protectionMessage}</Text>
+            {appBlockingAvailable === false ? (
+              <>
+                <Text>App limits are not being enforced right now. Re-enable Accessibility to restore app blocking.</Text>
+                <PrimaryButton
+                  label="Enable app limits"
+                  onPress={() => void GuardianProtection.openAccessibilitySettings().catch(() => undefined)}
+                />
+              </>
+            ) : null}
             <Text>
               Communication Safety checks notification signals from supported communication apps.
               Guardian analyzes notification text briefly on this device, discards it, and sends

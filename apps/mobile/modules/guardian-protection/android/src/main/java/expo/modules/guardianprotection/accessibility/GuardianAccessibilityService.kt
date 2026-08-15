@@ -5,6 +5,8 @@ import android.os.Handler
 import android.os.HandlerThread
 import android.os.Looper
 import android.os.Process
+import android.util.Log
+import expo.modules.guardianprotection.BuildConfig
 import android.view.accessibility.AccessibilityEvent
 import android.content.Intent
 import expo.modules.guardianprotection.inventory.PackageInventory
@@ -29,6 +31,7 @@ class GuardianAccessibilityService : AccessibilityService() {
   private val budgetTicker = object : Runnable {
     override fun run() {
       val packageName = foregroundPackage ?: return
+      if (BuildConfig.DEBUG) Log.d("GuardianBudget", "budget_tick")
       if (!enforcement.isTickerActiveFor(packageName) ||
         !GuardianPolicyRuntime.hasActiveSnapshot() ||
         serviceDestroyed

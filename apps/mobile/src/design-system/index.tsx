@@ -215,12 +215,17 @@ export function ProtectionStatePill({ state }: { state: "PROTECTED" | "DEGRADED"
 export function DataState({
   state,
   onRetry,
+  message: messageOverride,
   children,
-}: PropsWithChildren<{ state: "initial" | "loading" | "loaded" | "empty" | "offline" | "stale" | "permission-denied" | "platform-unavailable" | "error" | "revoked" | "pending-sync"; onRetry?: () => void }>) {
+}: PropsWithChildren<{
+  state: "initial" | "loading" | "loaded" | "empty" | "offline" | "stale" | "permission-denied" | "platform-unavailable" | "error" | "revoked" | "pending-sync";
+  onRetry?: () => void;
+  message?: string;
+}>) {
   const palette = usePalette();
   if (state === "loaded") return <>{children}</>;
   if (state === "loading" || state === "initial") return <ActivityIndicator accessibilityLabel="Loading" />;
-  const message = {
+  const message = messageOverride ?? {
     empty: "Nothing to show yet.",
     offline: "You're offline. Last-known data may be shown.",
     stale: "This data may be out of date.",
