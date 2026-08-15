@@ -13,6 +13,7 @@ jest.mock("react-native-safe-area-context", () => ({
 
 jest.mock("expo-router", () => ({
   useLocalSearchParams: () => ({ familyId: "family-1", childId: "child-1" }),
+  useRouter: () => ({ push: jest.fn() }),
 }));
 
 jest.mock("@/api/client", () => ({

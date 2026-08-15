@@ -156,7 +156,7 @@ async def test_account_deletion_is_authorized_and_web_route_is_accessible(
     client, parent_a, parent_b
 ) -> None:
     denied = await client.delete(
-        "/v1/auth/account", headers={"Authorization": f"Bearer {parent_a.token[:-1]}x"}
+        "/v1/auth/account", headers={"Authorization": "Bearer invalid-token"}
     )
     assert denied.status_code == 401
 

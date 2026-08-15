@@ -21,7 +21,7 @@ async def test_signup_family_child_and_tenant_isolation(client) -> None:
         f"/v1/families/{family_id}/children",
         json={
             "name": "Alex",
-            "date_of_birth": "2017-08-15",
+            "date_of_birth": "2018-08-15",
             "timezone": "America/New_York",
         },
         headers=headers,
