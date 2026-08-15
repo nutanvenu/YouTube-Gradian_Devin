@@ -5,7 +5,7 @@ import android.content.Context
 internal object GuardianVpnPreferences {
   private const val NAME = "guardian_protection"
   private const val ENABLED = "vpn_enabled"
-  private const val ENABLE_REQUESTED = "vpn_enable_requested"
+  private const val ENABLE_REQUESTED_AT = "vpn_enable_requested_at"
 
   fun setEnabled(context: Context, enabled: Boolean) {
     context.getSharedPreferences(NAME, Context.MODE_PRIVATE)
@@ -17,17 +17,20 @@ internal object GuardianVpnPreferences {
   fun isEnabled(context: Context): Boolean =
     context.getSharedPreferences(NAME, Context.MODE_PRIVATE).getBoolean(ENABLED, false)
 
-  fun setEnableRequested(context: Context, requested: Boolean) {
+  fun recordEnableRequested(context: Context, recordedAt: Long = System.currentTimeMillis()) {
     context.getSharedPreferences(NAME, Context.MODE_PRIVATE)
       .edit()
-      .putBoolean(ENABLE_REQUESTED, requested)
+      .putLong(ENABLE_REQUESTED_AT, recordedAt)
       .apply()
   }
 
-  fun consumeEnableRequested(context: Context): Boolean {
+  fun enableRequestedAt(context: Context): Long? =
+    context.getSharedPreferences(NAME, Context.MODE_PRIVATE)
+      .getLong(ENABLE_REQUESTED_AT, -1L)
+      .takeIf { it >= 0L }
+
+  fun clearEnableRequested(context: Context) {
     val preferences = context.getSharedPreferences(NAME, Context.MODE_PRIVATE)
-    val requested = preferences.getBoolean(ENABLE_REQUESTED, false)
-    if (requested) preferences.edit().remove(ENABLE_REQUESTED).apply()
-    return requested
+    preferences.edit().remove(ENABLE_REQUESTED_AT).apply()
   }
 }
