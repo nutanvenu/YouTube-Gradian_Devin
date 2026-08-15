@@ -45,6 +45,7 @@ class GuardianProtectionModule : Module() {
     }
     OnActivityEntersForeground {
       GuardianPerformanceMetrics.recordStartup(SystemClock.elapsedRealtime() - moduleCreatedAtMillis)
+      appContext.reactContext?.let { GuardianVpnService.startWithPersistedPolicy(it) }
       installCommunicationListener()
       reportCapabilityChanges(capabilities.getCapabilities())
     }
@@ -76,7 +77,6 @@ class GuardianProtectionModule : Module() {
       GuardianPolicyRuntime.install(policyManager)
       GuardianPolicyRuntime.installReputation(reputationManager)
       GuardianPolicyRuntime.addListener(eventListener)
-      policyManager.start()
       if (capabilities.getCapabilities()["app_usage"]?.get("level") == "FULL") {
         usage.refresh()
       }

@@ -40,8 +40,21 @@ export const GuardianProtection: GuardianProtectionNative = {
   getObservedApps: (): Promise<ObservedApp[]> => native.getObservedApps(),
   markObservedAppReviewed: (platformAppId: string): Promise<void> =>
     native.markObservedAppReviewed(platformAppId),
-  subscribe: (listener: (event: GuardianNativeEvent) => void) =>
-    native.addListener("onGuardianEvent", listener),
+  subscribe: (listener: (event: GuardianNativeEvent) => void) => {
+    let lastProtectionActive: boolean | undefined;
+    const deliver = (event: GuardianNativeEvent) => {
+      if (event.type === "PROTECTION_STATUS_CHANGED") {
+        if (lastProtectionActive === event.status.active) return;
+        lastProtectionActive = event.status.active;
+      }
+      listener(event);
+    };
+    const subscription = native.addListener("onGuardianEvent", deliver);
+    void native.getProtectionStatus()
+      .then((status) => deliver({ type: "PROTECTION_STATUS_CHANGED", status }))
+      .catch(() => undefined);
+    return subscription;
+  },
 };
 
 export { type ApplyResult, type CapabilityRecord, type GuardianNativeEvent, type ObservedApp, type PermissionResult, type ProtectionStatus, type ReputationApplyResult, type ReputationStatus, type TimeRange, type UsageSummary };

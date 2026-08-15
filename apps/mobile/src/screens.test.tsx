@@ -659,6 +659,21 @@ test("Child home refreshes protection when the native tunnel status changes", as
   screen.unmount();
 });
 
+test("Child home shows active protection when the tunnel is already up on mount", async () => {
+  mockGuardianCapabilities = {
+    vpn_filtering: { level: "FULL" },
+    web_filtering: { level: "LIMITED" },
+    app_blocking: { level: "FULL" },
+  };
+  mockGuardianProtectionStatus = { active: true, health: "HEALTHY" };
+  const screen = render(<ChildHomeScreen />);
+  await waitFor(() => {
+    expect(screen.getByText("Web protection is active for DNS and known blocked destinations. Other traffic may bypass Guardian.")).toBeTruthy();
+  });
+  expect(screen.queryByText("Web protection is unavailable.")).toBeNull();
+  screen.unmount();
+});
+
 test("Child home reports cached protection as active while the policy server is unavailable", async () => {
   mockOffline = true;
   mockGuardianCapabilities = {

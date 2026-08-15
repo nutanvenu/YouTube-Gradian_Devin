@@ -1,11 +1,27 @@
 package expo.modules.guardianprotection.vpn
 
-import java.util.concurrent.atomic.AtomicReference
-
 internal data class ProtectionStatusChange(
   val active: Boolean,
   val details: String?,
 )
+
+internal class ProtectionStatusReplay {
+  private var current: ProtectionStatusChange? = null
+  private var listener: ((ProtectionStatusChange) -> Unit)? = null
+
+  @Synchronized
+  fun setListener(value: ((ProtectionStatusChange) -> Unit)?) {
+    listener = value
+    if (value != null) current?.let(value)
+  }
+
+  @Synchronized
+  fun emit(change: ProtectionStatusChange) {
+    if (!ProtectionStatusTransition.shouldEmit(current?.active, change.active)) return
+    current = change
+    listener?.invoke(change)
+  }
+}
 
 internal object ProtectionStatusTransition {
   fun shouldEmit(previous: Boolean?, current: Boolean): Boolean =
@@ -13,16 +29,13 @@ internal object ProtectionStatusTransition {
 }
 
 internal object ProtectionStatusEvents {
-  private val listener = AtomicReference<((ProtectionStatusChange) -> Unit)?>(null)
-  private val lastActive = AtomicReference(false)
+  private val replay = ProtectionStatusReplay()
 
   fun setListener(value: ((ProtectionStatusChange) -> Unit)?) {
-    listener.set(value)
+    replay.setListener(value)
   }
 
   fun emit(active: Boolean, details: String? = null) {
-    val previous = lastActive.getAndSet(active)
-    if (!ProtectionStatusTransition.shouldEmit(previous, active)) return
-    listener.get()?.invoke(ProtectionStatusChange(active, details))
+    replay.emit(ProtectionStatusChange(active, details))
   }
 }

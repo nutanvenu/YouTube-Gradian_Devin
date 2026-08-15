@@ -2,6 +2,7 @@ package expo.modules.guardianprotection.policy
 
 import expo.modules.guardianprotection.storage.EncryptedPolicyStore
 import expo.modules.guardianprotection.observability.GuardianPerformanceMetrics
+import expo.modules.guardianprotection.vpn.GuardianVpnService
 import org.json.JSONObject
 import java.time.Instant
 
@@ -12,8 +13,6 @@ class PolicyManager(
   private val verifier = PolicyVerifier(parseTrustedKeys(trustedKeysJson))
   @Volatile private var active: CompiledPolicySnapshot? = null
   @Volatile private var previous: CompiledPolicySnapshot? = null
-  @Volatile private var started = false
-
   init {
     store.active()?.let { encoded ->
       runCatching {
@@ -56,25 +55,13 @@ class PolicyManager(
     return true
   }
 
-  fun start() {
-    started = true
-  }
-
   fun activeSnapshot(): CompiledPolicySnapshot? = active
 
   fun protectionStatus(capabilities: Map<String, Map<String, Any?>>): Map<String, Any?> {
-    val missing = capabilities.filterValues { it["level"] == "UNAVAILABLE" }.keys
-    val health = when {
-      !started -> "DISABLED"
-      missing.isEmpty() -> "HEALTHY"
-      else -> "DEGRADED"
-    }
-    return mapOf(
-      "active" to started,
-      "health" to health,
-      "policyVersion" to (active?.policyVersion ?: store.appliedVersion()),
-      "observedAt" to Instant.now().toString(),
-      "details" to missing.takeIf { it.isNotEmpty() }?.joinToString(","),
+    return ProtectionStatusEvaluator.evaluate(
+      active = GuardianVpnService.isRunning(),
+      policyVersion = active?.policyVersion ?: store.appliedVersion(),
+      capabilities = capabilities,
     )
   }
 

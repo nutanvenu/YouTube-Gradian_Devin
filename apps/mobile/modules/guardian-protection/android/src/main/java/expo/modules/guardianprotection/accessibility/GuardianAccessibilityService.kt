@@ -56,7 +56,6 @@ class GuardianAccessibilityService : AccessibilityService() {
       EncryptedPolicyStore(this),
       expo.modules.guardianprotection.BuildConfig.GUARDIAN_POLICY_TRUSTED_PUBLIC_KEYS,
     )
-    manager.start()
     GuardianPolicyRuntime.install(manager)
     usage = UsageCollector(this, EncryptedPolicyStore(this))
     inventory = PackageInventory(this)
