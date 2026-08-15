@@ -10,6 +10,8 @@ const mockUsageRefetch = jest.fn();
 const mockDefaultRefetch = jest.fn(() => Promise.resolve());
 const mockGuardianSubscriptionRemove = jest.fn();
 let mockGuardianEventListener: ((event: unknown) => void) | undefined;
+let mockGuardianCapabilities: Record<string, { level: string }> = {};
+let mockGuardianProtectionStatus = { active: false, health: "UNKNOWN" };
 let mockOffline = false;
 
 jest.mock("react-native-safe-area-context", () => ({
@@ -32,6 +34,9 @@ jest.mock("@/api/client", () => ({
       super(message);
       this.status = status;
     }
+  },
+  sessionStorage: {
+    getFamilyId: () => Promise.resolve(undefined),
   },
   api: {
     mutatePolicy: (...args: unknown[]) => {
@@ -74,8 +79,8 @@ jest.mock("../modules/guardian-protection/src", () => ({
       mockReviewApp(...args);
       return Promise.resolve();
     },
-    getCapabilities: () => Promise.resolve({}),
-    getProtectionStatus: () => Promise.resolve({ active: false, health: "UNKNOWN" }),
+    getCapabilities: () => Promise.resolve(mockGuardianCapabilities),
+    getProtectionStatus: () => Promise.resolve(mockGuardianProtectionStatus),
     getUsageSummary: () => Promise.resolve({ byTarget: {} }),
     openUsageAccessSettings: jest.fn(),
     openAccessibilitySettings: jest.fn(),
@@ -109,6 +114,7 @@ import RulesScreen from "@/app/parent/rules";
 import RequestsScreen from "@/app/parent/requests";
 import HealthScreen from "@/app/parent/health";
 import ActivityScreen, { aggregateTodayUsage } from "@/app/parent/activity";
+import ChildHomeScreen from "@/app/child/home";
 import ChildRequestsScreen from "@/app/child/requests";
 import ChildTimeScreen from "@/app/child/time";
 import { appUsageEvents } from "@/app/child/home";
@@ -129,6 +135,8 @@ beforeEach(() => {
   mockDefaultRefetch.mockResolvedValue(undefined);
   mockGuardianSubscriptionRemove.mockReset();
   mockGuardianEventListener = undefined;
+  mockGuardianCapabilities = {};
+  mockGuardianProtectionStatus = { active: false, health: "UNKNOWN" };
   mockFlushRequest.mockResolvedValue([]);
   mockOffline = false;
 });
@@ -528,6 +536,47 @@ test("Child My Time remaining time decreases as app usage grows", () => {
   });
   const second = render(<ChildTimeScreen />);
   expect(second.getByText("com.example.app: 10 minutes remaining.")).toBeTruthy();
+});
+
+test("Child home surfaces unavailable app blocking with a recovery action", async () => {
+  mockGuardianCapabilities = {
+    vpn_filtering: { level: "FULL" },
+    web_filtering: { level: "LIMITED" },
+    app_blocking: { level: "UNAVAILABLE" },
+  };
+  mockGuardianProtectionStatus = { active: true, health: "DEGRADED" };
+  const screen = render(<ChildHomeScreen />);
+  await waitFor(() => {
+    expect(screen.getByText("App limits are not being enforced right now. Re-enable Accessibility to restore app blocking.")).toBeTruthy();
+  });
+  expect(screen.getByLabelText("Enable app limits")).toBeTruthy();
+  screen.unmount();
+
+  mockGuardianCapabilities = {
+    vpn_filtering: { level: "FULL" },
+    web_filtering: { level: "LIMITED" },
+    app_blocking: { level: "FULL" },
+  };
+  const full = render(<ChildHomeScreen />);
+  await waitFor(() => expect(full.getByText("Web protection is active for DNS and known blocked destinations. Other traffic may bypass Guardian.")).toBeTruthy());
+  expect(full.queryByText("App limits are not being enforced right now. Re-enable Accessibility to restore app blocking.")).toBeNull();
+});
+
+test("Child home reports cached protection as active while the policy server is unavailable", async () => {
+  mockOffline = true;
+  mockGuardianCapabilities = {
+    vpn_filtering: { level: "FULL" },
+    web_filtering: { level: "LIMITED" },
+    app_blocking: { level: "FULL" },
+  };
+  mockGuardianProtectionStatus = { active: true, health: "HEALTHY" };
+  setQuery(["device-policy"], { isError: true });
+  const screen = render(<ChildHomeScreen />);
+  await waitFor(() => {
+    expect(screen.getByText("Web protection is active for DNS and known blocked destinations. Other traffic may bypass Guardian.")).toBeTruthy();
+  });
+  expect(screen.getByText("The policy server is unavailable. This device is using its last verified policy when available.")).toBeTruthy();
+  expect(screen.queryByText("Web protection is unavailable.")).toBeNull();
 });
 
 test("Child request sync turns offline delivery failures into queued messaging", async () => {

@@ -34,6 +34,9 @@ class GuardianProtectionModule : Module() {
   override fun definition() = ModuleDefinition {
     Name("GuardianProtection")
     Events("onGuardianEvent")
+    OnCreate {
+      GuardianVpnService.startWithPersistedPolicy(requireNotNull(appContext.reactContext))
+    }
     OnActivityEntersForeground {
       GuardianPerformanceMetrics.recordStartup(SystemClock.elapsedRealtime() - moduleCreatedAtMillis)
       installCommunicationListener()

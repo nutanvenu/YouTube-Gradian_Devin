@@ -40,6 +40,7 @@ export default function ChildHomeRoute() {
   const [familyId, setFamilyId] = useState<string>();
   const revoked = isRevokedDeviceError(policy.error);
   const [protectionMessage, setProtectionMessage] = useState("Checking web protection…");
+  const [appBlockingAvailable, setAppBlockingAvailable] = useState<boolean | null>(null);
   const [blockedEvent, setBlockedEvent] = useState<Extract<GuardianNativeEvent, { type: "WEB_BLOCKED" }> | null>(null);
   const [blockedEventCount, setBlockedEventCount] = useState(0);
   const [appBlockedMessage, setAppBlockedMessage] = useState<string | null>(null);
@@ -66,6 +67,28 @@ export default function ChildHomeRoute() {
         throw new Error(`Reputation bundle rejected: ${result.reason}`);
       }
     }
+  };
+
+  const refreshNativeProtection = async () => {
+    const [status, capabilities] = await Promise.all([
+      GuardianProtection.getProtectionStatus(),
+      GuardianProtection.getCapabilities(),
+    ]);
+    const vpnCapability = capabilities.vpn_filtering;
+    const webCapability = capabilities.web_filtering;
+    const appBlockingCapability = capabilities.app_blocking;
+    const vpnActive =
+      status.active &&
+      vpnCapability.level === "FULL" &&
+      webCapability.level === "LIMITED";
+    setProtectionMessage(
+      vpnActive
+        ? "Web protection is active for DNS and known blocked destinations. Other traffic may bypass Guardian."
+        : vpnCapability.level === "FULL"
+          ? "Web protection is unavailable."
+          : "Web protection permission is required.",
+    );
+    setAppBlockingAvailable(appBlockingCapability.level === "FULL");
   };
 
   useEffect(() => {
@@ -138,8 +161,31 @@ export default function ChildHomeRoute() {
       if (event.type === "TIME_EXPIRED") {
         setTimeMessage(`${event.targetRef} · time expired`);
       }
+      if (event.type === "PROTECTION_STATUS_CHANGED" || event.type === "PERMISSION_STATE_CHANGED") {
+        void refreshNativeProtection().catch(() => undefined);
+      }
     });
     return () => subscription.remove();
+  }, []);
+
+  useEffect(() => {
+    let cancelled = false;
+    const refresh = () => {
+      void refreshNativeProtection().catch(() => {
+        if (!cancelled) {
+          setProtectionMessage("Web protection is unavailable.");
+          setAppBlockingAvailable(null);
+        }
+      });
+    };
+    refresh();
+    const subscription = AppState.addEventListener("change", (state) => {
+      if (state === "active") refresh();
+    });
+    return () => {
+      cancelled = true;
+      subscription.remove();
+    };
   }, []);
 
   useEffect(() => {
@@ -224,11 +270,7 @@ export default function ChildHomeRoute() {
           state={
             policy.isLoading
               ? "loading"
-              : isOffline
-                ? "offline"
-                : policy.isError
-                  ? "error"
-                  : "loaded"
+              : "loaded"
           }
           onRetry={() => void policy.refetch()}
         >
@@ -237,9 +279,22 @@ export default function ChildHomeRoute() {
             <Text>
               {policy.data?.version_mismatch && acknowledgedVersion !== policy.data.policy_version
                 ? "Waiting for device acknowledgement."
-                : "Policy acknowledged by this device."}
+                : policy.data
+                  ? "Policy acknowledged by this device."
+                  : isOffline || policy.isError
+                    ? "The policy server is unavailable. This device is using its last verified policy when available."
+                    : "Policy status is not available yet."}
             </Text>
             <Text>{protectionMessage}</Text>
+            {appBlockingAvailable === false ? (
+              <>
+                <Text>App limits are not being enforced right now. Re-enable Accessibility to restore app blocking.</Text>
+                <PrimaryButton
+                  label="Enable app limits"
+                  onPress={() => void GuardianProtection.openAccessibilitySettings().catch(() => undefined)}
+                />
+              </>
+            ) : null}
             <Text>
               Communication Safety checks notification signals from supported communication apps.
               Guardian analyzes notification text briefly on this device, discards it, and sends
