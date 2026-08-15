@@ -1,4 +1,4 @@
-import { fireEvent, render, waitFor } from "@testing-library/react-native";
+import { act, fireEvent, render, waitFor } from "@testing-library/react-native";
 import { Text } from "react-native";
 
 const mockQueryState = new Map<string, Record<string, unknown>>();
@@ -9,6 +9,8 @@ const mockFlushRequest = jest.fn();
 const mockUsageRefetch = jest.fn();
 const mockDefaultRefetch = jest.fn(() => Promise.resolve());
 const mockGuardianSubscriptionRemove = jest.fn();
+const mockGetCapabilities = jest.fn();
+const mockGetProtectionStatus = jest.fn();
 let mockGuardianEventListener: ((event: unknown) => void) | undefined;
 let mockGuardianCapabilities: Record<string, { level: string }> = {};
 let mockGuardianProtectionStatus = { active: false, health: "UNKNOWN" };
@@ -79,8 +81,14 @@ jest.mock("../modules/guardian-protection/src", () => ({
       mockReviewApp(...args);
       return Promise.resolve();
     },
-    getCapabilities: () => Promise.resolve(mockGuardianCapabilities),
-    getProtectionStatus: () => Promise.resolve(mockGuardianProtectionStatus),
+    getCapabilities: () => {
+      mockGetCapabilities();
+      return Promise.resolve(mockGuardianCapabilities);
+    },
+    getProtectionStatus: () => {
+      mockGetProtectionStatus();
+      return Promise.resolve(mockGuardianProtectionStatus);
+    },
     getUsageSummary: () => Promise.resolve({ byTarget: {} }),
     openUsageAccessSettings: jest.fn(),
     openAccessibilitySettings: jest.fn(),
@@ -134,6 +142,8 @@ beforeEach(() => {
   mockDefaultRefetch.mockReset();
   mockDefaultRefetch.mockResolvedValue(undefined);
   mockGuardianSubscriptionRemove.mockReset();
+  mockGetCapabilities.mockReset();
+  mockGetProtectionStatus.mockReset();
   mockGuardianEventListener = undefined;
   mockGuardianCapabilities = {};
   mockGuardianProtectionStatus = { active: false, health: "UNKNOWN" };
@@ -570,6 +580,48 @@ test("Child home surfaces unavailable app blocking with a recovery action", asyn
   const reduced = render(<ChildHomeScreen />);
   await waitFor(() => expect(reduced.getByText("Web protection is active, but coverage may be limited. Some traffic may bypass Guardian.")).toBeTruthy());
   reduced.unmount();
+});
+
+test("Child home applies app-blocking capability events without polling native state", async () => {
+  mockGuardianCapabilities = {
+    vpn_filtering: { level: "FULL" },
+    web_filtering: { level: "LIMITED" },
+    app_blocking: { level: "FULL" },
+  };
+  mockGuardianProtectionStatus = { active: true, health: "HEALTHY" };
+  const screen = render(<ChildHomeScreen />);
+  await waitFor(() => {
+    expect(screen.getByText("Web protection is active for DNS and known blocked destinations. Other traffic may bypass Guardian.")).toBeTruthy();
+  });
+
+  const capabilityCalls = mockGetCapabilities.mock.calls.length;
+  const protectionCalls = mockGetProtectionStatus.mock.calls.length;
+  act(() => {
+    mockGuardianEventListener?.({
+      type: "PERMISSION_STATE_CHANGED",
+      capability: "app_blocking",
+      state: "UNAVAILABLE",
+    });
+  });
+  await waitFor(() => {
+    expect(screen.getByText("App limits are not being enforced right now. Re-enable Accessibility to restore app blocking.")).toBeTruthy();
+  });
+  expect(mockGetCapabilities).toHaveBeenCalledTimes(capabilityCalls);
+  expect(mockGetProtectionStatus).toHaveBeenCalledTimes(protectionCalls);
+
+  act(() => {
+    mockGuardianEventListener?.({
+      type: "PERMISSION_STATE_CHANGED",
+      capability: "app_blocking",
+      state: "FULL",
+    });
+  });
+  await waitFor(() => {
+    expect(screen.queryByText("App limits are not being enforced right now. Re-enable Accessibility to restore app blocking.")).toBeNull();
+  });
+  expect(mockGetCapabilities).toHaveBeenCalledTimes(capabilityCalls);
+  expect(mockGetProtectionStatus).toHaveBeenCalledTimes(protectionCalls);
+  screen.unmount();
 });
 
 test("Child home reports cached protection as active while the policy server is unavailable", async () => {

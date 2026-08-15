@@ -223,16 +223,12 @@ class GuardianProtectionModule : Module() {
 
   private fun reportCapabilityChanges(current: Map<String, Map<String, Any?>>): Map<String, Map<String, Any?>> {
     val previous = lastCapabilities.getAndSet(current)
-    if (previous != null) {
-      current.forEach { (capability, status) ->
-        if (previous[capability] != status) {
-          emit(mapOf(
-            "type" to "PERMISSION_STATE_CHANGED",
-            "capability" to capability,
-            "state" to status["level"],
-          ))
-        }
-      }
+    CapabilityStateComparison.changedCapabilities(previous, current).forEach { capability ->
+      emit(mapOf(
+        "type" to "PERMISSION_STATE_CHANGED",
+        "capability" to capability,
+        "state" to (current[capability]?.get("level") as? String ?: "UNAVAILABLE"),
+      ))
     }
     return current
   }

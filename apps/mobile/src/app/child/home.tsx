@@ -174,7 +174,10 @@ export default function ChildHomeRoute() {
       if (event.type === "TIME_EXPIRED") {
         setTimeMessage(`${event.targetRef} · time expired`);
       }
-      if (event.type === "PROTECTION_STATUS_CHANGED" || event.type === "PERMISSION_STATE_CHANGED") {
+      if (event.type === "PERMISSION_STATE_CHANGED" && event.capability === "app_blocking") {
+        setAppBlockingAvailable(event.state === "FULL");
+      }
+      if (event.type === "PROTECTION_STATUS_CHANGED") {
         void refreshNativeProtection().catch(() => undefined);
       }
     });
