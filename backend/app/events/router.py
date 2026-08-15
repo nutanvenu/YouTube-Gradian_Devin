@@ -1,6 +1,7 @@
 # ruff: noqa: E501
-from datetime import date
+from datetime import date, datetime
 from typing import Literal
+from zoneinfo import ZoneInfo
 
 from fastapi import APIRouter, Query
 
@@ -33,6 +34,7 @@ from ..api.handler_support import (
     select,
     usage_report,
 )
+from .reports import latest_usage_snapshots
 
 router = APIRouter()
 
@@ -106,27 +108,53 @@ async def family_usage(
     session: AsyncSession = Depends(get_session),
 ) -> list[dict[str, object]]:
     await family_for_parent(session, parent, family_id)
-    rows = list(
+    rows = latest_usage_snapshots(
         (
-            await session.scalars(
-                select(UsageAggregate)
+            await session.execute(
+                select(UsageAggregate, Device.child_profile_id)
                 .join(Device, Device.id == UsageAggregate.device_id)
                 .join(ChildProfile, ChildProfile.id == Device.child_profile_id)
                 .where(ChildProfile.family_id == family_id)
-                .order_by(UsageAggregate.occurred_at.desc())
-                .limit(500)
+                .order_by(UsageAggregate.occurred_at)
             )
-        ).all()
+        ).tuples().all()
     )
+    combined: dict[tuple[UUID, date, str], tuple[UsageAggregate, int, datetime]] = {}
+    for row, child_id in rows:
+        try:
+            local_day = row.occurred_at.astimezone(ZoneInfo(row.timezone)).date()
+        except Exception:
+            local_day = row.occurred_at.astimezone(ZoneInfo("UTC")).date()
+        if row.app_ref:
+            target = f"APP:{row.app_ref}"
+        elif row.category:
+            target = f"CATEGORY:{row.category}"
+        else:
+            target = "DEVICE"
+        key = (child_id, local_day, target)
+        current = combined.get(key)
+        if current is None:
+            combined[key] = (row, row.duration_seconds, row.occurred_at)
+        else:
+            existing_row, seconds, occurred_at = current
+            combined[key] = (
+                row if row.occurred_at > occurred_at else existing_row,
+                seconds + row.duration_seconds,
+                max(occurred_at, row.occurred_at),
+            )
     return [
         {
             "app_ref": row.app_ref,
             "category": row.category,
-            "duration_seconds": row.duration_seconds,
+            "duration_seconds": duration_seconds,
             "event_type": row.event_type,
-            "occurred_at": row.occurred_at.isoformat(),
+            "occurred_at": occurred_at.isoformat(),
         }
-        for row in rows
+        for row, duration_seconds, occurred_at in sorted(
+            (item for item in combined.values() if item[1] > 0),
+            key=lambda item: item[2],
+            reverse=True,
+        )
     ]
 
 

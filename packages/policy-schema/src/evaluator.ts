@@ -91,6 +91,14 @@ function domainMatches(rule: DomainRule, target: string): boolean {
     : candidate === configured || candidate.endsWith(`.${configured}`);
 }
 
+function lastMatching<T>(items: T[], predicate: (item: T) => boolean): T | undefined {
+  for (let index = items.length - 1; index >= 0; index -= 1) {
+    const item = items[index];
+    if (item !== undefined && predicate(item)) return item;
+  }
+  return undefined;
+}
+
 function categoryForTarget(
   target: DecisionContext["target"]
 ): Category | undefined {
@@ -314,10 +322,11 @@ export function evaluatePolicy(
 
   const explicit =
     target.kind === "APP"
-      ? bundle.app_rules.find((rule) => rule.app_ref === target.ref)
+      ? lastMatching(bundle.app_rules, (rule) => rule.app_ref === target.ref)
       : target.kind === "DOMAIN"
-        ? bundle.domain_rules.find((rule) => domainMatches(rule, target.ref))
-        : bundle.category_rules.find(
+        ? lastMatching(bundle.domain_rules, (rule) => domainMatches(rule, target.ref))
+        : lastMatching(
+            bundle.category_rules,
             (rule) => rule.category === categoryForTarget(target)
           );
   if (explicit) {

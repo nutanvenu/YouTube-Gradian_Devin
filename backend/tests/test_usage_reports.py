@@ -63,6 +63,53 @@ async def test_daily_report_splits_duration_at_dst_boundary(client, parent_a, pa
 
 
 @pytest.mark.asyncio
+async def test_reports_and_activity_use_latest_cumulative_snapshot_per_target(
+    client, parent_a, paired_device
+):
+    await ingest(
+        client,
+        paired_device,
+        [
+            {
+                "event_type": "APP_USAGE",
+                "occurred_at": "2024-01-02T06:57:00Z",
+                "timezone": "UTC",
+                "app_ref": "com.example.chrome",
+                "duration_seconds": 1015,
+            },
+            {
+                "event_type": "APP_USAGE",
+                "occurred_at": "2024-01-02T06:58:00Z",
+                "timezone": "UTC",
+                "app_ref": "com.example.chrome",
+                "duration_seconds": 1018,
+            },
+        ],
+    )
+    headers = {"Authorization": f"Bearer {parent_a.token}"}
+    report = await client.get(
+        f"/v1/families/{parent_a.family_id}/usage/reports",
+        params={
+            "child_id": parent_a.child_id,
+            "start": "2024-01-02",
+            "end": "2024-01-03",
+            "timezone": "UTC",
+        },
+        headers=headers,
+    )
+    activity = await client.get(
+        f"/v1/families/{parent_a.family_id}/activity/usage", headers=headers
+    )
+
+    assert report.status_code == 200, report.text
+    assert report.json()[0]["duration_seconds"] == 1018
+    assert report.json()[0]["by_app"] == {"com.example.chrome": 1018}
+    assert activity.status_code == 200, activity.text
+    assert activity.json()[0]["duration_seconds"] == 1018
+    assert len(activity.json()) == 1
+
+
+@pytest.mark.asyncio
 async def test_weekly_report_aggregates_multiple_devices_for_one_child(
     client, parent_a, paired_device, database_session
 ):

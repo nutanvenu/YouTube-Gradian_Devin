@@ -40,7 +40,7 @@ export function aggregateTodayUsage(
       : point.category
         ? `CATEGORY:${point.category}`
         : "DEVICE";
-    totals[target] = (totals[target] ?? 0) + point.duration_seconds;
+    totals[target] = Math.max(totals[target] ?? 0, point.duration_seconds);
     return totals;
   }, {});
 }

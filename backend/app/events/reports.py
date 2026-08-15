@@ -1,4 +1,5 @@
 from collections import defaultdict
+from collections.abc import Iterable
 from datetime import UTC, date, datetime, timedelta
 from typing import Any, Literal
 from uuid import UUID
@@ -28,6 +29,39 @@ def _utc_midnight(day: date, timezone: ZoneInfo) -> datetime:
     return datetime.combine(day, datetime.min.time(), tzinfo=timezone).astimezone(UTC)
 
 
+def _target_key(row: UsageAggregate) -> str:
+    if row.app_ref:
+        return f"APP:{row.app_ref}"
+    if row.category:
+        return f"CATEGORY:{row.category}"
+    return "DEVICE"
+
+
+def latest_usage_snapshots(
+    rows: Iterable[tuple[UsageAggregate, UUID]],
+    *,
+    timezone: ZoneInfo | None = None,
+) -> list[tuple[UsageAggregate, UUID]]:
+    latest: dict[tuple[UUID, UUID, date, str], tuple[UsageAggregate, UUID]] = {}
+    for row, child_id in rows:
+        row_timezone = timezone
+        if row_timezone is None:
+            try:
+                row_timezone = ZoneInfo(row.timezone)
+            except Exception:
+                row_timezone = ZoneInfo("UTC")
+        key = (
+            child_id,
+            row.device_id,
+            row.occurred_at.astimezone(row_timezone).date(),
+            _target_key(row),
+        )
+        current = latest.get(key)
+        if current is None or row.occurred_at > current[0].occurred_at:
+            latest[key] = (row, child_id)
+    return sorted(latest.values(), key=lambda item: item[0].occurred_at)
+
+
 async def usage_report(
     session: AsyncSession,
     *,
@@ -49,44 +83,40 @@ async def usage_report(
             ChildProfile.family_id == family_id,
             UsageAggregate.occurred_at >= start_utc,
             UsageAggregate.occurred_at < end_utc,
-            UsageAggregate.duration_seconds > 0,
         )
         .order_by(UsageAggregate.occurred_at)
     )
     if child_id is not None:
         query = query.where(ChildProfile.id == child_id)
-    rows = list((await session.execute(query)).all())
+    rows = latest_usage_snapshots(
+        (await session.execute(query)).tuples().all(),
+        timezone=report_timezone,
+    )
     buckets: dict[tuple[UUID, date], dict[str, Any]] = {}
     for row, row_child_id in rows:
-        remaining_start = row.occurred_at
-        remaining_end = row.occurred_at + timedelta(seconds=row.duration_seconds)
-        while remaining_start < remaining_end:
-            local_start = remaining_start.astimezone(report_timezone)
-            period_start = _period_start(local_start.date(), granularity)
-            period_end = _next_period_start(period_start, granularity)
-            boundary = _utc_midnight(period_end, report_timezone)
-            segment_end = min(remaining_end, boundary)
-            seconds = max(0, int((segment_end - remaining_start).total_seconds()))
-            if seconds:
-                key = (row_child_id, period_start)
-                bucket = buckets.setdefault(
-                    key,
-                    {
-                        "child_profile_id": row_child_id,
-                        "period_start": period_start,
-                        "period_end": period_end,
-                        "timezone": timezone,
-                        "duration_seconds": 0,
-                        "event_count": 0,
-                        "by_app": defaultdict(int),
-                        "by_category": defaultdict(int),
-                    },
-                )
-                bucket["duration_seconds"] += seconds
-                bucket["event_count"] += 1
-                bucket["by_app"][row.app_ref or "Unknown"] += seconds
-                bucket["by_category"][row.category or "Unknown"] += seconds
-            remaining_start = segment_end
+        if row.duration_seconds <= 0:
+            continue
+        local_date = row.occurred_at.astimezone(report_timezone).date()
+        period_start = _period_start(local_date, granularity)
+        period_end = _next_period_start(period_start, granularity)
+        key = (row_child_id, period_start)
+        bucket = buckets.setdefault(
+            key,
+            {
+                "child_profile_id": row_child_id,
+                "period_start": period_start,
+                "period_end": period_end,
+                "timezone": timezone,
+                "duration_seconds": 0,
+                "event_count": 0,
+                "by_app": defaultdict(int),
+                "by_category": defaultdict(int),
+            },
+        )
+        bucket["duration_seconds"] += row.duration_seconds
+        bucket["event_count"] += 1
+        bucket["by_app"][row.app_ref or "Unknown"] += row.duration_seconds
+        bucket["by_category"][row.category or "Unknown"] += row.duration_seconds
     return [
         {
             **bucket,

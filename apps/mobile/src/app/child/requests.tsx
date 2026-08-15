@@ -43,7 +43,11 @@ export default function ChildRequestsRoute() {
     void readRequestOutbox().then(setOutbox).catch(() => setOutbox([]));
   }, []);
   useEffect(() => {
-    if (!isOffline) void sync();
+    if (!isOffline) {
+      void sync().catch(() => {
+        setMessage("The request is still queued and will retry when online.");
+      });
+    }
   }, [isOffline]);
   const create = async (
     requestType: "MORE_TIME" | "UNBLOCK_APP" | "UNBLOCK_SITE",

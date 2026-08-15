@@ -49,6 +49,56 @@ describe("policy decision conformance fixtures", () => {
 });
 
 describe("policy evaluator invariants", () => {
+  it("uses the last matching explicit rule in a legacy duplicate bundle", () => {
+    const bundle = unsafeTrustBundleForTesting({
+      ...fixtureBundle("precedence"),
+      routines: [],
+      app_rules: [
+        { rule_id: "old-app", app_ref: "com.example.video", action: "BLOCK" },
+        { rule_id: "new-app", app_ref: "com.example.video", action: "ALLOW" }
+      ],
+      domain_rules: [
+        {
+          rule_id: "old-domain",
+          domain: "blocked.example",
+          match: "SUBDOMAINS",
+          action: "BLOCK"
+        },
+        {
+          rule_id: "new-domain",
+          domain: "blocked.example",
+          match: "SUBDOMAINS",
+          action: "ALLOW"
+        }
+      ],
+      category_rules: [
+        { rule_id: "old-category", category: "GAMES", action: "BLOCK" },
+        { rule_id: "new-category", category: "GAMES", action: "ALLOW" }
+      ]
+    });
+    expect(
+      evaluatePolicy(bundle, {
+        target: { kind: "APP", ref: "com.example.video" },
+        timestamp: "2026-01-05T12:00:00Z",
+        usage: { device_seconds_today: 0, app_seconds_today: {}, category_seconds_today: {} }
+      })
+    ).toMatchObject({ action: "ALLOW", policy_rule_id: "new-app" });
+    expect(
+      evaluatePolicy(bundle, {
+        target: { kind: "DOMAIN", ref: "www.blocked.example" },
+        timestamp: "2026-01-05T12:00:00Z",
+        usage: { device_seconds_today: 0, app_seconds_today: {}, category_seconds_today: {} }
+      })
+    ).toMatchObject({ action: "ALLOW", policy_rule_id: "new-domain" });
+    expect(
+      evaluatePolicy(bundle, {
+        target: { kind: "CATEGORY", ref: "GAMES" },
+        timestamp: "2026-01-05T12:00:00Z",
+        usage: { device_seconds_today: 0, app_seconds_today: {}, category_seconds_today: {} }
+      })
+    ).toMatchObject({ action: "ALLOW", policy_rule_id: "new-category" });
+  });
+
   it("gives unknown apps a scoped limited-mode budget", () => {
     const bundle = unsafeTrustBundleForTesting(fixtureBundle("young"));
     expect(
