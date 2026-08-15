@@ -62,7 +62,9 @@ class GuardianProtectionModule : Module() {
               startedFromRequest = true
             }
           }
-          UserInitiatedEnableIntentAction.EXPIRE -> GuardianVpnPreferences.clearEnableRequested(it)
+          UserInitiatedEnableIntentAction.EXPIRE -> {
+            if (requestedAt != null) GuardianVpnPreferences.clearEnableRequested(it)
+          }
           UserInitiatedEnableIntentAction.KEEP -> Unit
         }
         if (!startedFromRequest) GuardianVpnService.startWithPersistedPolicy(it)
