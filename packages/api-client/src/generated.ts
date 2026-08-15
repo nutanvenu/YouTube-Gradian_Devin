@@ -716,7 +716,10 @@ export const openApiDocument = {
               "ROUTINE_DEACTIVATE",
               "COMMUNICATION_SENSITIVITY",
               "COMMUNICATION_ENABLED",
-              "TEMPORARY_EXCEPTION"
+              "TEMPORARY_EXCEPTION",
+              "TEMPORARY_SCREEN_TIME",
+              "PAUSE_INTERNET",
+              "RESUME_INTERNET"
             ],
             "title": "Operation",
             "type": "string"

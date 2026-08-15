@@ -5,7 +5,7 @@ from datetime import UTC, datetime, timedelta
 import pytest
 from sqlalchemy import delete, select
 
-from app.api.handler_support import FamilyGuardian, PushAction
+from app.api.handler_support import FamilyGuardian, PolicyBundle, PushAction
 from app.devices import router as device_router
 
 
@@ -57,6 +57,15 @@ async def test_request_push_actions_are_real_idempotent_and_authorized(
     approved = await client.post(approve_path, json={})
     assert approved.status_code == 200
     assert approved.json()["state"] == "APPROVED"
+    current_bundle = await database_session.scalar(
+        select(PolicyBundle).where(
+            PolicyBundle.child_profile_id == paired_device.parent.child_id,
+            PolicyBundle.is_current.is_(True),
+        )
+    )
+    assert current_bundle is not None
+    assert current_bundle.new_value["temporary_overrides"][-1]["target_kind"] == "DEVICE"
+    assert current_bundle.new_value["temporary_overrides"][-1]["daily_minutes"] == 15
     repeated = await client.post(approve_path, json={})
     assert repeated.status_code == 200
     assert repeated.json()["state"] == "APPROVED"

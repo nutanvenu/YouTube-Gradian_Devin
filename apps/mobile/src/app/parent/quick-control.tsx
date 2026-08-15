@@ -35,6 +35,14 @@ export default function ParentQuickControlRoute() {
     },
     onError: () => setMessage("This control could not be saved."),
   });
+  const quickPolicy = useMutation({
+    mutationFn: (operation: "TEMPORARY_SCREEN_TIME" | "PAUSE_INTERNET" | "RESUME_INTERNET") => api.mutatePolicy(familyId, childId, {
+      operation,
+      target: operation === "PAUSE_INTERNET" || operation === "RESUME_INTERNET" ? "pause-internet" : "device",
+      ...(operation === "TEMPORARY_SCREEN_TIME" ? { value: 15, expires_at: new Date(Date.now() + 15 * 60_000).toISOString() } : {}),
+    }),
+    onSuccess: () => setMessage("Signed policy mutation delivered to the child device."),
+  });
   const child = children.data?.find((item) => item.id === childId);
   const actions = useMemo(() => [
     ["Rules", () => router.push({ pathname: "/parent/rules", params: { familyId, childId } })],
@@ -45,6 +53,12 @@ export default function ParentQuickControlRoute() {
   const filtered = actions.filter(([label]) => label.toLowerCase().includes(search.toLowerCase()));
   return (
     <ScreenScaffold title="Quick control">
+      <SectionSurface>
+        <Text>Immediate actions</Text>
+        <PrimaryButton label="Add 15 minutes" onPress={() => quickPolicy.mutate("TEMPORARY_SCREEN_TIME")} />
+        <PrimaryButton label="Pause child internet" onPress={() => quickPolicy.mutate("PAUSE_INTERNET")} />
+        <SecondaryButton label="Resume child internet" onPress={() => quickPolicy.mutate("RESUME_INTERNET")} />
+      </SectionSurface>
       <SectionSurface>
         <Text>{child?.name ?? "Child"} · Search a control</Text>
         <TextField label="Search" value={search} onChangeText={setSearch} />

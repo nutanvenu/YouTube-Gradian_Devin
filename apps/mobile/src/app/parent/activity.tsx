@@ -1,10 +1,10 @@
 import { Platform, Text } from "react-native";
-import { useLocalSearchParams } from "expo-router";
+import { useLocalSearchParams, useRouter } from "expo-router";
 import { useQuery } from "@tanstack/react-query";
 import { ApiError, api } from "@/api/client";
 import { useNetworkStatus } from "@/state/network";
 import { GuardianProtection } from "../../../modules/guardian-protection/src";
-import { CardSurface, DataState, ListRow, ResponsiveColumns, ScreenScaffold, SectionSurface } from "@/design-system";
+import { CardSurface, DataState, ListRow, ResponsiveColumns, ScreenScaffold, SectionSurface, SecondaryButton } from "@/design-system";
 
 function startOfDay() {
   const value = new Date();
@@ -25,6 +25,7 @@ function reportRange() {
 
 export default function ParentActivityRoute() {
   const { familyId } = useLocalSearchParams<{ familyId: string }>();
+  const router = useRouter();
   const { isOffline } = useNetworkStatus();
   const activity = useQuery({ queryKey: ["activity", familyId], queryFn: () => api.activity(familyId), enabled: Boolean(familyId) });
   const activityUsage = useQuery({ queryKey: ["activity-usage", familyId], queryFn: () => api.activityUsage(familyId), enabled: Boolean(familyId) });
@@ -86,6 +87,7 @@ export default function ParentActivityRoute() {
               <CardSurface key={`${point.occurred_at}-${point.app_ref ?? "unknown"}-${point.event_type}`}>
                 <ListRow label={point.app_ref ?? "Unknown app"} value={`${Math.round(point.duration_seconds / 60)} min`} />
                 <Text>{point.category ?? "Unknown category"} · {new Date(point.occurred_at).toLocaleString()}</Text>
+                <SecondaryButton label="Open activity detail" onPress={() => router.push({ pathname: "/parent/activity-detail", params: { familyId, ...(point.app_ref ? { appId: point.app_ref } : { category: point.category ?? "UNKNOWN" }) } })} />
               </CardSurface>
             )) : <Text>Unknown · no usage aggregates are available for this family.</Text>}
           </SectionSurface>

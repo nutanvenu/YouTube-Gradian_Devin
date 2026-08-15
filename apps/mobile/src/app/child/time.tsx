@@ -25,6 +25,15 @@ export default function ChildTimeRoute() {
       return typeof candidate.app_ref === "string" && typeof candidate.daily_minutes === "number";
     });
   })();
+  const extraMinutes = (() => {
+    const bundle = policy.data?.bundle as { temporary_overrides?: unknown } | undefined;
+    const override = Array.isArray(bundle?.temporary_overrides)
+      ? bundle.temporary_overrides.find((item) => typeof item === "object" && item !== null && (item as Record<string, unknown>).target_kind === "DEVICE")
+      : null;
+    return typeof override === "object" && override !== null && typeof (override as Record<string, unknown>).daily_minutes === "number"
+      ? Number((override as Record<string, unknown>).daily_minutes)
+      : 0;
+  })();
   return (
     <ScreenScaffold title="My time">
       <SectionSurface>
@@ -37,8 +46,10 @@ export default function ChildTimeRoute() {
               return <Text key={budget.app_ref}>{budget.app_ref}: {Math.ceil(remainingSeconds / 60)} minutes remaining.</Text>;
             })
           : null}
+        {extraMinutes > 0 ? <Text>Parent-approved extra time: {extraMinutes} minutes.</Text> : null}
         <Text>Need a change? Ask a parent for more time or to unblock an app or website.</Text>
         <PrimaryButton label="Ask for help" onPress={() => router.push("/child/requests")} />
+        <PrimaryButton label="Open time-up help" onPress={() => router.push("/child/time-up")} />
       </SectionSurface>
     </ScreenScaffold>
   );

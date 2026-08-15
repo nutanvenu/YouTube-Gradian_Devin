@@ -317,6 +317,9 @@ class PolicyMutationIn(BaseModel):
         "COMMUNICATION_SENSITIVITY",
         "COMMUNICATION_ENABLED",
         "TEMPORARY_EXCEPTION",
+        "TEMPORARY_SCREEN_TIME",
+        "PAUSE_INTERNET",
+        "RESUME_INTERNET",
     ]
     target: str = Field(min_length=1, max_length=512)
     value: str | int | dict[str, object] | None = None

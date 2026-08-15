@@ -238,7 +238,7 @@
         "rule_id": { "type": "string", "minLength": 1 },
         "target_kind": {
           "type": "string",
-          "enum": ["APP", "DOMAIN", "CATEGORY"]
+          "enum": ["APP", "DOMAIN", "CATEGORY", "DEVICE"]
         },
         "target_ref": { "type": "string", "minLength": 1 },
         "action": { "$ref": "#/$defs/action" },

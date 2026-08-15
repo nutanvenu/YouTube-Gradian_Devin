@@ -1,6 +1,6 @@
 import { useMemo, useState } from "react";
 import { Text } from "react-native";
-import { useLocalSearchParams } from "expo-router";
+import { useLocalSearchParams, useRouter } from "expo-router";
 import { useMutation, useQuery, useQueryClient } from "@tanstack/react-query";
 import { api, type PolicyMutationInput } from "@/api/client";
 import { useNetworkStatus } from "@/state/network";
@@ -30,6 +30,7 @@ function list<T>(value: unknown): T[] {
 
 export default function ParentRulesRoute() {
   const { familyId, childId } = useLocalSearchParams<{ familyId: string; childId: string }>();
+  const router = useRouter();
   const queryClient = useQueryClient();
   const [domain, setDomain] = useState("");
   const [minutes, setMinutes] = useState("30");
@@ -195,6 +196,7 @@ export default function ParentRulesRoute() {
           {routines.map((routine) => (
             <CardSurface key={routine.routine_id}>
               <ListRow label={routine.name} value={routine.kind} />
+              <SecondaryButton label="Open routine editor" onPress={() => router.push({ pathname: "/parent/routine-editor", params: { familyId, childId, routineId: routine.routine_id } })} />
               {routine.kind === "MANUAL" ? (
                 <>
                   <SecondaryButton label="Activate on child's device" onPress={() => save({ operation: "ROUTINE_ACTIVATE", target: routine.routine_id })} />

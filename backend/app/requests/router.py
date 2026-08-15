@@ -89,18 +89,30 @@ async def decide_request(
         policy["signature"] = ""
         raw_overrides = policy.get("temporary_overrides", [])
         overrides = list(raw_overrides) if isinstance(raw_overrides, list) else []
-        overrides.append(
-            {
-                "rule_id": f"request-{row.id}",
-                "target_kind": "APP" if row.request_type == "UNBLOCK_APP" else "DOMAIN",
-                "target_ref": row.subject or row.request_type,
-                "action": "ALLOW",
-                "starts_at": datetime.now(UTC).isoformat().replace("+00:00", "Z"),
-                "expires_at": (
-                    datetime.now(UTC) + timedelta(hours=1)
-                ).isoformat().replace("+00:00", "Z"),
-            }
-        )
+        expires_at = datetime.now(UTC) + timedelta(hours=1)
+        if row.request_type == "MORE_TIME":
+            overrides.append(
+                {
+                    "rule_id": f"request-{row.id}",
+                    "target_kind": "DEVICE",
+                    "target_ref": "device",
+                    "action": "LIMIT",
+                    "daily_minutes": 15,
+                    "starts_at": datetime.now(UTC).isoformat().replace("+00:00", "Z"),
+                    "expires_at": expires_at.isoformat().replace("+00:00", "Z"),
+                }
+            )
+        else:
+            overrides.append(
+                {
+                    "rule_id": f"request-{row.id}",
+                    "target_kind": "APP" if row.request_type == "UNBLOCK_APP" else "DOMAIN",
+                    "target_ref": row.subject or row.request_type,
+                    "action": "ALLOW",
+                    "starts_at": datetime.now(UTC).isoformat().replace("+00:00", "Z"),
+                    "expires_at": expires_at.isoformat().replace("+00:00", "Z"),
+                }
+            )
         policy["temporary_overrides"] = overrides
         await create_next_bundle(
             session,
@@ -108,7 +120,7 @@ async def decide_request(
             parent.id,
             policy,
             {"state": previous, "request_id": str(row.id)},
-            expires_at=datetime.now(UTC) + timedelta(hours=1),
+            expires_at=expires_at,
         )
     await session.commit()
     family_id = await session.scalar(

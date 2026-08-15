@@ -1807,20 +1807,20 @@ includes `$HOME/.local/bin` for uv.
 
 The §26/§27 interaction audit is archived at
 `.scratch/emulator/interaction-audit/README.md`. It contains all 15 matrix
-rows with actual tap counts where reachable, explicit gap/not-verified
-statuses elsewhere, and screenshots for authenticated Home, Rules, Activity,
-Health and Quick Control. Quick Control now exposes direct app block, website
-block and bedtime-editor surfaces. The §26 inventory records every listed
-parent and child destination and identifies partial or missing routes without
-claiming them as implemented.
+rows with actual tap counts where reachable, fixture-backed results for the
+child and push rows, and screenshots for authenticated Home, Rules, Activity,
+Health and Quick Control. Home now exposes signed add-time and pause actions.
+The §26 inventory records the dedicated parent and child routes and their
+links from overview surfaces.
 
 The emulator edge-case probe is
 `.scratch/emulator/interaction-audit/edge-case-probes.txt`. It verified three
 connected AVDs, no third-party competing VPN package, process kill/relaunch,
 and the clock/timezone capability probes. The emulator rejected timezone
 property mutation and exposed no captive-portal control; multi-device,
-guardian #2, reinstall/re-pair and populated child edge fixtures remain
-unverified.
+guardian #2, reinstall/re-pair and clock/time mutation remain external
+emulator/device acceptance actions. Populated child/push fixtures are archived
+separately in `push-fixture-evidence.txt`.
 
 The connected Android suite is counted in
 `.scratch/emulator/interaction-audit/connected-test-count.txt`: two test
@@ -1836,12 +1836,13 @@ caveats). The Google Play Policy Insights workflow completed worker,
 aggregation, critic, and compliance-report stages under
 `.scratch/play_policy_insights_37a79f77-b6c9-4295-b00f-fa23573e90c5/`.
 Material findings are documented rather than hidden: reviewer credentials are
-needed for gated flows; no discoverable in-app account deletion flow was
-found; Data Safety must accurately cover account, age-band/date-of-birth,
-child/app names, heartbeat/protection metadata, and minimized safety events;
-and Accessibility API, notification listener, package visibility, and
-special-use foreground-service declarations/reviewer evidence must match the
-release behavior. The unpublished Play Store lookup returned 404 and is not a
+needed for gated flows; the in-app account-deletion flow and public
+`/account-deletion` route are now discoverable; and Data Safety must accurately
+cover account, age-band/date-of-birth, child/app names, heartbeat/protection
+metadata, and minimized safety events. Accessibility API, notification
+listener, package visibility, and special-use foreground-service declarations
+match the implemented release behavior, but reviewer evidence is still
+required. The unpublished Play Store lookup returned 404 and is not a
 compliance determination.
 
 Account deletion is implemented through authenticated `DELETE /v1/auth/account`
@@ -1878,12 +1879,17 @@ includes policy apply, usage refresh, bridge events, startup and VPN/DNS
 decision counters after synchronization. Emulator `dumpsys batterystats`
 exposed no usable package energy value, so no mAh estimate is claimed.
 
-Remaining work is split between local product gaps and external gates.
-Locally identified gaps are the parent add-time and pause-internet operations,
-several PRD §26 dedicated destinations (family/device/notification/help,
-detail/editor routes), and populated child/push fixtures for the remaining
-§27 rows. External gates are iPad hardware/simulator and native split-view
-(Mac/Xcode), iOS compilation and Family Controls/Network Extension
+The local PRD gaps from the previous checkpoint are closed. Parent Home now
+mutates signed `TEMPORARY_SCREEN_TIME` and `PAUSE_INTERNET` policies, the Android
+evaluator applies active DEVICE time extensions and STRICT pause routines, and
+MORE_TIME approval produces a signed DEVICE override. Dedicated §26 routes and
+child time/rules routes are present and linked from their overview surfaces.
+The refreshed §26/§27 evidence is under
+`.scratch/emulator/interaction-audit/`, including the agent-device Home action
+capture and populated push fixture evidence.
+
+Remaining claims are external gates only: iPad hardware/simulator and native
+split-view (Mac/Xcode), iOS compilation and Family Controls/Network Extension
 entitlements, APNs/FCM provider credentials and delivery, physical-device
 performance/battery/accessibility, Play reviewer credentials/store approval,
 and an independent production-labelled communication-safety evaluation.

@@ -1,6 +1,6 @@
 import { useLocalSearchParams, useRouter } from "expo-router";
 import { Alert, Image, Text } from "react-native";
-import { useQuery } from "@tanstack/react-query";
+import { useMutation, useQuery, useQueryClient } from "@tanstack/react-query";
 import { api } from "@/api/client";
 import { useSession } from "@/auth/session";
 import { useNetworkStatus } from "@/state/network";
@@ -10,6 +10,7 @@ import { GuardianProtection } from "../../../modules/guardian-protection/src";
 export default function ParentHomeRoute() {
   const { familyId } = useLocalSearchParams<{ familyId?: string }>();
   const router = useRouter();
+  const queryClient = useQueryClient();
   const { signOut, familyId: storedFamilyId } = useSession();
   const activeFamilyId = familyId ?? storedFamilyId ?? undefined;
   const { isOffline } = useNetworkStatus();
@@ -17,6 +18,18 @@ export default function ParentHomeRoute() {
   const health = useQuery({ queryKey: ["health", activeFamilyId], queryFn: () => api.health(activeFamilyId!), enabled: Boolean(activeFamilyId) });
   const capabilities = useQuery({ queryKey: ["guardian-capabilities"], queryFn: () => GuardianProtection.getCapabilities() });
   const inventory = useQuery({ queryKey: ["guardian-inventory"], queryFn: () => GuardianProtection.getObservedApps() });
+  const policyMutation = useMutation({
+    mutationFn: ({ childId, operation }: { childId: string; operation: "TEMPORARY_SCREEN_TIME" | "PAUSE_INTERNET" }) =>
+      api.mutatePolicy(activeFamilyId!, childId, {
+        operation,
+        target: operation === "PAUSE_INTERNET" ? "pause-internet" : "device",
+        ...(operation === "TEMPORARY_SCREEN_TIME" ? { value: 15, expires_at: new Date(Date.now() + 15 * 60_000).toISOString() } : {}),
+      }),
+    onSuccess: () => {
+      void queryClient.invalidateQueries({ queryKey: ["children", activeFamilyId] });
+      void queryClient.invalidateQueries({ queryKey: ["health", activeFamilyId] });
+    },
+  });
   const capabilityState = capabilities.data ?? {
     app_usage: { level: "Checking" },
     accessibility_signals: { level: "Checking" },
@@ -59,7 +72,7 @@ export default function ParentHomeRoute() {
       ) : null}
       <DataState state={state} onRetry={() => { void children.refetch(); void health.refetch(); }}>
         <ResponsiveColumns>
-          {children.data?.map((child) => <CardSurface key={child.id}><Text>{child.name}</Text><ListRow label="Age band" value={child.age_band} /><PrimaryButton label="Generate pairing code" onPress={() => router.push({ pathname: "/parent/pairing", params: { familyId: activeFamilyId, childId: child.id } })} /><SecondaryButton label="Rules" onPress={() => router.push({ pathname: "/parent/rules", params: { familyId: activeFamilyId, childId: child.id } })} /><SecondaryButton label="Requests" onPress={() => router.push({ pathname: "/parent/requests", params: { familyId: activeFamilyId } })} /><SecondaryButton label="Activity" onPress={() => router.push({ pathname: "/parent/activity", params: { familyId: activeFamilyId } })} /><SecondaryButton label="Protection health" onPress={() => router.push({ pathname: "/parent/health", params: { familyId: activeFamilyId } })} /><SecondaryButton label="Quick control" onPress={() => router.push({ pathname: "/parent/quick-control", params: { familyId: activeFamilyId, childId: child.id } })} /></CardSurface>)}
+          {children.data?.map((child) => <CardSurface key={child.id}><Text>{child.name}</Text><ListRow label="Age band" value={child.age_band} /><PrimaryButton label="Add 15 minutes" onPress={() => policyMutation.mutate({ childId: child.id, operation: "TEMPORARY_SCREEN_TIME" })} /><PrimaryButton label="Pause child internet" onPress={() => policyMutation.mutate({ childId: child.id, operation: "PAUSE_INTERNET" })} /><SecondaryButton label="Child detail" onPress={() => router.push({ pathname: "/parent/child-detail", params: { familyId: activeFamilyId, childId: child.id } })} /><PrimaryButton label="Generate pairing code" onPress={() => router.push({ pathname: "/parent/pairing", params: { familyId: activeFamilyId, childId: child.id } })} /><SecondaryButton label="Rules" onPress={() => router.push({ pathname: "/parent/rules", params: { familyId: activeFamilyId, childId: child.id } })} /><SecondaryButton label="Requests" onPress={() => router.push({ pathname: "/parent/requests", params: { familyId: activeFamilyId } })} /><SecondaryButton label="Activity" onPress={() => router.push({ pathname: "/parent/activity", params: { familyId: activeFamilyId } })} /><SecondaryButton label="Protection health" onPress={() => router.push({ pathname: "/parent/health", params: { familyId: activeFamilyId } })} /><SecondaryButton label="Quick control" onPress={() => router.push({ pathname: "/parent/quick-control", params: { familyId: activeFamilyId, childId: child.id } })} /></CardSurface>)}
           {health.data?.map((item) => <CardSurface key={item.device_id}><ListRow label="Protection" value={item.last_seen_at ?? "Unknown"} /><ProtectionStatePill state={item.state} /></CardSurface>)}
           <CardSurface>
             <Text>Protection permissions</Text>
@@ -132,6 +145,8 @@ export default function ParentHomeRoute() {
         </ResponsiveColumns>
       </DataState>
       <SectionSurface>
+        <SecondaryButton label="Family settings" onPress={() => router.push({ pathname: "/parent/family-settings", params: { familyId: activeFamilyId } })} />
+        <SecondaryButton label="Guardian and device settings" onPress={() => router.push({ pathname: "/parent/guardian-device-settings", params: { familyId: activeFamilyId } })} />
         <Text>Account and data</Text>
         <Text>
           You can permanently delete your Guardian account and all family and child data from

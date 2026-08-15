@@ -54,6 +54,11 @@ class PolicyEvaluator {
     val targetCategory = context.category ?: if (targetKind == "CATEGORY") targetRef else null
     val usageSeconds = (context.usageTodayMs ?: 0L) / 1000
     val stale = snapshot.expiresSoftAt?.let { !context.now.isBefore(it) } ?: false
+    val deviceExtension = snapshot.temporaryOverrides.firstOrNull { rule ->
+      rule["target_kind"] == "DEVICE" &&
+        instant(rule["starts_at"])?.let { !context.now.isBefore(it) } == true &&
+        instant(rule["expires_at"])?.let { context.now.isBefore(it) } == true
+    }?.get("daily_minutes") as? Number
 
     if (!signatureValid) {
       return PolicyDecision("BLOCK", "TAMPERED_SIGNATURE", null, snapshot.policyVersion, null, stale)
@@ -61,6 +66,7 @@ class PolicyEvaluator {
 
     fun finish(candidate: Candidate): PolicyDecision {
       val deviceBudget = (base["daily_device_budget_minutes"] as? Number)?.toLong()
+        ?.plus(deviceExtension?.toLong() ?: 0L)
       if (
         deviceBudget != null &&
         context.deviceUsageTodayMs / 1000 >= deviceBudget * 60 &&

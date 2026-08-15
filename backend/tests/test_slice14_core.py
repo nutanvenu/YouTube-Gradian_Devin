@@ -140,6 +140,44 @@ async def test_manual_routine_activation_is_carried_in_signed_policy(client, par
 
 
 @pytest.mark.asyncio
+async def test_parent_time_extension_is_signed_and_expires(client, parent_a) -> None:
+    response = await client.post(
+        f"/v1/families/{parent_a.family_id}/children/{parent_a.child_id}/policy/mutations",
+        headers={"Authorization": f"Bearer {parent_a.token}"},
+        json={
+            "operation": "TEMPORARY_SCREEN_TIME",
+            "target": "device",
+            "value": 15,
+            "expires_at": "2099-01-01T00:00:00Z",
+        },
+    )
+    assert response.status_code == 200, response.text
+    override = response.json()["bundle"]["temporary_overrides"][-1]
+    assert override["target_kind"] == "DEVICE"
+    assert override["daily_minutes"] == 15
+    assert response.json()["bundle"]["signature"]
+
+
+@pytest.mark.asyncio
+async def test_pause_internet_uses_signed_manual_routine(client, parent_a) -> None:
+    headers = {"Authorization": f"Bearer {parent_a.token}"}
+    paused = await client.post(
+        f"/v1/families/{parent_a.family_id}/children/{parent_a.child_id}/policy/mutations",
+        headers=headers,
+        json={"operation": "PAUSE_INTERNET", "target": "pause-internet"},
+    )
+    assert paused.status_code == 200, paused.text
+    assert paused.json()["bundle"]["base_policy"]["current_manual_routine_id"] == "pause-internet"
+    resumed = await client.post(
+        f"/v1/families/{parent_a.family_id}/children/{parent_a.child_id}/policy/mutations",
+        headers=headers,
+        json={"operation": "RESUME_INTERNET", "target": "pause-internet"},
+    )
+    assert resumed.status_code == 200, resumed.text
+    assert resumed.json()["bundle"]["base_policy"]["current_manual_routine_id"] is None
+
+
+@pytest.mark.asyncio
 async def test_device_push_token_registration_is_device_scoped(client, paired_device) -> None:
     headers = {"Authorization": f"Bearer {paired_device.device_token}"}
     response = await client.post(

@@ -9,6 +9,7 @@ export type ApiErrorBody = { error?: { code?: string; message?: string } };
 export type Tokens = { access_token: string; refresh_token: string; token_type?: string };
 export type Parent = { id: string; email: string; email_verified_at?: string | null };
 export type Family = { id: string; name: string };
+export type Guardian = { id: string; family_id: string; parent_id: string; role: string };
 export type Child = { id: string; family_id: string; name: string; date_of_birth: string; age_band: string; timezone: string; policy_document?: unknown };
 export type Pairing = { session_id: string; code: string; qr_payload: string; expires_at: string };
 export type DeviceCredentials = { device_id: string; device_token: string; family_id: string };
@@ -33,7 +34,10 @@ export type PolicyMutationInput = {
     | "ROUTINE_ACTIVATE"
     | "ROUTINE_DEACTIVATE"
     | "COMMUNICATION_SENSITIVITY"
-    | "COMMUNICATION_ENABLED";
+    | "COMMUNICATION_ENABLED"
+    | "TEMPORARY_SCREEN_TIME"
+    | "PAUSE_INTERNET"
+    | "RESUME_INTERNET";
   target: string;
   value?: unknown;
   expires_at?: string;
@@ -231,8 +235,11 @@ export class GuardianApiClient {
   deleteAccount() { return this.request<undefined>("/v1/auth/account", { method: "DELETE" }); }
   createFamily(name: string) { return this.request<Family>("/v1/families", { method: "POST", body: JSON.stringify({ name }) }); }
   families() { return this.request<Family[]>("/v1/families"); }
+  family(familyId: string) { return this.request<Family>(`/v1/families/${familyId}`); }
+  guardians(familyId: string) { return this.request<Guardian[]>(`/v1/families/${familyId}/guardians`); }
   createChild(familyId: string, input: { name: string; date_of_birth: string; timezone: string }) { return this.request<Child>(`/v1/families/${familyId}/children`, { method: "POST", body: JSON.stringify(input) }); }
   children(familyId: string) { return this.request<Child[]>(`/v1/families/${familyId}/children`); }
+  child(familyId: string, childId: string) { return this.request<Child>(`/v1/families/${familyId}/children/${childId}`); }
   health(familyId: string) { return this.request<Health[]>(`/v1/families/${familyId}/health`); }
   activity(familyId: string) { return this.request<ActivityEvent[]>(`/v1/families/${familyId}/activity`); }
   activityUsage(familyId: string) { return this.request<ActivityUsagePoint[]>(`/v1/families/${familyId}/activity/usage`); }

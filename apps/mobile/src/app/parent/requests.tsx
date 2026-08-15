@@ -1,6 +1,6 @@
 import { useState } from "react";
 import { Text } from "react-native";
-import { useLocalSearchParams } from "expo-router";
+import { useLocalSearchParams, useRouter } from "expo-router";
 import { useMutation, useQuery, useQueryClient } from "@tanstack/react-query";
 import { api, type AccessRequest } from "@/api/client";
 import { useFamilySync } from "@/hooks/use-family-sync";
@@ -13,6 +13,7 @@ function stateLabel(request: AccessRequest) {
 
 export default function ParentRequestsRoute() {
   const { familyId } = useLocalSearchParams<{ familyId: string }>();
+  const router = useRouter();
   const queryClient = useQueryClient();
   const [reason, setReason] = useState("Reviewed with the family.");
   const { isOffline } = useNetworkStatus();
@@ -35,6 +36,7 @@ export default function ParentRequestsRoute() {
             <CardSurface key={request.id}>
               <ListRow label={request.request_type} value={stateLabel(request)} />
               <Text>{request.subject ?? "No target"} · {request.reason ?? "No child note"}</Text>
+              <PrimaryButton label="Open request detail" onPress={() => router.push({ pathname: "/parent/request-detail", params: { familyId, requestId: request.id } })} />
               {request.state === "PENDING" ? (
                 <>
                   <PrimaryButton label="Approve" disabled={!reason.trim() || decide.isPending} onPress={() => decide.mutate({ requestId: request.id, decision: "approve" })} />

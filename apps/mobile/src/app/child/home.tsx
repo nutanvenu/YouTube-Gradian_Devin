@@ -272,6 +272,8 @@ export default function ChildHomeRoute() {
               />
             ) : null}
             <PrimaryButton label="My time" onPress={() => router.push("/child/time")} />
+            <PrimaryButton label="My simple rules" onPress={() => router.push("/child/rules-summary")} />
+            {timeMessage?.includes("expired") ? <PrimaryButton label="Open time-up" onPress={() => router.push("/child/time-up")} /> : null}
             <PrimaryButton label="Ask for help" onPress={() => router.push("/child/requests")} />
           </SectionSurface>
         </DataState>

@@ -199,6 +199,46 @@ async def mutate_policy(
                 "expires_at": body.expires_at.isoformat().replace("+00:00", "Z"),
             },
         ]
+    elif operation == "TEMPORARY_SCREEN_TIME":
+        if not isinstance(body.value, int) or body.value <= 0:
+            raise HTTPException(status.HTTP_422_UNPROCESSABLE_ENTITY, "Additional minutes required")
+        if body.expires_at is None or body.expires_at <= datetime.now(UTC):
+            raise HTTPException(status.HTTP_422_UNPROCESSABLE_ENTITY, "Future expiry required")
+        policy["temporary_overrides"] = [
+            *policy_records(policy, "temporary_overrides"),
+            {
+                "rule_id": rule_id,
+                "target_kind": "DEVICE",
+                "target_ref": body.target,
+                "action": "LIMIT",
+                "daily_minutes": body.value,
+                "starts_at": datetime.now(UTC).isoformat().replace("+00:00", "Z"),
+                "expires_at": body.expires_at.isoformat().replace("+00:00", "Z"),
+            },
+        ]
+    elif operation in {"PAUSE_INTERNET", "RESUME_INTERNET"}:
+        routines = [
+            routine for routine in policy_records(policy, "routines")
+            if routine.get("routine_id") != "pause-internet"
+        ]
+        if operation == "PAUSE_INTERNET":
+            routines.append(
+                {
+                    "routine_id": "pause-internet",
+                    "name": "Paused internet",
+                    "kind": "MANUAL",
+                    "blocked_categories": [],
+                    "web_mode": "STRICT",
+                }
+            )
+            base = policy_mapping(policy, "base_policy")
+            base["current_manual_routine_id"] = "pause-internet"
+            policy["base_policy"] = base
+        else:
+            base = policy_mapping(policy, "base_policy")
+            base["current_manual_routine_id"] = None
+            policy["base_policy"] = base
+        policy["routines"] = routines
     bundle = await create_next_bundle(
         session,
         child_id,

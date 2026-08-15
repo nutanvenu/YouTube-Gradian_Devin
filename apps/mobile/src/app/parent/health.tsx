@@ -1,13 +1,14 @@
 import { Alert, Text } from "react-native";
-import { useLocalSearchParams } from "expo-router";
+import { useLocalSearchParams, useRouter } from "expo-router";
 import { useQuery } from "@tanstack/react-query";
 import { api } from "@/api/client";
 import { useNetworkStatus } from "@/state/network";
 import { GuardianProtection } from "../../../modules/guardian-protection/src";
-import { CardSurface, DataState, ListRow, PrimaryButton, ScreenScaffold, SectionSurface, ProtectionStatePill } from "@/design-system";
+import { CardSurface, DataState, ListRow, PrimaryButton, ScreenScaffold, SectionSurface, ProtectionStatePill, SecondaryButton } from "@/design-system";
 
 export default function ParentHealthRoute() {
   const { familyId } = useLocalSearchParams<{ familyId: string }>();
+  const router = useRouter();
   const { isOffline } = useNetworkStatus();
   const health = useQuery({ queryKey: ["health", familyId], queryFn: () => api.health(familyId), enabled: Boolean(familyId), refetchInterval: 5000 });
   const capabilities = useQuery({ queryKey: ["guardian-capabilities"], queryFn: () => GuardianProtection.getCapabilities(), refetchInterval: 5000 });
@@ -24,6 +25,9 @@ export default function ParentHealthRoute() {
     <ScreenScaffold title="Protection health">
       <DataState state={health.isLoading || capabilities.isLoading || status.isLoading ? "loading" : health.isError || capabilities.isError || status.isError ? "error" : isOffline ? "offline" : health.isStale || capabilities.isStale || status.isStale ? "stale" : "loaded"} onRetry={() => { void health.refetch(); void capabilities.refetch(); void status.refetch(); }}>
         <SectionSurface>
+          <SecondaryButton label="Guardian and device settings" onPress={() => router.push({ pathname: "/parent/guardian-device-settings", params: { familyId } })} />
+          <SecondaryButton label="Help and troubleshooting" onPress={() => router.push({ pathname: "/parent/help", params: { familyId } })} />
+          <SecondaryButton label="Notification settings" onPress={() => router.push({ pathname: "/parent/notification-settings", params: { familyId } })} />
           <Text>Device health</Text>
           {health.data?.length ? health.data.map((item) => <CardSurface key={item.device_id}><ProtectionStatePill state={item.state} /><ListRow label="Last seen" value={item.last_seen_at ? new Date(item.last_seen_at).toLocaleString() : "Unknown"} /><ListRow label="Policy acknowledged" value={item.policy_version_applied === null ? "Unknown" : `Version ${item.policy_version_applied}`} /></CardSurface>) : <Text>Unknown · no paired device health is available.</Text>}
         </SectionSurface>
