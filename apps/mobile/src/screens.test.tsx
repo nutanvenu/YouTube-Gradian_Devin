@@ -624,6 +624,41 @@ test("Child home applies app-blocking capability events without polling native s
   screen.unmount();
 });
 
+test("Child home refreshes protection when the native tunnel status changes", async () => {
+  mockGuardianCapabilities = {
+    vpn_filtering: { level: "FULL" },
+    web_filtering: { level: "LIMITED" },
+    app_blocking: { level: "FULL" },
+  };
+  mockGuardianProtectionStatus = { active: false, health: "DEGRADED" };
+  const screen = render(<ChildHomeScreen />);
+  await waitFor(() => {
+    expect(screen.getByText("Web protection is unavailable.")).toBeTruthy();
+  });
+
+  const capabilityCalls = mockGetCapabilities.mock.calls.length;
+  const protectionCalls = mockGetProtectionStatus.mock.calls.length;
+  mockGuardianProtectionStatus = { active: true, health: "HEALTHY" };
+  act(() => {
+    mockGuardianEventListener?.({
+      type: "PROTECTION_STATUS_CHANGED",
+      status: {
+        active: true,
+        health: "HEALTHY",
+        policyVersion: null,
+        observedAt: new Date().toISOString(),
+        details: null,
+      },
+    });
+  });
+  await waitFor(() => {
+    expect(screen.getByText("Web protection is active for DNS and known blocked destinations. Other traffic may bypass Guardian.")).toBeTruthy();
+  });
+  expect(mockGetCapabilities).toHaveBeenCalledTimes(capabilityCalls + 1);
+  expect(mockGetProtectionStatus).toHaveBeenCalledTimes(protectionCalls + 1);
+  screen.unmount();
+});
+
 test("Child home reports cached protection as active while the policy server is unavailable", async () => {
   mockOffline = true;
   mockGuardianCapabilities = {
