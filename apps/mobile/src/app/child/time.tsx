@@ -1,9 +1,10 @@
 import { useQuery } from "@tanstack/react-query";
-import { Text } from "react-native";
+import { AppState, Text } from "react-native";
+import { useCallback, useEffect } from "react";
 import { api } from "@/api/client";
 import { GuardianProtection } from "../../../modules/guardian-protection/src";
 import { PrimaryButton, ScreenScaffold, SectionSurface } from "@/design-system";
-import { useRouter } from "expo-router";
+import { useFocusEffect, useRouter } from "expo-router";
 
 function todayRange() {
   const start = new Date();
@@ -22,7 +23,36 @@ type ActiveGrantDescriptor = {
 
 export default function ChildTimeRoute() {
   const router = useRouter();
-  const usage = useQuery({ queryKey: ["child-usage"], queryFn: () => GuardianProtection.getUsageSummary(todayRange()), refetchInterval: 30_000 });
+  const usage = useQuery({
+    queryKey: ["child-usage"],
+    queryFn: () => GuardianProtection.getUsageSummary(todayRange()),
+    refetchInterval: 5_000,
+  });
+  const refreshUsage = useCallback(() => {
+    void usage.refetch().catch(() => undefined);
+  }, [usage.refetch]);
+  useEffect(() => {
+    const subscription = GuardianProtection.subscribe((event) => {
+      if (
+        event.type === "TIME_WARNING" ||
+        event.type === "TIME_EXPIRED" ||
+        event.type === "APP_BLOCKED" ||
+        event.type === "POLICY_APPLIED"
+      ) {
+        refreshUsage();
+      }
+    });
+    return () => subscription.remove();
+  }, [refreshUsage]);
+  useEffect(() => {
+    const subscription = AppState.addEventListener("change", (state) => {
+      if (state === "active") refreshUsage();
+    });
+    return () => subscription.remove();
+  }, [refreshUsage]);
+  useFocusEffect(useCallback(() => {
+    refreshUsage();
+  }, [refreshUsage]));
   const policy = useQuery({ queryKey: ["device-policy"], queryFn: () => api.policy() });
   const bundle = policy.data?.bundle as {
     app_rules?: unknown;
@@ -108,7 +138,12 @@ export default function ChildTimeRoute() {
                 ? deviceLimit * 60 - deviceUsedSeconds
                 : Number.POSITIVE_INFINITY;
               const remainingSeconds = Math.max(0, Math.min(appRemainingSeconds, deviceRemainingSeconds));
-              return <Text key={budget.app_ref}>{budget.app_ref}: {remainingSeconds > 0 ? `${Math.floor(remainingSeconds / 60)} minutes remaining.` : "No time left today."}</Text>;
+              const remainingLabel = remainingSeconds <= 0
+                ? "No time left today."
+                : remainingSeconds < 60
+                  ? "Less than 1 minute remaining."
+                  : `${Math.floor(remainingSeconds / 60)} minutes remaining.`;
+              return <Text key={budget.app_ref}>{budget.app_ref}: {remainingLabel}</Text>;
             })
           : null}
         {activeGrantDescriptors.map((grant) => (
