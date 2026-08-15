@@ -1,0 +1,30 @@
+name: openapi
+
+on:
+  push:
+    paths:
+      - "backend/**"
+      - "packages/api-client/**"
+      - "scripts/generate_openapi_client.py"
+      - "pnpm-lock.yaml"
+  pull_request:
+    paths:
+      - "backend/**"
+      - "packages/api-client/**"
+      - "scripts/generate_openapi_client.py"
+      - "pnpm-lock.yaml"
+
+jobs:
+  drift:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-python@v5
+        with:
+          python-version: "3.13"
+      - uses: astral-sh/setup-uv@v5
+        with:
+          version-file: .uv-version
+      - run: uv sync --directory backend --locked --extra dev
+      - run: uv run --directory backend python ../scripts/generate_openapi_client.py
+      - run: git diff --exit-code -- packages/api-client/src/generated.ts

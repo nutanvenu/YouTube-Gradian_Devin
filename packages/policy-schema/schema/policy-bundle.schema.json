@@ -1,0 +1,329 @@
+{
+  "$schema": "https://json-schema.org/draft/2020-12/schema",
+  "$id": "https://guardian.family/schema/policy-bundle.schema.json",
+  "title": "SignedPolicyBundle",
+  "type": "object",
+  "additionalProperties": false,
+  "required": [
+    "schema_version",
+    "policy_version",
+    "family_id",
+    "child_profile_id",
+    "issued_at",
+    "expires_soft_at",
+    "key_id",
+    "age_band",
+    "base_policy",
+    "app_rules",
+    "domain_rules",
+    "category_rules",
+    "routines",
+    "temporary_overrides",
+    "communication_safety",
+    "signature"
+  ],
+  "properties": {
+    "schema_version": { "type": "integer", "const": 1 },
+    "policy_version": { "type": "integer", "minimum": 1 },
+    "family_id": { "type": "string", "minLength": 1 },
+    "child_profile_id": { "type": "string", "minLength": 1 },
+    "issued_at": { "type": "string", "format": "date-time" },
+    "expires_soft_at": { "type": "string", "format": "date-time" },
+    "key_id": { "type": "string", "minLength": 1, "maxLength": 128 },
+    "age_band": { "$ref": "#/$defs/ageBand" },
+    "base_policy": { "$ref": "#/$defs/basePolicy" },
+    "app_rules": { "type": "array", "items": { "$ref": "#/$defs/appRule" } },
+    "domain_rules": { "type": "array", "items": { "$ref": "#/$defs/domainRule" } },
+    "category_rules": { "type": "array", "items": { "$ref": "#/$defs/categoryRule" } },
+    "routines": { "type": "array", "items": { "$ref": "#/$defs/routine" } },
+    "temporary_overrides": {
+      "type": "array",
+      "items": { "$ref": "#/$defs/temporaryOverride" }
+    },
+    "communication_safety": { "$ref": "#/$defs/communicationSafety" },
+    "signature": { "type": "string", "contentEncoding": "base64", "minLength": 0 }
+  },
+  "$defs": {
+    "ageBand": {
+      "type": "string",
+      "enum": ["YOUNG_CHILD", "PRETEEN", "TEEN", "OLDER_TEEN"]
+    },
+    "category": {
+      "type": "string",
+      "enum": [
+        "ADULT_PORNOGRAPHY",
+        "SEXUAL_CONTENT",
+        "GAMBLING",
+        "DRUGS_CONTROLLED_SUBSTANCES",
+        "ALCOHOL_TOBACCO",
+        "GRAPHIC_VIOLENCE_GORE",
+        "SELF_HARM_SUICIDE",
+        "HATE_EXTREMISM",
+        "WEAPONS",
+        "MALWARE",
+        "PHISHING_SCAMS",
+        "ANONYMOUS_CHAT",
+        "DATING",
+        "PROXY_VPN_TOR",
+        "PIRACY",
+        "SOCIAL_MEDIA",
+        "STREAMING_VIDEO",
+        "GAMES",
+        "SHOPPING",
+        "AI_ASSISTANTS",
+        "EDUCATION",
+        "SEARCH_ENGINES",
+        "NEWS",
+        "MESSAGING",
+        "PRODUCTIVITY",
+        "UNKNOWN"
+      ]
+    },
+    "unknownDomainPolicy": {
+      "type": "string",
+      "enum": [
+        "BLOCK",
+        "BLOCK_WHILE_CLASSIFYING",
+        "ALLOW_WHILE_CLASSIFYING",
+        "ALLOW_AND_NOTIFY"
+      ]
+    },
+    "unknownAppPolicy": {
+      "type": "string",
+      "enum": ["BLOCK", "LIMIT_AND_NOTIFY", "ALLOW_AND_NOTIFY", "ALLOW"]
+    },
+    "action": {
+      "type": "string",
+      "enum": ["ALLOW", "BLOCK", "UNLIMITED", "LIMIT", "SCHEDULE", "ASK_PARENT"]
+    },
+    "timeWindow": {
+      "type": "object",
+      "additionalProperties": false,
+      "required": ["days", "start", "end"],
+      "properties": {
+        "days": {
+          "type": "array",
+          "minItems": 1,
+          "uniqueItems": true,
+          "items": { "type": "integer", "minimum": 1, "maximum": 7 }
+        },
+        "start": {
+          "type": "string",
+          "pattern": "^(?:[01][0-9]|2[0-3]):[0-5][0-9]$"
+        },
+        "end": {
+          "type": "string",
+          "pattern": "^(?:[01][0-9]|2[0-3]):[0-5][0-9]$"
+        }
+      }
+    },
+    "appRule": {
+      "type": "object",
+      "additionalProperties": false,
+      "required": ["rule_id", "app_ref", "action"],
+      "properties": {
+        "rule_id": { "type": "string", "minLength": 1 },
+        "app_ref": { "type": "string", "minLength": 1 },
+        "action": { "$ref": "#/$defs/action" },
+        "daily_minutes": { "type": "integer", "minimum": 0 },
+        "schedule": { "$ref": "#/$defs/timeWindow" },
+        "exclude_from_budget": { "type": "boolean" }
+      },
+      "allOf": [
+        {
+          "if": { "properties": { "action": { "const": "LIMIT" } } },
+          "then": { "required": ["daily_minutes"] }
+        },
+        {
+          "if": { "properties": { "action": { "const": "SCHEDULE" } } },
+          "then": { "required": ["schedule"] }
+        }
+      ]
+    },
+    "domainRule": {
+      "type": "object",
+      "additionalProperties": false,
+      "required": ["rule_id", "domain", "action"],
+      "properties": {
+        "rule_id": { "type": "string", "minLength": 1 },
+        "domain": {
+          "type": "string",
+          "minLength": 1,
+          "pattern": "^(?!.*\\*)[^\\s/]+$"
+        },
+        "match": { "type": "string", "enum": ["EXACT", "SUBDOMAINS"] },
+        "action": { "$ref": "#/$defs/action" },
+        "daily_minutes": { "type": "integer", "minimum": 0 },
+        "schedule": { "$ref": "#/$defs/timeWindow" },
+        "exclude_from_budget": { "type": "boolean" }
+      },
+      "allOf": [
+        {
+          "if": { "properties": { "action": { "const": "LIMIT" } } },
+          "then": { "required": ["daily_minutes"] }
+        },
+        {
+          "if": { "properties": { "action": { "const": "SCHEDULE" } } },
+          "then": { "required": ["schedule"] }
+        }
+      ]
+    },
+    "categoryRule": {
+      "type": "object",
+      "additionalProperties": false,
+      "required": ["rule_id", "category", "action"],
+      "properties": {
+        "rule_id": { "type": "string", "minLength": 1 },
+        "category": { "$ref": "#/$defs/category" },
+        "action": { "$ref": "#/$defs/action" },
+        "daily_minutes": { "type": "integer", "minimum": 0 },
+        "schedule": { "$ref": "#/$defs/timeWindow" },
+        "exclude_from_budget": { "type": "boolean" }
+      },
+      "allOf": [
+        {
+          "if": { "properties": { "action": { "const": "LIMIT" } } },
+          "then": { "required": ["daily_minutes"] }
+        },
+        {
+          "if": { "properties": { "action": { "const": "SCHEDULE" } } },
+          "then": { "required": ["schedule"] }
+        }
+      ]
+    },
+    "routine": {
+      "type": "object",
+      "additionalProperties": false,
+      "required": ["routine_id", "name", "kind"],
+      "properties": {
+        "routine_id": { "type": "string", "minLength": 1 },
+        "name": { "type": "string", "minLength": 1 },
+        "kind": { "type": "string", "enum": ["SCHEDULED", "MANUAL"] },
+        "window": { "$ref": "#/$defs/timeWindow" },
+        "allowed_apps": { "type": "array", "items": { "type": "string" } },
+        "allowed_categories": {
+          "type": "array",
+          "items": { "$ref": "#/$defs/category" }
+        },
+        "blocked_apps": { "type": "array", "items": { "type": "string" } },
+        "blocked_categories": {
+          "type": "array",
+          "items": { "$ref": "#/$defs/category" }
+        },
+        "web_mode": { "type": "string", "enum": ["BALANCED", "STRICT"] },
+        "communication_mode": {
+          "type": "string",
+          "enum": ["NORMAL", "ESSENTIAL_ONLY"]
+        }
+      },
+      "allOf": [
+        {
+          "if": { "properties": { "kind": { "const": "SCHEDULED" } } },
+          "then": { "required": ["window"] }
+        }
+      ]
+    },
+    "temporaryOverride": {
+      "type": "object",
+      "additionalProperties": false,
+      "required": [
+        "rule_id",
+        "target_kind",
+        "target_ref",
+        "action",
+        "starts_at",
+        "expires_at"
+      ],
+      "properties": {
+        "rule_id": { "type": "string", "minLength": 1 },
+        "target_kind": {
+          "type": "string",
+          "enum": ["APP", "DOMAIN", "CATEGORY", "DEVICE"]
+        },
+        "target_ref": { "type": "string", "minLength": 1 },
+        "action": { "$ref": "#/$defs/action" },
+        "daily_minutes": { "type": "integer", "minimum": 0 },
+        "starts_at": { "type": "string", "format": "date-time" },
+        "expires_at": { "type": "string", "format": "date-time" }
+      },
+      "allOf": [
+        {
+          "if": { "properties": { "action": { "const": "LIMIT" } } },
+          "then": { "required": ["daily_minutes"] }
+        }
+      ]
+    },
+    "basePolicy": {
+      "type": "object",
+      "additionalProperties": false,
+      "required": [
+        "timezone",
+        "unknown_domain_policy",
+        "unknown_app_policy",
+        "hard_category_rules",
+        "default_category_rules",
+        "safety_allowlist"
+      ],
+      "properties": {
+        "timezone": { "type": "string", "minLength": 1 },
+        "unknown_domain_policy": { "$ref": "#/$defs/unknownDomainPolicy" },
+        "unknown_app_policy": { "$ref": "#/$defs/unknownAppPolicy" },
+        "current_manual_routine_id": { "type": ["string", "null"], "minLength": 1 },
+        "unknown_app_daily_minutes": { "type": "integer", "minimum": 0 },
+        "daily_device_budget_minutes": { "type": "integer", "minimum": 0 },
+        "hard_category_rules": {
+          "type": "array",
+          "items": { "$ref": "#/$defs/categoryRule" }
+        },
+        "default_category_rules": {
+          "type": "array",
+          "items": { "$ref": "#/$defs/categoryRule" }
+        },
+        "safety_allowlist": {
+          "type": "array",
+          "items": {
+            "type": "object",
+            "additionalProperties": false,
+            "required": ["target_kind", "target_ref"],
+            "properties": {
+              "target_kind": {
+                "type": "string",
+                "enum": ["APP", "DOMAIN", "CATEGORY"]
+              },
+              "target_ref": { "type": "string", "minLength": 1 }
+            }
+          }
+        }
+      },
+      "allOf": [
+        {
+          "if": {
+            "properties": {
+              "unknown_app_policy": { "const": "LIMIT_AND_NOTIFY" }
+            }
+          },
+          "then": { "required": ["unknown_app_daily_minutes"] }
+        }
+      ]
+    },
+    "communicationSafety": {
+      "type": "object",
+      "additionalProperties": false,
+      "required": [
+        "enabled",
+        "severity_threshold",
+        "android_notification_signals",
+        "android_accessibility_signals"
+      ],
+      "properties": {
+        "enabled": { "type": "boolean" },
+        "severity_threshold": {
+          "type": "string",
+          "enum": ["LOW", "MEDIUM", "HIGH", "CRITICAL"]
+        },
+        "android_notification_signals": { "type": "boolean" },
+        "android_accessibility_signals": { "type": "boolean" }
+      }
+    }
+  }
+}

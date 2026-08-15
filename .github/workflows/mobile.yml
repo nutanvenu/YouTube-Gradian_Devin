@@ -1,0 +1,83 @@
+name: mobile
+
+on:
+  push:
+    paths:
+      - "apps/mobile/**"
+      - "packages/contracts/**"
+      - "packages/policy-schema/**"
+      - "packages/design-tokens/**"
+      - "pnpm-lock.yaml"
+  pull_request:
+    paths:
+      - "apps/mobile/**"
+      - "packages/contracts/**"
+      - "packages/policy-schema/**"
+      - "packages/design-tokens/**"
+      - "pnpm-lock.yaml"
+
+jobs:
+  checks:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+      - uses: pnpm/action-setup@v4
+        with:
+          version: 10.14.0
+      - uses: actions/setup-node@v4
+        with:
+          node-version-file: ".nvmrc"
+          cache: pnpm
+      - run: pnpm install --frozen-lockfile
+      - run: pnpm --filter guardian-mobile lint
+      - run: pnpm --filter guardian-mobile typecheck
+      - run: pnpm --filter guardian-mobile test --runInBand
+
+  android-native:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+      - uses: pnpm/action-setup@v4
+        with:
+          version: 10.14.0
+      - uses: actions/setup-node@v4
+        with:
+          node-version-file: ".nvmrc"
+          cache: pnpm
+      - uses: actions/setup-java@v4
+        with:
+          distribution: temurin
+          java-version: "17"
+      - run: pnpm install --frozen-lockfile
+      - run: npx expo prebuild --platform android --no-install
+        working-directory: apps/mobile
+      - run: ./gradlew :guardian-protection:assembleDebug :guardian-protection:testDebugUnitTest
+        working-directory: apps/mobile/android
+
+  mobile-state-tests:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+      - uses: pnpm/action-setup@v4
+        with:
+          version: 10.14.0
+      - uses: actions/setup-node@v4
+        with:
+          node-version-file: ".nvmrc"
+          cache: pnpm
+      - run: pnpm install --frozen-lockfile
+      - run: pnpm --filter guardian-mobile test --runInBand src/api src/state src/auth
+
+  mobile-surface-tests:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+      - uses: pnpm/action-setup@v4
+        with:
+          version: 10.14.0
+      - uses: actions/setup-node@v4
+        with:
+          node-version-file: ".nvmrc"
+          cache: pnpm
+      - run: pnpm install --frozen-lockfile
+      - run: pnpm --filter guardian-mobile exec jest --runInBand src/new-routes.test.tsx src/screens.test.tsx

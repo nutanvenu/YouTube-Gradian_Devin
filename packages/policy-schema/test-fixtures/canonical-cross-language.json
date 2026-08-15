@@ -1,0 +1,14 @@
+{
+  "value": {
+    "z": [
+      "😀",
+      {
+        "é": 9007199254740991,
+        "a": "東京"
+      }
+    ],
+    "a": "child",
+    "signature": "ignored"
+  },
+  "canonical_utf8_base64": "eyJhIjoiY2hpbGQiLCJ6IjpbIvCfmIAiLHsiYSI6IuadseS6rCIsIsOpIjo5MDA3MTk5MjU0NzQwOTkxfV19"
+}

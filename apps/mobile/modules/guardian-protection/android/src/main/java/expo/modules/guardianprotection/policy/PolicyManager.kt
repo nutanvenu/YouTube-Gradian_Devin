@@ -1,0 +1,145 @@
+package expo.modules.guardianprotection.policy
+
+import expo.modules.guardianprotection.storage.EncryptedPolicyStore
+import expo.modules.guardianprotection.observability.GuardianPerformanceMetrics
+import org.json.JSONObject
+import java.time.Instant
+
+class PolicyManager(
+  private val store: EncryptedPolicyStore,
+  trustedKeysJson: String = "{}",
+) {
+  private val verifier = PolicyVerifier(parseTrustedKeys(trustedKeysJson))
+  @Volatile private var active: CompiledPolicySnapshot? = null
+  @Volatile private var previous: CompiledPolicySnapshot? = null
+  @Volatile private var started = false
+
+  init {
+    store.active()?.let { encoded ->
+      runCatching {
+        val restored = compile(parseJsonObject(encoded))
+        if (restored.policyVersion == store.appliedVersion()) active = restored
+      }
+    }
+  }
+
+  fun apply(bundle: Map<String, Any?>): Map<String, Any?> {
+    val started = System.nanoTime()
+    if (store.hasCorruptState()) return failure("LOCAL_STATE_CORRUPT", store.appliedVersion())
+    val version = (bundle["policy_version"] as? Number)?.toLong()
+      ?: return failure("INVALID_POLICY_VERSION")
+    val schemaError = validateSchema(bundle)
+    if (schemaError != null) return failure(schemaError)
+    val current = store.appliedVersion()
+    if (current != null && version <= current) return failure("POLICY_VERSION_NOT_MONOTONIC", current)
+    if (!verifier.verify(bundle)) return failure("SIGNATURE_INVALID", current)
+    val result = runCatching {
+      val compiled = compile(bundle)
+      previous = active
+      store.swap(CanonicalJson.encode(bundle), version)
+      active = compiled
+      mapOf("applied" to true, "policyVersion" to version)
+    }.getOrElse {
+      failure("POLICY_REJECTED")
+    }
+    GuardianPerformanceMetrics.recordPolicyApply(System.nanoTime() - started)
+    return result
+  }
+
+  fun rollback(): Boolean {
+    val encoded = store.previous() ?: return false
+    val restored = runCatching { compile(parseJsonObject(encoded)) }.getOrNull() ?: return false
+    val snapshot = previous
+    store.swap(encoded, restored.policyVersion)
+    previous = active ?: snapshot
+    active = restored
+    return true
+  }
+
+  fun start() {
+    started = true
+  }
+
+  fun activeSnapshot(): CompiledPolicySnapshot? = active
+
+  fun protectionStatus(capabilities: Map<String, Map<String, Any?>>): Map<String, Any?> {
+    val missing = capabilities.filterValues { it["level"] == "UNAVAILABLE" }.keys
+    val health = when {
+      !started -> "DISABLED"
+      missing.isEmpty() -> "HEALTHY"
+      else -> "DEGRADED"
+    }
+    return mapOf(
+      "active" to started,
+      "health" to health,
+      "policyVersion" to (active?.policyVersion ?: store.appliedVersion()),
+      "observedAt" to Instant.now().toString(),
+      "details" to missing.takeIf { it.isNotEmpty() }?.joinToString(","),
+    )
+  }
+
+  private fun compile(bundle: Map<String, Any?>): CompiledPolicySnapshot {
+    val appRules = (bundle["app_rules"] as? List<*>).orEmpty()
+      .filterIsInstance<Map<*, *>>()
+      .mapNotNull { rule -> (rule["app_ref"] as? String)?.let { it to rule.cast() } }
+      .toMap()
+    val categoryRules = (bundle["category_rules"] as? List<*>).orEmpty()
+      .filterIsInstance<Map<*, *>>()
+      .mapNotNull { rule -> (rule["category"] as? String)?.let { it to rule.cast() } }
+      .toMap()
+    return CompiledPolicySnapshot(
+      policyVersion = (bundle["policy_version"] as Number).toLong(),
+      appRules = appRules,
+      domainRules = (bundle["domain_rules"] as? List<*>)?.filterIsInstance<Map<*, *>>()?.map { it.cast() }.orEmpty(),
+      categoryRules = categoryRules,
+      temporaryOverrides = (bundle["temporary_overrides"] as? List<*>)?.filterIsInstance<Map<*, *>>()?.map { it.cast() }.orEmpty(),
+      routines = (bundle["routines"] as? List<*>)?.filterIsInstance<Map<*, *>>()?.map { it.cast() }.orEmpty(),
+      basePolicy = (bundle["base_policy"] as? Map<*, *>)?.let { it.cast() } ?: emptyMap(),
+      expiresSoftAt = (bundle["expires_soft_at"] as? String)?.let { Instant.parse(it) },
+    )
+  }
+
+  private fun validateSchema(bundle: Map<String, Any?>): String? {
+    if ((bundle["schema_version"] as? Number)?.toInt() != 1) return "UNSUPPORTED_SCHEMA"
+    val requiredStrings = listOf(
+      "family_id", "child_profile_id", "issued_at", "expires_soft_at", "key_id", "age_band",
+    )
+    if (requiredStrings.any { bundle[it] !is String }) return "SCHEMA_INVALID"
+    val policyVersion = bundle["policy_version"] as? Number
+    if (policyVersion == null || policyVersion.toDouble() != policyVersion.toLong().toDouble()) {
+      return "INVALID_POLICY_VERSION"
+    }
+    if (bundle["base_policy"] !is Map<*, *>) return "SCHEMA_INVALID"
+    if (listOf("app_rules", "domain_rules", "category_rules", "routines", "temporary_overrides").any {
+        bundle[it] !is List<*>
+      }) return "SCHEMA_INVALID"
+    if (bundle["signature"] !is String) return "SCHEMA_INVALID"
+    return null
+  }
+
+  private fun failure(reason: String, version: Long? = null) = mapOf(
+    "applied" to false,
+    "policyVersion" to version,
+    "reason" to reason,
+  )
+
+  private fun Map<*, *>.cast(): Map<String, Any?> =
+    entries.associate { (key, value) -> key as String to value }
+
+  private fun parseTrustedKeys(value: String): Map<String, String> {
+    return runCatching {
+      val json = JSONObject(value)
+      json.keys().asSequence().associateWith { key -> json.getString(key) }
+    }.getOrDefault(emptyMap())
+  }
+
+  private fun parseJsonObject(value: String): Map<String, Any?> {
+    fun convert(raw: Any?): Any? = when (raw) {
+      JSONObject.NULL -> null
+      is JSONObject -> raw.keys().asSequence().associateWith { convert(raw.get(it)) }
+      is org.json.JSONArray -> (0 until raw.length()).map { convert(raw.get(it)) }
+      else -> raw
+    }
+    return convert(JSONObject(value)) as Map<String, Any?>
+  }
+}
