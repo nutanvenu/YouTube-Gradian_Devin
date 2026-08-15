@@ -17,24 +17,30 @@ export default function ChildRequestsRoute() {
   const [message, setMessage] = useState<string | null>(null);
   const [outbox, setOutbox] = useState<QueuedAccessRequest[]>([]);
   const sync = async () => {
-    const remaining = await flushRequestOutbox((item) =>
-      api.createRequest({
-        request_type: item.request_type,
-        subject: item.subject,
-        reason: item.reason,
-      }, item.idempotencyKey ?? item.id),
-    );
-    setOutbox(remaining);
-    if (remaining.some((item) => item.state === "DEVICE_REVOKED")) {
-      setMessage("This device was revoked before the request could be delivered.");
-    } else if (remaining.some((item) => item.state === "FAILED")) {
+    try {
+      const remaining = await flushRequestOutbox((item) =>
+        api.createRequest({
+          request_type: item.request_type,
+          subject: item.subject,
+          reason: item.reason,
+        }, item.idempotencyKey ?? item.id),
+      );
+      setOutbox(remaining);
+      if (remaining.some((item) => item.state === "DEVICE_REVOKED")) {
+        setMessage("This device was revoked before the request could be delivered.");
+      } else if (remaining.some((item) => item.state === "FAILED")) {
+        setMessage("The request is still queued and will retry when online.");
+      } else if (remaining.length === 0) {
+        setMessage("Request delivered. A parent can review it.");
+      }
+    } catch {
+      const queued = await readRequestOutbox().catch(() => []);
+      setOutbox(queued);
       setMessage("The request is still queued and will retry when online.");
-    } else if (remaining.length === 0) {
-      setMessage("Request delivered. A parent can review it.");
     }
   };
   useEffect(() => {
-    void readRequestOutbox().then(setOutbox);
+    void readRequestOutbox().then(setOutbox).catch(() => setOutbox([]));
   }, []);
   useEffect(() => {
     if (!isOffline) void sync();
@@ -50,14 +56,18 @@ export default function ChildRequestsRoute() {
       reason: reason || null,
       state: "QUEUED",
     };
-    await enqueueRequest(item);
-    setOutbox((current) => [...current, item]);
-    setMessage(
-      isOffline
-        ? "Queued locally. This cannot unlock anything until approval reaches this device."
-        : "Sending request…",
-    );
-    if (!isOffline) await sync();
+    try {
+      await enqueueRequest(item);
+      setOutbox((current) => [...current, item]);
+      setMessage(
+        isOffline
+          ? "Queued locally. This cannot unlock anything until approval reaches this device."
+          : "Sending request…",
+      );
+      if (!isOffline) await sync();
+    } catch {
+      setMessage("The request could not be saved on this device. Try again.");
+    }
   };
   return (
     <ScreenScaffold title="Ask for help">

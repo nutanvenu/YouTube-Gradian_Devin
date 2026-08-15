@@ -101,7 +101,7 @@ export type TemporaryOverride = {
   [k: string]: unknown;
 } & {
   rule_id: string;
-  target_kind: "APP" | "DOMAIN" | "CATEGORY";
+  target_kind: "APP" | "DOMAIN" | "CATEGORY" | "DEVICE";
   target_ref: string;
   action: Action;
   daily_minutes?: number;

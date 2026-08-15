@@ -54,7 +54,7 @@ class PolicyEvaluator {
     val targetCategory = context.category ?: if (targetKind == "CATEGORY") targetRef else null
     val usageSeconds = (context.usageTodayMs ?: 0L) / 1000
     val stale = snapshot.expiresSoftAt?.let { !context.now.isBefore(it) } ?: false
-    val deviceExtension = snapshot.temporaryOverrides.firstOrNull { rule ->
+    val deviceBudgetOverride = snapshot.temporaryOverrides.firstOrNull { rule ->
       rule["target_kind"] == "DEVICE" &&
         instant(rule["starts_at"])?.let { !context.now.isBefore(it) } == true &&
         instant(rule["expires_at"])?.let { context.now.isBefore(it) } == true
@@ -65,8 +65,10 @@ class PolicyEvaluator {
     }
 
     fun finish(candidate: Candidate): PolicyDecision {
-      val deviceBudget = (base["daily_device_budget_minutes"] as? Number)?.toLong()
-        ?.plus(deviceExtension?.toLong() ?: 0L)
+      val deviceBudget = listOfNotNull(
+        (base["daily_device_budget_minutes"] as? Number)?.toLong(),
+        deviceBudgetOverride?.toLong(),
+      ).maxOrNull()
       if (
         deviceBudget != null &&
         context.deviceUsageTodayMs / 1000 >= deviceBudget * 60 &&
@@ -178,7 +180,12 @@ class PolicyEvaluator {
       "LIMIT" -> {
         val limit = (rule["daily_minutes"] as? Number)?.toLong() ?: 0
         val exhausted = usageSeconds >= limit * 60
-        Candidate(if (exhausted) "LIMIT_REACHED" else "ALLOW_WITH_BUDGET", if (exhausted) "BUDGET_EXHAUSTED" else "BUDGET_AVAILABLE", ruleId, budgetExempt)
+        Candidate(
+          if (exhausted) "LIMIT_REACHED" else if (reason == "TEMPORARY_PARENT_OVERRIDE") "ALLOW" else "ALLOW_WITH_BUDGET",
+          if (exhausted) "BUDGET_EXHAUSTED" else if (reason == "TEMPORARY_PARENT_OVERRIDE") "TEMPORARY_PARENT_OVERRIDE" else "BUDGET_AVAILABLE",
+          ruleId,
+          budgetExempt,
+        )
       }
       else -> Candidate("ALLOW", reason, ruleId, budgetExempt || action == "UNLIMITED")
     }
