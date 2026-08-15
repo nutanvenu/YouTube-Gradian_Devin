@@ -68,12 +68,13 @@ class GuardianVpnService : VpnService() {
       addKnownResolverRoutes()
       if (!establishInterface()) {
         GuardianVpnPreferences.setEnabled(this, false)
+        setRunningState(false, "VPN_ESTABLISH_FAILED")
         fail("VPN_ESTABLISH_FAILED")
         stopSelf()
         return START_NOT_STICKY
       }
       GuardianVpnPreferences.setEnabled(this, true)
-      runningState = true
+      setRunningState(true)
       startPacketWorker()
     }
     return START_STICKY
@@ -101,6 +102,7 @@ class GuardianVpnService : VpnService() {
       interfaceFd = null
     }
     blockedRoutes.clear()
+    setRunningState(false, "VPN_STOPPED")
     super.onDestroy()
   }
 
@@ -304,9 +306,18 @@ class GuardianVpnService : VpnService() {
       interfaceFd?.close()
       interfaceFd = null
       running.set(true)
-      if (establishInterface()) startPacketWorker()
-      else fail("VPN_REESTABLISH_FAILED")
+      if (establishInterface()) {
+        startPacketWorker()
+      } else {
+        setRunningState(false, "VPN_REESTABLISH_FAILED")
+        fail("VPN_REESTABLISH_FAILED")
+      }
     }
+  }
+
+  private fun setRunningState(active: Boolean, details: String? = null) {
+    runningState = active
+    ProtectionStatusEvents.emit(active, details)
   }
 
   private fun currentDnsServers(): List<InetAddress> {

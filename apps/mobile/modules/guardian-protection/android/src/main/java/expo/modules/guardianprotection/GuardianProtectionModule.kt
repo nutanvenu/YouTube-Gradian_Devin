@@ -11,6 +11,8 @@ import expo.modules.guardianprotection.reputation.ReputationManager
 import expo.modules.guardianprotection.policy.PolicyVerifier
 import expo.modules.guardianprotection.usage.UsageCollector
 import expo.modules.guardianprotection.vpn.GuardianVpnService
+import expo.modules.guardianprotection.vpn.ProtectionStatusChange
+import expo.modules.guardianprotection.vpn.ProtectionStatusEvents
 import expo.modules.guardianprotection.communication.CommunicationSafetyRuntime
 import expo.modules.guardianprotection.observability.GuardianPerformanceMetrics
 import android.util.Log
@@ -35,7 +37,11 @@ class GuardianProtectionModule : Module() {
     Name("GuardianProtection")
     Events("onGuardianEvent")
     OnCreate {
+      ProtectionStatusEvents.setListener(::emitProtectionStatusChanged)
       appContext.reactContext?.let { GuardianVpnService.startWithPersistedPolicy(it) }
+    }
+    OnDestroy {
+      ProtectionStatusEvents.setListener(null)
     }
     OnActivityEntersForeground {
       GuardianPerformanceMetrics.recordStartup(SystemClock.elapsedRealtime() - moduleCreatedAtMillis)
@@ -75,23 +81,9 @@ class GuardianProtectionModule : Module() {
         usage.refresh()
       }
       GuardianVpnService.start(requireNotNull(appContext.reactContext))
-      emit(mapOf(
-        "type" to "PROTECTION_STATUS_CHANGED",
-        "status" to policyManager.protectionStatus(reportCapabilityChanges(capabilities.getCapabilities())),
-      ))
     }
     AsyncFunction("stopProtection") {
       GuardianVpnService.stop(requireNotNull(appContext.reactContext))
-      emit(mapOf(
-        "type" to "PROTECTION_STATUS_CHANGED",
-        "status" to mapOf(
-          "active" to false,
-          "health" to "DEGRADED",
-          "policyVersion" to policyManager.activeSnapshot()?.policyVersion,
-          "observedAt" to Instant.now().toString(),
-          "details" to "STOPPED_BY_PARENT",
-        ),
-      ))
     }
     AsyncFunction("applyPolicyBundle") { bundle: Map<String, Any?> ->
       GuardianPolicyRuntime.install(policyManager)
@@ -171,16 +163,7 @@ class GuardianProtectionModule : Module() {
     }
 
     override fun onVpnFailure(reason: String) {
-      emit(mapOf(
-        "type" to "PROTECTION_STATUS_CHANGED",
-        "status" to mapOf(
-          "active" to false,
-          "health" to "DEGRADED",
-          "policyVersion" to policyManager.activeSnapshot()?.policyVersion,
-          "observedAt" to Instant.now().toString(),
-          "details" to reason,
-        ),
-      ))
+      ProtectionStatusEvents.emit(false, reason)
     }
 
     override fun onAppBlocked(packageName: String, reasonCode: String) {
@@ -219,6 +202,23 @@ class GuardianProtectionModule : Module() {
         "occurredAt" to Instant.now().toString(),
       ))
     }
+  }
+
+  private fun emitProtectionStatusChanged(change: ProtectionStatusChange) {
+    if (appContext.reactContext == null) return
+    val currentCapabilities = capabilities.getCapabilities()
+    reportCapabilityChanges(currentCapabilities)
+    val missing = currentCapabilities.filterValues { it["level"] == "UNAVAILABLE" }.keys
+    emit(mapOf(
+      "type" to "PROTECTION_STATUS_CHANGED",
+      "status" to mapOf(
+        "active" to change.active,
+        "health" to if (change.active && missing.isEmpty()) "HEALTHY" else "DEGRADED",
+        "policyVersion" to policyManager.activeSnapshot()?.policyVersion,
+        "observedAt" to Instant.now().toString(),
+        "details" to (change.details ?: missing.takeIf { it.isNotEmpty() }?.joinToString(",")),
+      ),
+    ))
   }
 
   private fun reportCapabilityChanges(current: Map<String, Map<String, Any?>>): Map<String, Map<String, Any?>> {
