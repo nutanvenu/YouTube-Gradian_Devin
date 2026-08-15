@@ -7,6 +7,7 @@ class BudgetEnforcementController(
   private var tickerActive = false
   private val lastBlockedAt = mutableMapOf<String, Long>()
 
+  @Synchronized
   fun updateForeground(
     packageName: String,
     hasBudget: Boolean,
@@ -23,15 +24,22 @@ class BudgetEnforcementController(
     return action
   }
 
+  @Synchronized
   fun cancel(): Boolean {
     val wasActive = tickerActive
     tickerActive = false
     return wasActive
   }
 
+  @Synchronized
   fun isTickerActiveFor(packageName: String): Boolean =
     tickerActive && foregroundPackage == packageName
 
+  @Synchronized
+  fun isCurrentForeground(packageName: String): Boolean =
+    foregroundPackage == packageName
+
+  @Synchronized
   fun shouldReportBlock(packageName: String, nowMillis: Long): Boolean {
     val previous = lastBlockedAt[packageName]
     if (previous != null && nowMillis - previous < blockDedupMs) return false

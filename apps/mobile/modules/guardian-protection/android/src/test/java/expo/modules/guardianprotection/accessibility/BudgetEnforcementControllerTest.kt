@@ -15,11 +15,13 @@ class BudgetEnforcementControllerTest {
         == TickerAction.START,
     )
     assertTrue(controller.isTickerActiveFor("com.example.budgeted"))
+    assertTrue(controller.isCurrentForeground("com.example.budgeted"))
     assertTrue(
       controller.updateForeground("com.example.unbudgeted", hasBudget = false, guardianPackage = "com.guardian")
         == TickerAction.STOP,
     )
     assertFalse(controller.isTickerActiveFor("com.example.budgeted"))
+    assertTrue(controller.isCurrentForeground("com.example.unbudgeted"))
     assertTrue(
       controller.updateForeground("com.guardian", hasBudget = true, guardianPackage = "com.guardian")
         == TickerAction.STOP,

@@ -2,7 +2,9 @@ package expo.modules.guardianprotection.accessibility
 
 import android.accessibilityservice.AccessibilityService
 import android.os.Handler
+import android.os.HandlerThread
 import android.os.Looper
+import android.os.Process
 import android.view.accessibility.AccessibilityEvent
 import android.content.Intent
 import expo.modules.guardianprotection.inventory.PackageInventory
@@ -16,26 +18,36 @@ class GuardianAccessibilityService : AccessibilityService() {
   private lateinit var inventory: PackageInventory
   private val enforcement = BudgetEnforcementController()
   private val mainHandler = Handler(Looper.getMainLooper())
-  private var foregroundPackage: String? = null
-  private var foregroundCategory: String? = null
+  private val budgetThread = HandlerThread(
+    "GuardianBudgetEvaluator",
+    Process.THREAD_PRIORITY_BACKGROUND,
+  )
+  private lateinit var budgetHandler: Handler
+  @Volatile private var foregroundPackage: String? = null
+  @Volatile private var foregroundCategory: String? = null
+  @Volatile private var serviceDestroyed = false
   private val budgetTicker = object : Runnable {
     override fun run() {
       val packageName = foregroundPackage ?: return
       if (!enforcement.isTickerActiveFor(packageName) ||
-        !GuardianPolicyRuntime.hasActiveSnapshot()
+        !GuardianPolicyRuntime.hasActiveSnapshot() ||
+        serviceDestroyed
       ) {
         stopBudgetTicker()
         return
       }
       evaluateForeground(packageName, foregroundCategory ?: inventory.categoryFor(packageName))
       if (enforcement.isTickerActiveFor(packageName)) {
-        mainHandler.postDelayed(this, BUDGET_TICK_INTERVAL_MS)
+        budgetHandler.postDelayed(this, BUDGET_TICK_INTERVAL_MS)
       }
     }
   }
 
   override fun onServiceConnected() {
     super.onServiceConnected()
+    serviceDestroyed = false
+    budgetThread.start()
+    budgetHandler = Handler(budgetThread.looper)
     running = true
     val manager = PolicyManager(
       EncryptedPolicyStore(this),
@@ -54,7 +66,10 @@ class GuardianAccessibilityService : AccessibilityService() {
     ) return
     updateForeground(packageName)
     if (packageName == packageNameOfGuardian()) return
-    evaluateForeground(packageName, foregroundCategory ?: inventory.categoryFor(packageName))
+    val category = foregroundCategory ?: inventory.categoryFor(packageName)
+    budgetHandler.post {
+      evaluateForeground(packageName, category)
+    }
   }
 
   private fun updateForeground(packageName: String) {
@@ -65,8 +80,8 @@ class GuardianAccessibilityService : AccessibilityService() {
       GuardianPolicyRuntime.hasApplicableAppBudget(packageName, category)
     when (enforcement.updateForeground(packageName, hasBudget, packageNameOfGuardian())) {
       BudgetEnforcementController.TickerAction.START -> {
-        mainHandler.removeCallbacks(budgetTicker)
-        mainHandler.postDelayed(budgetTicker, BUDGET_TICK_INTERVAL_MS)
+        budgetHandler.removeCallbacks(budgetTicker)
+        budgetHandler.postDelayed(budgetTicker, BUDGET_TICK_INTERVAL_MS)
       }
       BudgetEnforcementController.TickerAction.STOP -> stopBudgetTicker()
       BudgetEnforcementController.TickerAction.NONE -> Unit
@@ -74,37 +89,45 @@ class GuardianAccessibilityService : AccessibilityService() {
   }
 
   private fun evaluateForeground(packageName: String, category: String?) {
+    if (serviceDestroyed || !enforcement.isCurrentForeground(packageName)) return
     val collector = usage
     runCatching {
       collector.refresh(timezone = null)
+      if (serviceDestroyed || !enforcement.isCurrentForeground(packageName)) return@runCatching
       val decision = GuardianPolicyRuntime.evaluateApp(packageName, category, collector.usageToday(packageName, category))
       if (!decision.blocked) return
       stopBudgetTicker()
       val now = System.currentTimeMillis()
       if (!enforcement.shouldReportBlock(packageName, now)) return
       GuardianPolicyRuntime.reportAppBlocked(packageName, decision.reasonCode)
-      performGlobalAction(GLOBAL_ACTION_BACK)
-      mainHandler.postDelayed({
-        startActivity(
-          Intent(this, GuardianBlockActivity::class.java)
-            .addFlags(Intent.FLAG_ACTIVITY_NEW_TASK or Intent.FLAG_ACTIVITY_CLEAR_TOP)
-            .putExtra(GuardianBlockActivity.EXTRA_APP, packageName)
-            .putExtra(GuardianBlockActivity.EXTRA_REASON, decision.reasonCode),
-        )
-      }, BLOCK_SURFACE_DELAY_MS)
+      mainHandler.post {
+        if (serviceDestroyed) return@post
+        performGlobalAction(GLOBAL_ACTION_BACK)
+        mainHandler.postDelayed({
+          if (serviceDestroyed) return@postDelayed
+          startActivity(
+            Intent(this, GuardianBlockActivity::class.java)
+              .addFlags(Intent.FLAG_ACTIVITY_NEW_TASK or Intent.FLAG_ACTIVITY_CLEAR_TOP)
+              .putExtra(GuardianBlockActivity.EXTRA_APP, packageName)
+              .putExtra(GuardianBlockActivity.EXTRA_REASON, decision.reasonCode),
+          )
+        }, BLOCK_SURFACE_DELAY_MS)
+      }
     }
   }
 
   override fun onInterrupt() = Unit
 
   override fun onDestroy() {
+    serviceDestroyed = true
     stopBudgetTicker()
+    if (budgetThread.isAlive) budgetThread.quitSafely()
     running = false
     super.onDestroy()
   }
 
   private fun stopBudgetTicker() {
-    mainHandler.removeCallbacks(budgetTicker)
+    if (::budgetHandler.isInitialized) budgetHandler.removeCallbacks(budgetTicker)
     enforcement.cancel()
   }
 
