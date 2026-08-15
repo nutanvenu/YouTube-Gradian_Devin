@@ -11,6 +11,7 @@ import expo.modules.guardianprotection.reputation.ReputationManager
 import expo.modules.guardianprotection.policy.PolicyVerifier
 import expo.modules.guardianprotection.usage.UsageCollector
 import expo.modules.guardianprotection.vpn.GuardianVpnService
+import expo.modules.guardianprotection.vpn.GuardianVpnPreferences
 import expo.modules.guardianprotection.vpn.ProtectionStatusChange
 import expo.modules.guardianprotection.vpn.ProtectionStatusEvents
 import expo.modules.guardianprotection.communication.CommunicationSafetyRuntime
@@ -45,7 +46,13 @@ class GuardianProtectionModule : Module() {
     }
     OnActivityEntersForeground {
       GuardianPerformanceMetrics.recordStartup(SystemClock.elapsedRealtime() - moduleCreatedAtMillis)
-      appContext.reactContext?.let { GuardianVpnService.startWithPersistedPolicy(it) }
+      appContext.reactContext?.let {
+        if (GuardianVpnPreferences.consumeEnableRequested(it)) {
+          GuardianVpnService.startWithUserInitiatedPolicy(it)
+        } else {
+          GuardianVpnService.startWithPersistedPolicy(it)
+        }
+      }
       installCommunicationListener()
       reportCapabilityChanges(capabilities.getCapabilities())
     }
@@ -61,7 +68,15 @@ class GuardianProtectionModule : Module() {
       GuardianPerformanceMetrics.snapshot()
     }
     AsyncFunction("requestVpnPermission") {
-      capabilities.requestVpnPermission()
+      val result = capabilities.requestVpnPermission()
+      appContext.reactContext?.let { context ->
+        if (result["granted"] == true) {
+          GuardianVpnService.startWithUserInitiatedPolicy(context)
+        } else {
+          GuardianVpnPreferences.setEnableRequested(context, true)
+        }
+      }
+      result
     }
     AsyncFunction("openUsageAccessSettings") {
       capabilities.openUsageAccessSettings()

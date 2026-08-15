@@ -1,5 +1,5 @@
 import { act, fireEvent, render, waitFor } from "@testing-library/react-native";
-import { Text } from "react-native";
+import { AppState, Text, type AppStateStatus } from "react-native";
 
 const mockQueryState = new Map<string, Record<string, unknown>>();
 const mockMutatePolicy = jest.fn();
@@ -717,6 +717,47 @@ test("Child request sync turns offline delivery failures into queued messaging",
   mockFlushRequest.mockRejectedValueOnce(new Error("fetch failed"));
   const screen = render(<ChildRequestsScreen />);
   await waitFor(() => expect(screen.getByText("The request is still queued and will retry when online.")).toBeTruthy());
+});
+
+test("Child requests flush again when the app returns to the foreground", async () => {
+  const foregroundListeners: Array<(state: AppStateStatus) => void> = [];
+  const addEventListener = jest.spyOn(AppState, "addEventListener").mockImplementation((event, listener) => {
+    if (event === "change") foregroundListeners.push(listener);
+    return { remove: jest.fn() };
+  });
+  const screen = render(<ChildRequestsScreen />);
+  await waitFor(() => expect(mockFlushRequest).toHaveBeenCalledTimes(1));
+  mockFlushRequest.mockClear();
+
+  await act(async () => {
+    foregroundListeners[0]?.("active");
+    await Promise.resolve();
+  });
+  await waitFor(() => expect(mockFlushRequest).toHaveBeenCalledTimes(1));
+
+  screen.unmount();
+  addEventListener.mockRestore();
+});
+
+test("Child requests flush when connectivity returns", async () => {
+  mockOffline = true;
+  const addEventListener = jest.spyOn(AppState, "addEventListener").mockImplementation(() => ({
+    remove: jest.fn(),
+  }));
+  const screen = render(<ChildRequestsScreen />);
+  await act(async () => {
+    await Promise.resolve();
+  });
+  expect(mockFlushRequest).not.toHaveBeenCalled();
+
+  mockOffline = false;
+  await act(async () => {
+    screen.rerender(<ChildRequestsScreen />);
+    await Promise.resolve();
+  });
+  await waitFor(() => expect(mockFlushRequest).toHaveBeenCalledTimes(1));
+  screen.unmount();
+  addEventListener.mockRestore();
 });
 
 test("screen test harness can render a state marker", () => {

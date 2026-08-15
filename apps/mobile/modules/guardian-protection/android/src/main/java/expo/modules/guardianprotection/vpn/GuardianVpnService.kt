@@ -498,5 +498,18 @@ class GuardianVpnService : VpnService() {
       GuardianPolicyRuntime.install(manager)
       start(context)
     }
+
+    fun startWithUserInitiatedPolicy(context: Context) {
+      val store = EncryptedPolicyStore(context)
+      val manager = PolicyManager(store, BuildConfig.GUARDIAN_POLICY_TRUSTED_PUBLIC_KEYS)
+      if (!UserInitiatedProtectionStartup.shouldStart(
+          manager.activeSnapshot() != null,
+          VpnService.prepare(context) == null,
+        )
+      ) return
+      GuardianPolicyRuntime.install(manager)
+      GuardianVpnPreferences.setEnabled(context, true)
+      start(context)
+    }
   }
 }
