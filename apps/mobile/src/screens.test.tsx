@@ -278,8 +278,35 @@ test("Child My Time reports exhausted app budgets and scoped parent grants", () 
     },
   });
   const screen = render(<ChildTimeScreen />);
-  expect(screen.getByText("com.example.app: No time left today.")).toBeTruthy();
+  expect(screen.getByText("com.example.app: 15 minutes remaining.")).toBeTruthy();
   expect(screen.getByText("Parent-approved extra time for app com.example.app: 45 minutes.")).toBeTruthy();
+});
+
+test("Child My Time applies a device grant when it is the effective app limit", () => {
+  setQuery(["child-usage"], {
+    data: {
+      totalSeconds: 2400,
+      byTarget: { "com.example.app": 1200 },
+    },
+  });
+  setQuery(["device-policy"], {
+    data: {
+      bundle: {
+        base_policy: { daily_device_budget_minutes: 30 },
+        app_rules: [{ app_ref: "com.example.app", action: "LIMIT", daily_minutes: 60 }],
+        temporary_overrides: [{
+          target_kind: "DEVICE",
+          target_ref: "device",
+          action: "LIMIT",
+          daily_minutes: 45,
+          starts_at: new Date(Date.now() - 60_000).toISOString(),
+          expires_at: new Date(Date.now() + 60_000).toISOString(),
+        }],
+      },
+    },
+  });
+  const screen = render(<ChildTimeScreen />);
+  expect(screen.getByText("com.example.app: 5 minutes remaining.")).toBeTruthy();
 });
 
 test("Child My Time floors fractional minutes instead of rounding them up", () => {

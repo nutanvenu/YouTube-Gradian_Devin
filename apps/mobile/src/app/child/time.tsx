@@ -11,12 +11,24 @@ function todayRange() {
   return { start: start.toISOString(), end: new Date().toISOString() };
 }
 
+type ActiveGrantDescriptor = {
+  action: "LIMIT" | "ALLOW";
+  minutes: number | null;
+  targetKind: "APP" | "DOMAIN" | "DEVICE";
+  targetRef: string;
+  target: string;
+};
+
 export default function ChildTimeRoute() {
   const router = useRouter();
   const usage = useQuery({ queryKey: ["child-usage"], queryFn: () => GuardianProtection.getUsageSummary(todayRange()), refetchInterval: 30_000 });
   const policy = useQuery({ queryKey: ["device-policy"], queryFn: () => api.policy() });
+  const bundle = policy.data?.bundle as {
+    app_rules?: unknown;
+    base_policy?: unknown;
+    temporary_overrides?: unknown;
+  } | undefined;
   const appBudgets = (() => {
-    const bundle = policy.data?.bundle as { app_rules?: unknown } | undefined;
     if (!bundle || !Array.isArray(bundle.app_rules)) return [];
     const rules = bundle.app_rules as unknown[];
     return rules.filter((rule): rule is { app_ref: string; daily_minutes: number } => {
@@ -25,8 +37,7 @@ export default function ChildTimeRoute() {
       return typeof candidate.app_ref === "string" && typeof candidate.daily_minutes === "number";
     });
   })();
-  const extraMinutes = (() => {
-    const bundle = policy.data?.bundle as { temporary_overrides?: unknown } | undefined;
+  const activeGrantDescriptors: ActiveGrantDescriptor[] = (() => {
     if (!Array.isArray(bundle?.temporary_overrides)) return [];
     const now = Date.now();
     return bundle.temporary_overrides.flatMap((item) => {
@@ -46,15 +57,30 @@ export default function ChildTimeRoute() {
         return [];
       }
       return [{
+        action: override.action,
         minutes: typeof override.daily_minutes === "number" ? Number(override.daily_minutes) : null,
+        targetKind,
+        targetRef,
         target: targetKind === "DEVICE"
           ? "this device"
           : targetKind === "APP"
             ? `app ${targetRef}`
             : `website ${targetRef}`,
-      }];
+      }] satisfies ActiveGrantDescriptor[];
     });
   })();
+  const baseDeviceMinutes = (() => {
+    if (typeof bundle?.base_policy !== "object" || bundle.base_policy === null) return undefined;
+    const value = (bundle.base_policy as Record<string, unknown>).daily_device_budget_minutes;
+    return typeof value === "number" ? value : undefined;
+  })();
+  const activeDeviceMinutes = activeGrantDescriptors
+    .filter((grant) => grant.targetKind === "DEVICE" && grant.action === "LIMIT" && grant.minutes !== null)
+    .map((grant) => grant.minutes as number);
+  const deviceLimits = [baseDeviceMinutes, ...activeDeviceMinutes].filter(
+    (minutes): minutes is number => minutes !== undefined,
+  );
+  const deviceLimit = deviceLimits.length > 0 ? Math.max(...deviceLimits) : undefined;
   return (
     <ScreenScaffold title="My time">
       <SectionSurface>
@@ -63,12 +89,25 @@ export default function ChildTimeRoute() {
         {usage.data && appBudgets.length > 0
           ? appBudgets.map((budget) => {
               const usedSeconds = usage.data.byTarget[budget.app_ref] ?? 0;
-              const remainingSeconds = Math.max(0, budget.daily_minutes * 60 - usedSeconds);
+              const appGrant = activeGrantDescriptors.find(
+                (grant) => grant.targetKind === "APP" && grant.targetRef === budget.app_ref,
+              );
+              if (appGrant?.action === "ALLOW") {
+                return <Text key={budget.app_ref}>{budget.app_ref}: Unlimited time today.</Text>;
+              }
+              const appLimit = appGrant?.action === "LIMIT" && appGrant.minutes !== null
+                ? appGrant.minutes
+                : budget.daily_minutes;
+              const appRemainingSeconds = appLimit * 60 - usedSeconds;
+              const deviceRemainingSeconds = !appGrant && deviceLimit !== undefined
+                ? deviceLimit * 60 - usage.data.totalSeconds
+                : Number.POSITIVE_INFINITY;
+              const remainingSeconds = Math.max(0, Math.min(appRemainingSeconds, deviceRemainingSeconds));
               return <Text key={budget.app_ref}>{budget.app_ref}: {remainingSeconds > 0 ? `${Math.floor(remainingSeconds / 60)} minutes remaining.` : "No time left today."}</Text>;
             })
           : null}
-        {extraMinutes.map((extra) => (
-          <Text key={`${extra.target}-${extra.minutes}`}>Parent-approved extra time for {extra.target}{extra.minutes === null ? "." : `: ${extra.minutes} minutes.`}</Text>
+        {activeGrantDescriptors.map((grant) => (
+          <Text key={`${grant.target}-${grant.minutes}`}>Parent-approved extra time for {grant.target}{grant.minutes === null ? "." : `: ${grant.minutes} minutes.`}</Text>
         ))}
         <Text>Need a change? Ask a parent for more time or to unblock an app or website.</Text>
         <PrimaryButton label="Ask for help" onPress={() => router.push("/child/requests")} />
