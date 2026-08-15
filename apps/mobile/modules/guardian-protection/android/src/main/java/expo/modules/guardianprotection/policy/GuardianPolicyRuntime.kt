@@ -2,6 +2,7 @@ package expo.modules.guardianprotection.policy
 
 import java.util.concurrent.CopyOnWriteArraySet
 import java.util.concurrent.ConcurrentHashMap
+import expo.modules.guardianprotection.accessibility.BudgetApplicability
 import expo.modules.guardianprotection.usage.UsageContext
 import expo.modules.guardianprotection.usage.UsageThresholdEvent
 import expo.modules.guardianprotection.usage.UsageThresholdTracker
@@ -25,6 +26,11 @@ object GuardianPolicyRuntime {
   }
 
   fun hasActiveSnapshot(): Boolean = manager?.activeSnapshot() != null
+
+  fun hasApplicableAppBudget(packageName: String, category: String?): Boolean =
+    manager?.activeSnapshot()?.let {
+      BudgetApplicability.hasApplicableAppBudget(it, packageName, category)
+    } == true
 
   fun addListener(listener: Listener) {
     listeners += listener

@@ -6,6 +6,10 @@ const mockMutatePolicy = jest.fn();
 const mockDecideRequest = jest.fn();
 const mockReviewApp = jest.fn();
 const mockFlushRequest = jest.fn();
+const mockUsageRefetch = jest.fn();
+const mockDefaultRefetch = jest.fn(() => Promise.resolve());
+const mockGuardianSubscriptionRemove = jest.fn();
+let mockGuardianEventListener: ((event: unknown) => void) | undefined;
 let mockOffline = false;
 
 jest.mock("react-native-safe-area-context", () => ({
@@ -15,6 +19,10 @@ jest.mock("react-native-safe-area-context", () => ({
 jest.mock("expo-router", () => ({
   useLocalSearchParams: () => ({ familyId: "family-1", childId: "child-1" }),
   useRouter: () => ({ push: jest.fn() }),
+  useFocusEffect: (effect: () => void) => {
+    const react = jest.requireActual<typeof import("react")>("react");
+    react.useEffect(effect, [effect]);
+  },
 }));
 
 jest.mock("@/api/client", () => ({
@@ -57,11 +65,15 @@ jest.mock("@/state/request-outbox", () => ({
 }));
 jest.mock("../modules/guardian-protection/src", () => ({
   GuardianProtection: {
-  getObservedApps: () => Promise.resolve([]),
-  markObservedAppReviewed: (...args: unknown[]) => {
-    mockReviewApp(...args);
-    return Promise.resolve();
-  },
+    subscribe: (listener: (event: unknown) => void) => {
+      mockGuardianEventListener = listener;
+      return { remove: mockGuardianSubscriptionRemove };
+    },
+    getObservedApps: () => Promise.resolve([]),
+    markObservedAppReviewed: (...args: unknown[]) => {
+      mockReviewApp(...args);
+      return Promise.resolve();
+    },
     getCapabilities: () => Promise.resolve({}),
     getProtectionStatus: () => Promise.resolve({ active: false, health: "UNKNOWN" }),
     getUsageSummary: () => Promise.resolve({ byTarget: {} }),
@@ -79,7 +91,7 @@ jest.mock("@tanstack/react-query", () => ({
       isLoading: state?.isLoading ?? false,
       isError: state?.isError ?? false,
       isStale: state?.isStale ?? false,
-      refetch: state?.refetch ?? jest.fn(),
+      refetch: state?.refetch ?? mockDefaultRefetch,
     };
   },
   useMutation: () => ({
@@ -111,6 +123,12 @@ beforeEach(() => {
   mockDecideRequest.mockReset();
   mockReviewApp.mockReset();
   mockFlushRequest.mockReset();
+  mockUsageRefetch.mockReset();
+  mockUsageRefetch.mockResolvedValue(undefined);
+  mockDefaultRefetch.mockReset();
+  mockDefaultRefetch.mockResolvedValue(undefined);
+  mockGuardianSubscriptionRemove.mockReset();
+  mockGuardianEventListener = undefined;
   mockFlushRequest.mockResolvedValue([]);
   mockOffline = false;
 });
@@ -414,8 +432,53 @@ test("Child My Time floors fractional minutes instead of rounding them up", () =
     },
   });
   const screen = render(<ChildTimeScreen />);
-  expect(screen.getByText("com.example.app: 0 minutes remaining.")).toBeTruthy();
+  expect(screen.getByText("com.example.app: Less than 1 minute remaining.")).toBeTruthy();
   expect(screen.queryByText("com.example.app: 1 minutes remaining.")).toBeNull();
+});
+
+test("Child My Time renders honest sub-minute remaining time", () => {
+  setQuery(["child-usage"], {
+    data: {
+      totalSeconds: 1799,
+      byTarget: { "APP:com.example.app": 1799, DEVICE: 1799 },
+    },
+    refetch: mockUsageRefetch,
+  });
+  setQuery(["device-policy"], {
+    data: {
+      bundle: {
+        app_rules: [{ app_ref: "com.example.app", action: "LIMIT", daily_minutes: 30 }],
+        temporary_overrides: [],
+      },
+    },
+  });
+  const screen = render(<ChildTimeScreen />);
+  expect(screen.getByText("com.example.app: Less than 1 minute remaining.")).toBeTruthy();
+});
+
+test("Child My Time refreshes usage on native budget events", () => {
+  setQuery(["child-usage"], {
+    data: {
+      totalSeconds: 600,
+      byTarget: { "APP:com.example.app": 600, DEVICE: 600 },
+    },
+    refetch: mockUsageRefetch,
+  });
+  setQuery(["device-policy"], {
+    data: {
+      bundle: {
+        app_rules: [{ app_ref: "com.example.app", action: "LIMIT", daily_minutes: 30 }],
+        temporary_overrides: [],
+      },
+    },
+  });
+  const screen = render(<ChildTimeScreen />);
+  expect(mockGuardianEventListener).toBeDefined();
+  mockUsageRefetch.mockClear();
+  mockGuardianEventListener?.({ type: "TIME_EXPIRED", targetRef: "com.example.app" });
+  expect(mockUsageRefetch).toHaveBeenCalledTimes(1);
+  screen.unmount();
+  expect(mockGuardianSubscriptionRemove).toHaveBeenCalledTimes(1);
 });
 
 test("Child My Time renders no time left when app usage reaches its limit", () => {
