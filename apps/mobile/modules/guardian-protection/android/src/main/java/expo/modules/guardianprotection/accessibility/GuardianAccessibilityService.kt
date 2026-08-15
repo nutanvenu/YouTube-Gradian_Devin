@@ -46,8 +46,8 @@ class GuardianAccessibilityService : AccessibilityService() {
   override fun onServiceConnected() {
     super.onServiceConnected()
     serviceDestroyed = false
-    budgetThread.start()
-    budgetHandler = Handler(budgetThread.looper)
+    if (!budgetThread.isAlive) budgetThread.start()
+    if (!::budgetHandler.isInitialized) budgetHandler = Handler(budgetThread.looper)
     running = true
     val manager = PolicyManager(
       EncryptedPolicyStore(this),
