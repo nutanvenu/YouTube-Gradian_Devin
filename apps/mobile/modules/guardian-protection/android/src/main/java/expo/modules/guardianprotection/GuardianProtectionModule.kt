@@ -35,7 +35,7 @@ class GuardianProtectionModule : Module() {
     Name("GuardianProtection")
     Events("onGuardianEvent")
     OnCreate {
-      GuardianVpnService.startWithPersistedPolicy(requireNotNull(appContext.reactContext))
+      appContext.reactContext?.let { GuardianVpnService.startWithPersistedPolicy(it) }
     }
     OnActivityEntersForeground {
       GuardianPerformanceMetrics.recordStartup(SystemClock.elapsedRealtime() - moduleCreatedAtMillis)

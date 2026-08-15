@@ -79,14 +79,15 @@ export default function ChildHomeRoute() {
     const appBlockingCapability = capabilities.app_blocking;
     const vpnActive =
       status.active &&
-      vpnCapability.level === "FULL" &&
-      webCapability.level === "LIMITED";
+      vpnCapability.level === "FULL";
     setProtectionMessage(
-      vpnActive
-        ? "Web protection is active for DNS and known blocked destinations. Other traffic may bypass Guardian."
-        : vpnCapability.level === "FULL"
+      !vpnActive
+        ? vpnCapability.level === "FULL"
           ? "Web protection is unavailable."
-          : "Web protection permission is required.",
+          : "Web protection permission is required."
+        : webCapability.level === "LIMITED"
+          ? "Web protection is active for DNS and known blocked destinations. Other traffic may bypass Guardian."
+          : "Web protection is active, but coverage may be limited. Some traffic may bypass Guardian.",
     );
     setAppBlockingAvailable(appBlockingCapability.level === "FULL");
   };
@@ -244,14 +245,23 @@ export default function ChildHomeRoute() {
         const metrics = await GuardianProtection.getPerformanceMetrics();
         console.info("GUARDIAN_PERFORMANCE_METRICS_AFTER_SYNC", JSON.stringify(metrics));
       }
+      await refreshNativeProtection();
     };
     void syncProtection().catch(() => {
-      if (!cancelled) setProtectionMessage("Web protection is unavailable.");
+      if (!cancelled) {
+        void refreshNativeProtection().catch(() => {
+          if (!cancelled) setProtectionMessage("Web protection is unavailable.");
+        });
+      }
     });
     const subscription = AppState.addEventListener("change", (state) => {
       if (state === "active") {
         void syncProtection().catch(() => {
-          if (!cancelled) setProtectionMessage("Web protection is unavailable.");
+          if (!cancelled) {
+            void refreshNativeProtection().catch(() => {
+              if (!cancelled) setProtectionMessage("Web protection is unavailable.");
+            });
+          }
         });
       }
     });
@@ -270,7 +280,11 @@ export default function ChildHomeRoute() {
           state={
             policy.isLoading
               ? "loading"
-              : "loaded"
+              : isOffline || policy.isError
+                ? policy.data
+                  ? "stale"
+                  : "error"
+                : "loaded"
           }
           onRetry={() => void policy.refetch()}
         >
@@ -281,9 +295,7 @@ export default function ChildHomeRoute() {
                 ? "Waiting for device acknowledgement."
                 : policy.data
                   ? "Policy acknowledged by this device."
-                  : isOffline || policy.isError
-                    ? "The policy server is unavailable. This device is using its last verified policy when available."
-                    : "Policy status is not available yet."}
+                  : "Policy status is not available yet."}
             </Text>
             <Text>{protectionMessage}</Text>
             {appBlockingAvailable === false ? (

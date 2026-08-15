@@ -560,6 +560,16 @@ test("Child home surfaces unavailable app blocking with a recovery action", asyn
   const full = render(<ChildHomeScreen />);
   await waitFor(() => expect(full.getByText("Web protection is active for DNS and known blocked destinations. Other traffic may bypass Guardian.")).toBeTruthy());
   expect(full.queryByText("App limits are not being enforced right now. Re-enable Accessibility to restore app blocking.")).toBeNull();
+  full.unmount();
+
+  mockGuardianCapabilities = {
+    vpn_filtering: { level: "FULL" },
+    web_filtering: { level: "REGION_LIMITED" },
+    app_blocking: { level: "FULL" },
+  };
+  const reduced = render(<ChildHomeScreen />);
+  await waitFor(() => expect(reduced.getByText("Web protection is active, but coverage may be limited. Some traffic may bypass Guardian.")).toBeTruthy());
+  reduced.unmount();
 });
 
 test("Child home reports cached protection as active while the policy server is unavailable", async () => {
@@ -570,13 +580,30 @@ test("Child home reports cached protection as active while the policy server is 
     app_blocking: { level: "FULL" },
   };
   mockGuardianProtectionStatus = { active: true, health: "HEALTHY" };
-  setQuery(["device-policy"], { isError: true });
+  setQuery(["device-policy"], { data: { policy_version: 7, bundle: {} }, isError: true });
   const screen = render(<ChildHomeScreen />);
   await waitFor(() => {
     expect(screen.getByText("Web protection is active for DNS and known blocked destinations. Other traffic may bypass Guardian.")).toBeTruthy();
   });
-  expect(screen.getByText("The policy server is unavailable. This device is using its last verified policy when available.")).toBeTruthy();
+  expect(screen.getByText("This data may be out of date.")).toBeTruthy();
+  expect(screen.getByText("Policy acknowledged by this device.")).toBeTruthy();
+  expect(screen.queryByLabelText("Retry")).toBeNull();
   expect(screen.queryByText("Web protection is unavailable.")).toBeNull();
+});
+
+test("Child home shows an error and retry when no policy data is available", async () => {
+  mockGuardianCapabilities = {
+    vpn_filtering: { level: "FULL" },
+    web_filtering: { level: "LIMITED" },
+    app_blocking: { level: "FULL" },
+  };
+  mockGuardianProtectionStatus = { active: true, health: "HEALTHY" };
+  setQuery(["device-policy"], { isError: true });
+  const screen = render(<ChildHomeScreen />);
+  await waitFor(() => expect(screen.getByText("We couldn't load this data.")).toBeTruthy());
+  expect(screen.getByLabelText("Retry")).toBeTruthy();
+  expect(screen.queryByText("Policy status:")).toBeNull();
+  screen.unmount();
 });
 
 test("Child request sync turns offline delivery failures into queued messaging", async () => {
