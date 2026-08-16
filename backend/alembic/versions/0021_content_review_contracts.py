@@ -5,8 +5,9 @@ Revises: 0020_usage_daily_snapshots
 """
 
 import sqlalchemy as sa
-from alembic import op
 from sqlalchemy.dialects import postgresql
+
+from alembic import op
 
 revision = "0021_content_review_contracts"
 down_revision = "0020_usage_daily_snapshots"
@@ -31,8 +32,19 @@ def upgrade() -> None:
             AND jsonb_typeof(content_review) = 'object'
             AND content_review->>'app_ref' = content_app_ref
             AND content_review->>'fingerprint' = content_fingerprint
-            AND content_review ?& ARRAY['app_ref', 'fingerprint', 'category', 'severity', 'confidence', 'reason_code']
-            AND (content_review - 'app_ref' - 'fingerprint' - 'category' - 'severity' - 'confidence' - 'reason_code' - 'public_content_ref') = '{}'::jsonb
+            AND content_review ?& ARRAY[
+                'app_ref', 'fingerprint', 'category', 'severity', 'confidence', 'reason_code'
+            ]
+            AND (
+                content_review
+                - 'app_ref'
+                - 'fingerprint'
+                - 'category'
+                - 'severity'
+                - 'confidence'
+                - 'reason_code'
+                - 'public_content_ref'
+            ) = '{}'::jsonb
         )
         OR (
             request_type <> 'CONTENT_REVIEW'
