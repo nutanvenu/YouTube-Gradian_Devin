@@ -35,6 +35,7 @@ from ..api.handler_support import (
     transition,
 )
 from ..policies.temporary import build_more_time_override
+from .models import ContentApproval
 
 router = APIRouter()
 
@@ -79,55 +80,76 @@ async def decide_request(
     row.decided_by_parent_id = parent.id
     row.decided_at = datetime.now(UTC)
     if target is RequestState.APPROVED:
-        current = await current_bundle_for_update(session, row.child_profile_id)
-        if current is None:
-            raise HTTPException(status.HTTP_409_CONFLICT, "Policy is unavailable")
-        policy = deepcopy(current.new_value)
-        policy["signature"] = ""
-        raw_overrides = policy.get("temporary_overrides", [])
-        overrides = list(raw_overrides) if isinstance(raw_overrides, list) else []
-        expires_at = datetime.now(UTC) + timedelta(hours=1)
-        if row.request_type == "MORE_TIME":
-            starts_at = datetime.now(UTC).isoformat().replace("+00:00", "Z")
-            override = build_more_time_override(
-                policy,
-                row.subject,
-                15,
-                f"request-{row.id}",
-                starts_at,
-                expires_at.isoformat().replace("+00:00", "Z"),
-            )
-            if override is None:
+        if row.request_type == "CONTENT_REVIEW":
+            evidence = row.content_review
+            app_ref = row.content_app_ref
+            fingerprint = row.content_fingerprint
+            if not isinstance(evidence, dict) or not app_ref or not fingerprint:
                 raise HTTPException(
                     status.HTTP_422_UNPROCESSABLE_ENTITY,
-                    "More-time approval requires an exact app, domain, or explicit device target",
+                    "Content review approval requires exact minimized evidence",
                 )
-            overrides.append(override)
+            # Do not publish an approval through the child-wide signed policy:
+            # a second device or another item in the same app must remain blocked.
+            session.add(
+                ContentApproval(
+                    request_id=row.id,
+                    device_id=row.device_id,
+                    app_ref=app_ref,
+                    fingerprint=fingerprint,
+                    expires_at=row.decided_at + timedelta(minutes=15),
+                )
+            )
         else:
-            if not row.subject:
-                raise HTTPException(
-                    status.HTTP_422_UNPROCESSABLE_ENTITY,
-                    "Approval requires an exact request subject",
+            current = await current_bundle_for_update(session, row.child_profile_id)
+            if current is None:
+                raise HTTPException(status.HTTP_409_CONFLICT, "Policy is unavailable")
+            policy = deepcopy(current.new_value)
+            policy["signature"] = ""
+            raw_overrides = policy.get("temporary_overrides", [])
+            overrides = list(raw_overrides) if isinstance(raw_overrides, list) else []
+            expires_at = datetime.now(UTC) + timedelta(hours=1)
+            if row.request_type == "MORE_TIME":
+                starts_at = datetime.now(UTC).isoformat().replace("+00:00", "Z")
+                override = build_more_time_override(
+                    policy,
+                    row.subject,
+                    15,
+                    f"request-{row.id}",
+                    starts_at,
+                    expires_at.isoformat().replace("+00:00", "Z"),
                 )
-            overrides.append(
-                {
-                    "rule_id": f"request-{row.id}",
-                    "target_kind": "APP" if row.request_type == "UNBLOCK_APP" else "DOMAIN",
-                    "target_ref": row.subject,
-                    "action": "ALLOW",
-                    "starts_at": datetime.now(UTC).isoformat().replace("+00:00", "Z"),
-                    "expires_at": expires_at.isoformat().replace("+00:00", "Z"),
-                }
+                if override is None:
+                    raise HTTPException(
+                        status.HTTP_422_UNPROCESSABLE_ENTITY,
+                        "More-time approval requires an exact app, domain, or explicit device target",
+                    )
+                overrides.append(override)
+            else:
+                if not row.subject:
+                    raise HTTPException(
+                        status.HTTP_422_UNPROCESSABLE_ENTITY,
+                        "Approval requires an exact request subject",
+                    )
+                overrides.append(
+                    {
+                        "rule_id": f"request-{row.id}",
+                        "target_kind": "APP" if row.request_type == "UNBLOCK_APP" else "DOMAIN",
+                        "target_ref": row.subject,
+                        "action": "ALLOW",
+                        "starts_at": datetime.now(UTC).isoformat().replace("+00:00", "Z"),
+                        "expires_at": expires_at.isoformat().replace("+00:00", "Z"),
+                    }
+                )
+            policy["temporary_overrides"] = overrides
+            await create_next_bundle(
+                session,
+                row.child_profile_id,
+                parent.id,
+                policy,
+                {"state": previous, "request_id": str(row.id)},
+                expires_at=expires_at,
             )
-        policy["temporary_overrides"] = overrides
-        await create_next_bundle(
-            session,
-            row.child_profile_id,
-            parent.id,
-            policy,
-            {"state": previous, "request_id": str(row.id)},
-            expires_at=expires_at,
-        )
     result = RequestOut.model_validate(row)
     if commit:
         await session.commit()
@@ -252,6 +274,6 @@ async def deny_request(
         )
     return await decide_request(request_id, RequestState.DENIED, body, parent, session)
 
-router.add_api_route("/v1/families/{family_id}/requests", list_requests, methods=["GET"], response_model=None)
-router.add_api_route("/v1/families/{family_id}/requests/{request_id}/approve", approve_request, methods=["POST"], response_model=None)
-router.add_api_route("/v1/families/{family_id}/requests/{request_id}/deny", deny_request, methods=["POST"], response_model=None)
+router.add_api_route("/v1/families/{family_id}/requests", list_requests, methods=["GET"], response_model=list[RequestOut])
+router.add_api_route("/v1/families/{family_id}/requests/{request_id}/approve", approve_request, methods=["POST"], response_model=RequestOut)
+router.add_api_route("/v1/families/{family_id}/requests/{request_id}/deny", deny_request, methods=["POST"], response_model=RequestOut)

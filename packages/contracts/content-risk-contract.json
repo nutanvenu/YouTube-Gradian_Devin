@@ -1,0 +1,36 @@
+{
+  "signal_sources": [
+    "NOTIFICATION",
+    "ACCESSIBILITY_TEXT",
+    "NETWORK_DESTINATION",
+    "USAGE",
+    "MEDIA_METADATA"
+  ],
+  "actions": ["ALLOW", "WARN", "BLOCK_AND_REQUEST"],
+  "severities": ["LOW", "MEDIUM", "HIGH", "CRITICAL"],
+  "capability_levels": ["FULL", "LIMITED", "BEST_EFFORT", "UNAVAILABLE", "REGION_LIMITED"],
+  "categories": [
+    "SELF_HARM",
+    "SEXUAL_CONTENT",
+    "SEXUAL_SOLICITATION",
+    "GROOMING",
+    "HARASSMENT",
+    "PHISHING_CREDENTIAL_THEFT",
+    "GRAPHIC_VIOLENCE_GORE",
+    "DRUGS_CONTROLLED_SUBSTANCES",
+    "GAMBLING",
+    "HATE_EXTREMISM",
+    "UNKNOWN"
+  ],
+  "category_aliases": {
+    "SELF_HARM_SUICIDE": "SELF_HARM",
+    "PHISHING_SCAMS": "PHISHING_CREDENTIAL_THEFT",
+    "ADULT_PORNOGRAPHY": "SEXUAL_CONTENT"
+  },
+  "content_block_thresholds": {
+    "YOUNG_CHILD": "MEDIUM",
+    "PRETEEN": "MEDIUM",
+    "TEEN": "HIGH",
+    "OLDER_TEEN": "CRITICAL"
+  }
+}

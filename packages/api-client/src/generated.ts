@@ -266,6 +266,114 @@ export const openApiDocument = {
         "title": "ChildUpdate",
         "type": "object"
       },
+      "ContentApprovalOut": {
+        "properties": {
+          "app_ref": {
+            "title": "App Ref",
+            "type": "string"
+          },
+          "device_id": {
+            "format": "uuid",
+            "title": "Device Id",
+            "type": "string"
+          },
+          "expires_at": {
+            "format": "date-time",
+            "title": "Expires At",
+            "type": "string"
+          },
+          "fingerprint": {
+            "title": "Fingerprint",
+            "type": "string"
+          }
+        },
+        "required": [
+          "device_id",
+          "app_ref",
+          "fingerprint",
+          "expires_at"
+        ],
+        "title": "ContentApprovalOut",
+        "type": "object"
+      },
+      "ContentReviewEvidenceIn": {
+        "additionalProperties": false,
+        "description": "The sole server-visible representation of a locally classified item.",
+        "properties": {
+          "app_ref": {
+            "maxLength": 200,
+            "minLength": 1,
+            "pattern": "^[A-Za-z0-9._-]+$",
+            "title": "App Ref",
+            "type": "string"
+          },
+          "category": {
+            "enum": [
+              "SELF_HARM",
+              "SEXUAL_CONTENT",
+              "SEXUAL_SOLICITATION",
+              "GROOMING",
+              "HARASSMENT",
+              "PHISHING_CREDENTIAL_THEFT",
+              "GRAPHIC_VIOLENCE_GORE",
+              "DRUGS_CONTROLLED_SUBSTANCES",
+              "GAMBLING",
+              "HATE_EXTREMISM",
+              "UNKNOWN"
+            ],
+            "title": "Category",
+            "type": "string"
+          },
+          "confidence": {
+            "maximum": 1.0,
+            "minimum": 0.0,
+            "title": "Confidence",
+            "type": "number"
+          },
+          "fingerprint": {
+            "pattern": "^[a-f0-9]{64}$",
+            "title": "Fingerprint",
+            "type": "string"
+          },
+          "public_content_ref": {
+            "anyOf": [
+              {
+                "$ref": "#/components/schemas/PublicContentReferenceIn"
+              },
+              {
+                "type": "null"
+              }
+            ]
+          },
+          "reason_code": {
+            "maxLength": 100,
+            "minLength": 1,
+            "pattern": "^[A-Z][A-Z0-9_]*(?:\\+[A-Z][A-Z0-9_]*)*$",
+            "title": "Reason Code",
+            "type": "string"
+          },
+          "severity": {
+            "enum": [
+              "LOW",
+              "MEDIUM",
+              "HIGH",
+              "CRITICAL"
+            ],
+            "title": "Severity",
+            "type": "string"
+          }
+        },
+        "required": [
+          "app_ref",
+          "fingerprint",
+          "category",
+          "severity",
+          "confidence",
+          "reason_code"
+        ],
+        "title": "ContentReviewEvidenceIn",
+        "type": "object"
+      },
       "DeviceAckIn": {
         "properties": {
           "policy_version": {
@@ -404,6 +512,22 @@ export const openApiDocument = {
       "MinimizedEvent": {
         "additionalProperties": false,
         "properties": {
+          "action": {
+            "anyOf": [
+              {
+                "enum": [
+                  "ALLOW",
+                  "WARN",
+                  "BLOCK_AND_REQUEST"
+                ],
+                "type": "string"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Action"
+          },
           "app_ref": {
             "anyOf": [
               {
@@ -415,6 +539,24 @@ export const openApiDocument = {
               }
             ],
             "title": "App Ref"
+          },
+          "capability_level": {
+            "anyOf": [
+              {
+                "enum": [
+                  "FULL",
+                  "LIMITED",
+                  "BEST_EFFORT",
+                  "UNAVAILABLE",
+                  "REGION_LIMITED"
+                ],
+                "type": "string"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Capability Level"
           },
           "category": {
             "anyOf": [
@@ -428,6 +570,20 @@ export const openApiDocument = {
             ],
             "title": "Category"
           },
+          "classifier_version": {
+            "anyOf": [
+              {
+                "maxLength": 64,
+                "minLength": 1,
+                "pattern": "^[a-z0-9][a-z0-9._-]*$",
+                "type": "string"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Classifier Version"
+          },
           "confidence": {
             "anyOf": [
               {
@@ -440,6 +596,18 @@ export const openApiDocument = {
               }
             ],
             "title": "Confidence"
+          },
+          "content_fingerprint": {
+            "anyOf": [
+              {
+                "pattern": "^[a-f0-9]{64}$",
+                "type": "string"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Content Fingerprint"
           },
           "domain": {
             "anyOf": [
@@ -471,6 +639,16 @@ export const openApiDocument = {
             "title": "Occurred At",
             "type": "string"
           },
+          "public_content_ref": {
+            "anyOf": [
+              {
+                "$ref": "#/components/schemas/PublicContentReferenceIn"
+              },
+              {
+                "type": "null"
+              }
+            ]
+          },
           "reason_code": {
             "anyOf": [
               {
@@ -500,6 +678,24 @@ export const openApiDocument = {
               }
             ],
             "title": "Severity"
+          },
+          "signal_source": {
+            "anyOf": [
+              {
+                "enum": [
+                  "NOTIFICATION",
+                  "ACCESSIBILITY_TEXT",
+                  "NETWORK_DESTINATION",
+                  "USAGE",
+                  "MEDIA_METADATA"
+                ],
+                "type": "string"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Signal Source"
           },
           "timezone": {
             "anyOf": [
@@ -756,6 +952,35 @@ export const openApiDocument = {
         "title": "PolicyMutationIn",
         "type": "object"
       },
+      "PublicContentReferenceIn": {
+        "additionalProperties": false,
+        "description": "A public provider identifier, never a URL, query, title, or raw content.",
+        "properties": {
+          "content_id": {
+            "maxLength": 200,
+            "minLength": 1,
+            "pattern": "^[A-Za-z0-9._:-]+$",
+            "title": "Content Id",
+            "type": "string"
+          },
+          "provider": {
+            "enum": [
+              "YOUTUBE",
+              "INSTAGRAM",
+              "X",
+              "WEB"
+            ],
+            "title": "Provider",
+            "type": "string"
+          }
+        },
+        "required": [
+          "provider",
+          "content_id"
+        ],
+        "title": "PublicContentReferenceIn",
+        "type": "object"
+      },
       "PushActionIn": {
         "properties": {
           "reason": {
@@ -976,7 +1201,18 @@ export const openApiDocument = {
         "type": "object"
       },
       "RequestCreateIn": {
+        "additionalProperties": false,
         "properties": {
+          "content_review": {
+            "anyOf": [
+              {
+                "$ref": "#/components/schemas/ContentReviewEvidenceIn"
+              },
+              {
+                "type": "null"
+              }
+            ]
+          },
           "reason": {
             "anyOf": [
               {
@@ -993,7 +1229,8 @@ export const openApiDocument = {
             "enum": [
               "MORE_TIME",
               "UNBLOCK_APP",
-              "UNBLOCK_SITE"
+              "UNBLOCK_SITE",
+              "CONTENT_REVIEW"
             ],
             "title": "Request Type",
             "type": "string"
@@ -1038,6 +1275,16 @@ export const openApiDocument = {
             "format": "uuid",
             "title": "Child Profile Id",
             "type": "string"
+          },
+          "content_review": {
+            "anyOf": [
+              {
+                "$ref": "#/components/schemas/ContentReviewEvidenceIn"
+              },
+              {
+                "type": "null"
+              }
+            ]
           },
           "decision_reason": {
             "anyOf": [
@@ -1697,6 +1944,34 @@ export const openApiDocument = {
         "summary": "Request Verification"
       }
     },
+    "/v1/devices/me/content-approvals": {
+      "get": {
+        "description": "Deliver only the online device's currently exact content approvals.",
+        "operationId": "active_content_approvals_v1_devices_me_content_approvals_get",
+        "responses": {
+          "200": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "items": {
+                    "$ref": "#/components/schemas/ContentApprovalOut"
+                  },
+                  "title": "Response Active Content Approvals V1 Devices Me Content Approvals Get",
+                  "type": "array"
+                }
+              }
+            },
+            "description": "Successful Response"
+          }
+        },
+        "security": [
+          {
+            "HTTPBearer": []
+          }
+        ],
+        "summary": "Active Content Approvals"
+      }
+    },
     "/v1/devices/me/events": {
       "post": {
         "operationId": "ingest_events_v1_devices_me_events_post",
@@ -2049,7 +2324,9 @@ export const openApiDocument = {
           "201": {
             "content": {
               "application/json": {
-                "schema": {}
+                "schema": {
+                  "$ref": "#/components/schemas/RequestOut"
+                }
               }
             },
             "description": "Successful Response"
@@ -3127,7 +3404,13 @@ export const openApiDocument = {
           "200": {
             "content": {
               "application/json": {
-                "schema": {}
+                "schema": {
+                  "items": {
+                    "$ref": "#/components/schemas/RequestOut"
+                  },
+                  "title": "Response List Requests V1 Families  Family Id  Requests Get",
+                  "type": "array"
+                }
               }
             },
             "description": "Successful Response"
@@ -3206,7 +3489,9 @@ export const openApiDocument = {
           "200": {
             "content": {
               "application/json": {
-                "schema": {}
+                "schema": {
+                  "$ref": "#/components/schemas/RequestOut"
+                }
               }
             },
             "description": "Successful Response"
@@ -3285,7 +3570,9 @@ export const openApiDocument = {
           "200": {
             "content": {
               "application/json": {
-                "schema": {}
+                "schema": {
+                  "$ref": "#/components/schemas/RequestOut"
+                }
               }
             },
             "description": "Successful Response"
@@ -3573,7 +3860,7 @@ export const openApiDocument = {
   }
 } as const;
 
-export type GuardianApiPath = "/account-deletion" | "/health" | "/livez" | "/readiness" | "/readyz" | "/v1/auth/account" | "/v1/auth/login" | "/v1/auth/logout" | "/v1/auth/me" | "/v1/auth/password-reset/confirm" | "/v1/auth/password-reset/request" | "/v1/auth/refresh" | "/v1/auth/signup" | "/v1/auth/verification/confirm" | "/v1/auth/verification/request" | "/v1/devices/me/events" | "/v1/devices/me/heartbeat" | "/v1/devices/me/inventory" | "/v1/devices/me/policy" | "/v1/devices/me/policy/ack" | "/v1/devices/me/push-tokens" | "/v1/devices/me/reputation" | "/v1/devices/me/reputation/classify" | "/v1/devices/me/requests" | "/v1/devices/pair" | "/v1/families" | "/v1/families/guardians/accept" | "/v1/families/{family_id}" | "/v1/families/{family_id}/activity" | "/v1/families/{family_id}/activity/usage" | "/v1/families/{family_id}/children" | "/v1/families/{family_id}/children/{child_id}" | "/v1/families/{family_id}/children/{child_id}/inventory" | "/v1/families/{family_id}/children/{child_id}/inventory/{platform_app_id}/review" | "/v1/families/{family_id}/children/{child_id}/pairing" | "/v1/families/{family_id}/children/{child_id}/policy/mutations" | "/v1/families/{family_id}/children/{child_id}/reputation" | "/v1/families/{family_id}/devices/{device_id}/revoke" | "/v1/families/{family_id}/guardians" | "/v1/families/{family_id}/guardians/invite" | "/v1/families/{family_id}/health" | "/v1/families/{family_id}/requests" | "/v1/families/{family_id}/requests/{request_id}/approve" | "/v1/families/{family_id}/requests/{request_id}/deny" | "/v1/families/{family_id}/usage/reports" | "/v1/me/push-tokens" | "/v1/policy/public-key" | "/v1/push/actions/{action_token}/approve" | "/v1/push/actions/{action_token}/deny";
+export type GuardianApiPath = "/account-deletion" | "/health" | "/livez" | "/readiness" | "/readyz" | "/v1/auth/account" | "/v1/auth/login" | "/v1/auth/logout" | "/v1/auth/me" | "/v1/auth/password-reset/confirm" | "/v1/auth/password-reset/request" | "/v1/auth/refresh" | "/v1/auth/signup" | "/v1/auth/verification/confirm" | "/v1/auth/verification/request" | "/v1/devices/me/content-approvals" | "/v1/devices/me/events" | "/v1/devices/me/heartbeat" | "/v1/devices/me/inventory" | "/v1/devices/me/policy" | "/v1/devices/me/policy/ack" | "/v1/devices/me/push-tokens" | "/v1/devices/me/reputation" | "/v1/devices/me/reputation/classify" | "/v1/devices/me/requests" | "/v1/devices/pair" | "/v1/families" | "/v1/families/guardians/accept" | "/v1/families/{family_id}" | "/v1/families/{family_id}/activity" | "/v1/families/{family_id}/activity/usage" | "/v1/families/{family_id}/children" | "/v1/families/{family_id}/children/{child_id}" | "/v1/families/{family_id}/children/{child_id}/inventory" | "/v1/families/{family_id}/children/{child_id}/inventory/{platform_app_id}/review" | "/v1/families/{family_id}/children/{child_id}/pairing" | "/v1/families/{family_id}/children/{child_id}/policy/mutations" | "/v1/families/{family_id}/children/{child_id}/reputation" | "/v1/families/{family_id}/devices/{device_id}/revoke" | "/v1/families/{family_id}/guardians" | "/v1/families/{family_id}/guardians/invite" | "/v1/families/{family_id}/health" | "/v1/families/{family_id}/requests" | "/v1/families/{family_id}/requests/{request_id}/approve" | "/v1/families/{family_id}/requests/{request_id}/deny" | "/v1/families/{family_id}/usage/reports" | "/v1/me/push-tokens" | "/v1/policy/public-key" | "/v1/push/actions/{action_token}/approve" | "/v1/push/actions/{action_token}/deny";
 
 export class GeneratedGuardianError extends Error {
   constructor(message: string, readonly status: number) {

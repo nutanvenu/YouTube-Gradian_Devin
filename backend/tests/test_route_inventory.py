@@ -21,6 +21,7 @@ EXPECTED_ROUTES: tuple[ExpectedRoute, ...] = (
     ("/v1/auth/signup", "POST", "public"),
     ("/v1/auth/verification/confirm", "POST", "public"),
     ("/v1/auth/verification/request", "POST", "parent"),
+    ("/v1/devices/me/content-approvals", "GET", "device"),
     ("/v1/devices/me/events", "POST", "device"),
     ("/v1/devices/me/heartbeat", "POST", "device"),
     ("/v1/devices/me/inventory", "POST", "device"),

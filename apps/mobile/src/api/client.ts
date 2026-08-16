@@ -4,6 +4,14 @@ import {
   GeneratedGuardianClient,
   type GuardianApiPath,
 } from "@guardian/api-client";
+import type {
+  CapabilityLevel,
+  ContentAction,
+  ContentApproval,
+  ContentReviewEvidence,
+  ContentRiskSeverity,
+  SignalSource,
+} from "@guardian/contracts";
 
 export type ApiErrorBody = { error?: { code?: string; message?: string } };
 export type Tokens = { access_token: string; refresh_token: string; token_type?: string };
@@ -52,13 +60,26 @@ export type AccessRequest = {
   id: string;
   child_profile_id: string;
   device_id: string;
-  request_type: "MORE_TIME" | "UNBLOCK_APP" | "UNBLOCK_SITE";
+  request_type: "MORE_TIME" | "UNBLOCK_APP" | "UNBLOCK_SITE" | "CONTENT_REVIEW";
   subject: string | null;
   state: "PENDING" | "APPROVED" | "DENIED" | "EXPIRED" | "CANCELLED";
   reason: string | null;
   decision_reason: string | null;
   expires_at: string | null;
+  content_review?: ContentReviewEvidence | null;
 };
+export type ContentReviewRequestInput = {
+  request_type: "CONTENT_REVIEW";
+  content_review: ContentReviewEvidence;
+  subject?: never;
+  reason?: never;
+};
+export type StandardRequestInput = {
+  request_type: "MORE_TIME" | "UNBLOCK_APP" | "UNBLOCK_SITE";
+  subject?: string | null;
+  reason?: string | null;
+};
+export type DeviceRequestInput = StandardRequestInput | ContentReviewRequestInput;
 export type RequestPushPayload = {
   type: string;
   request_id: string;
@@ -108,9 +129,15 @@ export type DeviceEvent = {
   app_ref?: string | null;
   domain?: string | null;
   category?: string | null;
-  severity?: "LOW" | "MEDIUM" | "HIGH" | "CRITICAL" | null;
+  severity?: ContentRiskSeverity | null;
   confidence?: number | null;
   reason_code?: string | null;
+  signal_source?: SignalSource | null;
+  action?: ContentAction | null;
+  classifier_version?: string | null;
+  capability_level?: CapabilityLevel | null;
+  content_fingerprint?: string | null;
+  public_content_ref?: { provider: "YOUTUBE" | "INSTAGRAM" | "X" | "WEB"; content_id: string } | null;
   timezone?: string;
   duration_seconds?: number;
 };
@@ -379,7 +406,7 @@ export class GuardianApiClient {
       body: JSON.stringify(input),
     });
   }
-  createRequest(input: Omit<AccessRequest, "id" | "child_profile_id" | "device_id" | "state" | "decision_reason" | "expires_at">, idempotencyKey?: string) {
+  createRequest(input: DeviceRequestInput, idempotencyKey?: string) {
     return this.request<AccessRequest>("/v1/devices/me/requests", {
       method: "POST",
       headers: idempotencyKey ? { "Idempotency-Key": idempotencyKey } : undefined,
@@ -388,6 +415,9 @@ export class GuardianApiClient {
   }
   requests(familyId: string) {
     return this.request<AccessRequest[]>(`/v1/families/${familyId}/requests`);
+  }
+  contentApprovals() {
+    return this.request<ContentApproval[]>("/v1/devices/me/content-approvals");
   }
   decideRequest(familyId: string, requestId: string, decision: "approve" | "deny", reason: string) {
     return this.request<AccessRequest>(`/v1/families/${familyId}/requests/${requestId}/${decision}`, {

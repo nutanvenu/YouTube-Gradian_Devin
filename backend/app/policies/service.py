@@ -22,6 +22,9 @@ _SCHEMA_PATH = (
 _HARD_CATEGORIES_PATH = (
     Path(__file__).resolve().parents[3] / "packages" / "contracts" / "hard-categories.json"
 )
+_CONTENT_RISK_CONTRACT_PATH = (
+    Path(__file__).resolve().parents[3] / "packages" / "contracts" / "content-risk-contract.json"
+)
 
 
 def _shared_hard_categories() -> tuple[str, ...]:
@@ -32,6 +35,9 @@ def _shared_hard_categories() -> tuple[str, ...]:
 
 
 HARD_CATEGORIES = _shared_hard_categories()
+CONTENT_BLOCK_THRESHOLDS = json.loads(_CONTENT_RISK_CONTRACT_PATH.read_text())[
+    "content_block_thresholds"
+]
 
 
 def _rule(rule_id: str, category: str, action: str, **values: object) -> dict[str, object]:
@@ -178,6 +184,11 @@ def default_policy(
         "category_rules": [],
         "routines": [_bedtime(band)],
         "temporary_overrides": [],
+        # This distinct content-interstitial threshold intentionally does not
+        # change the long-standing notification alert threshold below.
+        "content_safety": {
+            "content_block_threshold": CONTENT_BLOCK_THRESHOLDS[band],
+        },
         "communication_safety": {
             "enabled": False,
             "severity_threshold": "HIGH",

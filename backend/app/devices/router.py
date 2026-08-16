@@ -50,6 +50,9 @@ from ..api.handler_support import (
     timedelta,
     verify_device_request_headers,
 )
+from ..api.schemas import ContentApprovalOut
+from ..core.idempotency import acquire_idempotency_lock
+from ..requests.models import ContentApproval
 
 router = APIRouter()
 
@@ -228,6 +231,16 @@ async def ingest_events(
                 severity=event.severity,
                 confidence=event.confidence,
                 reason_code=event.reason_code,
+                signal_source=event.signal_source,
+                action=event.action,
+                classifier_version=event.classifier_version,
+                capability_level=event.capability_level,
+                content_fingerprint=event.content_fingerprint,
+                public_content_ref=(
+                    event.public_content_ref.model_dump(mode="json")
+                    if event.public_content_ref is not None
+                    else None
+                ),
             )
             session.add(row)
             safety_rows.append(row)
@@ -293,15 +306,63 @@ async def create_request(
     payload = body.model_dump(mode="json")
     digest = payload_hash(payload)
     if idempotency_key is not None:
+        await acquire_idempotency_lock(session, "request_create", idempotency_key)
         replay = await replay_or_conflict(session, "request_create", idempotency_key, digest)
         if replay is not None:
             return RequestOut.model_validate(replay.response_body)
+    content_review = body.content_review.model_dump(mode="json") if body.content_review else None
+    if content_review is not None:
+        # A local classifier can re-observe the same foreground item rapidly.
+        # One device/app/fingerprint tuple is one pending parent decision.
+        app_ref = str(content_review["app_ref"])
+        fingerprint = str(content_review["fingerprint"])
+        await acquire_idempotency_lock(
+            session,
+            "content_review_dedupe",
+            f"{device.id}:{app_ref}:{fingerprint}",
+        )
+        now = datetime.now(UTC)
+        existing = await session.scalar(
+            select(RequestRow)
+            .outerjoin(ContentApproval, ContentApproval.request_id == RequestRow.id)
+            .where(
+                RequestRow.device_id == device.id,
+                RequestRow.request_type == "CONTENT_REVIEW",
+                RequestRow.content_app_ref == app_ref,
+                RequestRow.content_fingerprint == fingerprint,
+                RequestRow.expires_at > now,
+                or_(
+                    RequestRow.state.in_(("PENDING", "DENIED")),
+                    and_(
+                        RequestRow.state == "APPROVED",
+                        ContentApproval.expires_at > now,
+                    ),
+                ),
+            )
+            .order_by(RequestRow.created_at.desc())
+        )
+        if existing is not None:
+            result = RequestOut.model_validate(existing)
+            if idempotency_key is not None:
+                await save_result(
+                    session,
+                    "request_create",
+                    idempotency_key,
+                    digest,
+                    status.HTTP_201_CREATED,
+                    result.model_dump(mode="json"),
+                )
+                await session.commit()
+            return result
     request_row = RequestRow(
         child_profile_id=device.child_profile_id,
         device_id=device.id,
         request_type=body.request_type,
         subject=body.subject,
         reason=body.reason,
+        content_app_ref=(str(content_review["app_ref"]) if content_review else None),
+        content_fingerprint=(str(content_review["fingerprint"]) if content_review else None),
+        content_review=content_review,
         expires_at=datetime.now(UTC) + timedelta(hours=1),
     )
     session.add(request_row)
@@ -374,6 +435,30 @@ async def create_request(
         await push_sender.send(parent_id, payload)
     return result
 
+
+async def active_content_approvals(
+    device: Device = Depends(current_device),
+    session: AsyncSession = Depends(get_session),
+) -> list[dict[str, object]]:
+    """Deliver only the online device's currently exact content approvals."""
+    rows = await session.scalars(
+        select(ContentApproval)
+        .where(
+            ContentApproval.device_id == device.id,
+            ContentApproval.expires_at > datetime.now(UTC),
+        )
+        .order_by(ContentApproval.expires_at)
+    )
+    return [
+        {
+            "device_id": row.device_id,
+            "app_ref": row.app_ref,
+            "fingerprint": row.fingerprint,
+            "expires_at": row.expires_at,
+        }
+        for row in rows
+    ]
+
 async def register_device_push_token(
     body: PushTokenIn,
     device: Device = Depends(current_device),
@@ -400,5 +485,11 @@ router.add_api_route("/v1/devices/me/policy/ack", acknowledge_policy, methods=["
 router.add_api_route("/v1/devices/me/heartbeat", heartbeat, methods=["POST"], status_code=204, response_model=None)
 router.add_api_route("/v1/devices/me/events", ingest_events, methods=["POST"], status_code=202, response_model=None)
 router.add_api_route("/v1/devices/me/inventory", ingest_inventory, methods=["POST"], status_code=202, response_model=None)
-router.add_api_route("/v1/devices/me/requests", create_request, methods=["POST"], status_code=201, response_model=None)
+router.add_api_route("/v1/devices/me/requests", create_request, methods=["POST"], status_code=201, response_model=RequestOut)
+router.add_api_route(
+    "/v1/devices/me/content-approvals",
+    active_content_approvals,
+    methods=["GET"],
+    response_model=list[ContentApprovalOut],
+)
 router.add_api_route("/v1/devices/me/push-tokens", register_device_push_token, methods=["POST"], status_code=204, response_model=None)

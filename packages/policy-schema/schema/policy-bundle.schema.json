@@ -40,6 +40,7 @@
       "type": "array",
       "items": { "$ref": "#/$defs/temporaryOverride" }
     },
+    "content_safety": { "$ref": "#/$defs/contentSafety" },
     "communication_safety": { "$ref": "#/$defs/communicationSafety" },
     "signature": { "type": "string", "contentEncoding": "base64", "minLength": 0 }
   },
@@ -323,6 +324,17 @@
         },
         "android_notification_signals": { "type": "boolean" },
         "android_accessibility_signals": { "type": "boolean" }
+      }
+    },
+    "contentSafety": {
+      "type": "object",
+      "additionalProperties": false,
+      "required": ["content_block_threshold"],
+      "properties": {
+        "content_block_threshold": {
+          "type": "string",
+          "enum": ["LOW", "MEDIUM", "HIGH", "CRITICAL"]
+        }
       }
     }
   }

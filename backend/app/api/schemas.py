@@ -1,6 +1,8 @@
+import json
 import re
 from datetime import date, datetime
-from typing import Annotated, Literal
+from pathlib import Path
+from typing import Annotated, Literal, cast
 from uuid import UUID
 from zoneinfo import ZoneInfo
 
@@ -25,6 +27,24 @@ CAPABILITY_KEYS = {
     "accessibility_signals",
     "notification_signals",
 }
+_CONTENT_RISK_CONTRACT_PATH = (
+    Path(__file__).resolve().parents[3] / "packages" / "contracts" / "content-risk-contract.json"
+)
+_CONTENT_RISK_CONTRACT = json.loads(_CONTENT_RISK_CONTRACT_PATH.read_text())
+RISK_SEVERITIES = tuple(_CONTENT_RISK_CONTRACT["severities"])
+CONTENT_RISK_SOURCES = tuple(_CONTENT_RISK_CONTRACT["signal_sources"])
+CONTENT_RISK_ACTIONS = tuple(_CONTENT_RISK_CONTRACT["actions"])
+CONTENT_RISK_CATEGORIES = tuple(_CONTENT_RISK_CONTRACT["categories"])
+# Older local providers used policy-taxonomy labels below. Keep their minimized
+# events readable, but persist one canonical content-risk taxonomy.
+CONTENT_RISK_CATEGORY_ALIASES = cast(
+    dict[str, str], dict(_CONTENT_RISK_CONTRACT["category_aliases"])
+)
+
+
+def normalize_content_risk_category(value: str) -> str:
+    normalized = value.strip().upper()
+    return CONTENT_RISK_CATEGORY_ALIASES.get(normalized, normalized)
 
 
 def validate_iana_timezone(value: str) -> str:
@@ -212,6 +232,27 @@ class MinimizedEvent(BaseModel):
     severity: Literal["LOW", "MEDIUM", "HIGH", "CRITICAL"] | None = None
     confidence: float | None = Field(default=None, ge=0, le=1)
     reason_code: str | None = Field(default=None, min_length=1, max_length=100)
+    signal_source: Literal[
+        "NOTIFICATION",
+        "ACCESSIBILITY_TEXT",
+        "NETWORK_DESTINATION",
+        "USAGE",
+        "MEDIA_METADATA",
+    ] | None = None
+    action: Literal["ALLOW", "WARN", "BLOCK_AND_REQUEST"] | None = None
+    classifier_version: str | None = Field(
+        default=None,
+        min_length=1,
+        max_length=64,
+        pattern=r"^[a-z0-9][a-z0-9._-]*$",
+    )
+    capability_level: Literal[
+        "FULL", "LIMITED", "BEST_EFFORT", "UNAVAILABLE", "REGION_LIMITED"
+    ] | None = None
+    content_fingerprint: str | None = Field(
+        default=None, pattern=r"^[a-f0-9]{64}$"
+    )
+    public_content_ref: "PublicContentReferenceIn | None" = None
     duration_seconds: int = Field(default=0, ge=0, le=86400)
 
     @field_validator("timezone")
@@ -223,6 +264,13 @@ class MinimizedEvent(BaseModel):
             except Exception as error:
                 raise ValueError("Invalid IANA timezone") from error
         return value
+
+    @field_validator("category")
+    @classmethod
+    def normalize_event_category(cls, value: str | None) -> str | None:
+        # Event categories are intentionally additive: web/app policy categories
+        # remain valid while legacy content-risk aliases become canonical.
+        return normalize_content_risk_category(value) if value is not None else None
 
 
 class EventBatchIn(BaseModel):
@@ -284,10 +332,72 @@ class UsageReportOut(BaseModel):
     coverage: Literal["COMPLETE", "PARTIAL"] = "COMPLETE"
 
 
+class PublicContentReferenceIn(BaseModel):
+    """A public provider identifier, never a URL, query, title, or raw content."""
+
+    model_config = ConfigDict(extra="forbid")
+
+    provider: Literal["YOUTUBE", "INSTAGRAM", "X", "WEB"]
+    content_id: str = Field(
+        min_length=1,
+        max_length=200,
+        pattern=r"^[A-Za-z0-9._:-]+$",
+    )
+
+
+class ContentReviewEvidenceIn(BaseModel):
+    """The sole server-visible representation of a locally classified item."""
+
+    model_config = ConfigDict(extra="forbid")
+
+    app_ref: str = Field(min_length=1, max_length=200, pattern=r"^[A-Za-z0-9._-]+$")
+    fingerprint: str = Field(pattern=r"^[a-f0-9]{64}$")
+    category: Literal[
+        "SELF_HARM",
+        "SEXUAL_CONTENT",
+        "SEXUAL_SOLICITATION",
+        "GROOMING",
+        "HARASSMENT",
+        "PHISHING_CREDENTIAL_THEFT",
+        "GRAPHIC_VIOLENCE_GORE",
+        "DRUGS_CONTROLLED_SUBSTANCES",
+        "GAMBLING",
+        "HATE_EXTREMISM",
+        "UNKNOWN",
+    ]
+    severity: Literal["LOW", "MEDIUM", "HIGH", "CRITICAL"]
+    confidence: float = Field(ge=0, le=1)
+    reason_code: str = Field(
+        min_length=1,
+        max_length=100,
+        pattern=r"^[A-Z][A-Z0-9_]*(?:\+[A-Z][A-Z0-9_]*)*$",
+    )
+    public_content_ref: PublicContentReferenceIn | None = None
+
+    @field_validator("category", mode="before")
+    @classmethod
+    def normalize_category(cls, value: object) -> object:
+        return normalize_content_risk_category(value) if isinstance(value, str) else value
+
+
 class RequestCreateIn(BaseModel):
-    request_type: Literal["MORE_TIME", "UNBLOCK_APP", "UNBLOCK_SITE"]
+    model_config = ConfigDict(extra="forbid")
+
+    request_type: Literal["MORE_TIME", "UNBLOCK_APP", "UNBLOCK_SITE", "CONTENT_REVIEW"]
     subject: str | None = Field(default=None, max_length=255)
     reason: str | None = Field(default=None, max_length=1000)
+    content_review: ContentReviewEvidenceIn | None = None
+
+    @model_validator(mode="after")
+    def validate_content_review_shape(self) -> "RequestCreateIn":
+        if self.request_type == "CONTENT_REVIEW":
+            if self.content_review is None:
+                raise ValueError("CONTENT_REVIEW requires minimized content_review evidence")
+            if self.subject is not None or self.reason is not None:
+                raise ValueError("CONTENT_REVIEW does not accept subject or free-form reason")
+        elif self.content_review is not None:
+            raise ValueError("content_review is only valid for CONTENT_REVIEW")
+        return self
 
 
 class RequestDecisionIn(BaseModel):
@@ -305,6 +415,14 @@ class RequestOut(BaseModel):
     reason: str | None
     decision_reason: str | None
     expires_at: datetime | None
+    content_review: ContentReviewEvidenceIn | None = None
+
+
+class ContentApprovalOut(BaseModel):
+    device_id: UUID
+    app_ref: str
+    fingerprint: str
+    expires_at: datetime
 
 
 class PushTokenIn(BaseModel):

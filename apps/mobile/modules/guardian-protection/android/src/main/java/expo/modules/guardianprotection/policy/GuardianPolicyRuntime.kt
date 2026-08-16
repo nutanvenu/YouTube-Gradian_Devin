@@ -7,6 +7,7 @@ import expo.modules.guardianprotection.usage.UsageContext
 import expo.modules.guardianprotection.usage.UsageThresholdEvent
 import expo.modules.guardianprotection.usage.UsageThresholdTracker
 import expo.modules.guardianprotection.reputation.ReputationManager
+import expo.modules.guardianprotection.content.ContentRiskSeverity
 
 object GuardianPolicyRuntime {
   private var manager: PolicyManager? = null
@@ -26,6 +27,8 @@ object GuardianPolicyRuntime {
   }
 
   fun hasActiveSnapshot(): Boolean = manager?.activeSnapshot() != null
+
+  fun contentBlockThreshold(): ContentRiskSeverity? = manager?.activeSnapshot()?.contentBlockThreshold
 
   fun hasApplicableAppBudget(packageName: String, category: String?): Boolean =
     manager?.activeSnapshot()?.let {

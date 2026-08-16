@@ -24,6 +24,12 @@ class SafetyEvent(TimestampMixin, Base):
     severity: Mapped[str | None] = mapped_column(String(20))
     confidence: Mapped[float | None] = mapped_column()
     reason_code: Mapped[str | None] = mapped_column(String(100))
+    signal_source: Mapped[str | None] = mapped_column(String(30))
+    action: Mapped[str | None] = mapped_column(String(30))
+    classifier_version: Mapped[str | None] = mapped_column(String(64))
+    capability_level: Mapped[str | None] = mapped_column(String(30))
+    content_fingerprint: Mapped[str | None] = mapped_column(String(64))
+    public_content_ref: Mapped[dict[str, object] | None] = mapped_column(JSONB)
 
 
 class WebEvent(TimestampMixin, Base):

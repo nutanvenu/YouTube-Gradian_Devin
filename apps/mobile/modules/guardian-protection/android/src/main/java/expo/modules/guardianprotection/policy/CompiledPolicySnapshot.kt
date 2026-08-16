@@ -1,6 +1,7 @@
 package expo.modules.guardianprotection.policy
 
 import java.time.Instant
+import expo.modules.guardianprotection.content.ContentRiskSeverity
 
 data class CompiledPolicySnapshot(
   val policyVersion: Long,
@@ -12,4 +13,5 @@ data class CompiledPolicySnapshot(
   val basePolicy: Map<String, Any?>,
   val domainTrie: DomainRuleTrie = DomainRuleTrie(domainRules),
   val expiresSoftAt: Instant? = null,
+  val contentBlockThreshold: ContentRiskSeverity = ContentRiskSeverity.HIGH,
 )

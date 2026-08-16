@@ -1,4 +1,5 @@
 import hardCategories from "../hard-categories.json" with { type: "json" };
+import contentRiskContract from "../content-risk-contract.json" with { type: "json" };
 
 export const AGE_BANDS = ["YOUNG_CHILD", "PRETEEN", "TEEN", "OLDER_TEEN"] as const;
 export type AgeBand = (typeof AGE_BANDS)[number];
@@ -38,14 +39,101 @@ export const HARD_CATEGORIES = hardCategories as unknown as readonly [
   ...Category[]
 ];
 
-export const CAPABILITY_LEVELS = [
+export const CAPABILITY_LEVELS = contentRiskContract.capability_levels as unknown as readonly [
   "FULL",
   "LIMITED",
   "BEST_EFFORT",
   "UNAVAILABLE",
   "REGION_LIMITED"
-] as const;
+];
 export type CapabilityLevel = (typeof CAPABILITY_LEVELS)[number];
+
+export const CONTENT_RISK_SIGNAL_SOURCES = contentRiskContract.signal_sources as unknown as readonly [
+  "NOTIFICATION",
+  "ACCESSIBILITY_TEXT",
+  "NETWORK_DESTINATION",
+  "USAGE",
+  "MEDIA_METADATA"
+];
+export type SignalSource = (typeof CONTENT_RISK_SIGNAL_SOURCES)[number];
+
+// Content actions are deliberately distinct from policy engine actions: a
+// classifier can warn or ask a parent without granting a policy exception.
+export const CONTENT_RISK_ACTIONS = contentRiskContract.actions as unknown as readonly [
+  "ALLOW",
+  "WARN",
+  "BLOCK_AND_REQUEST"
+];
+export type ContentAction = (typeof CONTENT_RISK_ACTIONS)[number];
+
+export const CONTENT_RISK_SEVERITIES = contentRiskContract.severities as unknown as readonly [
+  "LOW",
+  "MEDIUM",
+  "HIGH",
+  "CRITICAL"
+];
+export type ContentRiskSeverity = (typeof CONTENT_RISK_SEVERITIES)[number];
+
+export const CONTENT_RISK_CATEGORIES = contentRiskContract.categories as unknown as readonly [
+  "SELF_HARM",
+  "SEXUAL_CONTENT",
+  "SEXUAL_SOLICITATION",
+  "GROOMING",
+  "HARASSMENT",
+  "PHISHING_CREDENTIAL_THEFT",
+  "GRAPHIC_VIOLENCE_GORE",
+  "DRUGS_CONTROLLED_SUBSTANCES",
+  "GAMBLING",
+  "HATE_EXTREMISM",
+  "UNKNOWN"
+];
+export type ContentRiskCategory = (typeof CONTENT_RISK_CATEGORIES)[number];
+
+export const CONTENT_RISK_CATEGORY_ALIASES = contentRiskContract.category_aliases as Readonly<
+  Record<string, ContentRiskCategory>
+>;
+export const CONTENT_BLOCK_THRESHOLDS = contentRiskContract.content_block_thresholds as Readonly<
+  Record<AgeBand, ContentRiskSeverity>
+>;
+
+export type PublicContentReference = {
+  provider: "YOUTUBE" | "INSTAGRAM" | "X" | "WEB";
+  content_id: string;
+};
+
+/** A local-only verdict: it contains no extracted title, message, or URL query. */
+export type ContentRiskVerdict = {
+  category: ContentRiskCategory;
+  severity: ContentRiskSeverity;
+  confidence: number;
+  reasonCodes: readonly string[];
+  classifierVersion: string;
+  capabilityLevel: CapabilityLevel;
+  action: ContentAction;
+};
+
+/** The only evidence allowed over the device-to-backend review boundary. */
+export type ContentReviewEvidence = {
+  app_ref: string;
+  fingerprint: string;
+  category: ContentRiskCategory;
+  severity: ContentRiskSeverity;
+  confidence: number;
+  reason_code: string;
+  public_content_ref?: PublicContentReference;
+};
+
+export type ContentReviewRequest = {
+  request_type: "CONTENT_REVIEW";
+  content_review: ContentReviewEvidence;
+};
+
+export type ContentApproval = {
+  device_id: string;
+  app_ref: string;
+  fingerprint: string;
+  expires_at: string;
+};
 
 export interface CapabilityStatus {
   level: CapabilityLevel;
