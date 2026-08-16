@@ -378,6 +378,26 @@ test("Child device requires explicit content-inspection consent before opening A
   alert.mockRestore();
 });
 
+test("Child device explains when signed parent policy disables Accessibility content inspection", async () => {
+  mockGuardianCapabilities = {
+    vpn_filtering: { level: "FULL" },
+    web_filtering: { level: "LIMITED" },
+    app_blocking: { level: "FULL" },
+    accessibility_signals: {
+      level: "UNAVAILABLE",
+      detail: "Disabled by the current signed parent policy. Ask a parent to enable Android content-safety signals.",
+    },
+  };
+  mockGuardianProtectionStatus = { active: true, health: "HEALTHY" };
+
+  const screen = render(<ChildHomeScreen />);
+  await waitFor(() => {
+    expect(screen.getByText("Disabled by parent policy. Ask a parent to enable Android content-safety signals.")).toBeTruthy();
+  });
+  expect(screen.queryByLabelText("Enable content-safety inspection")).toBeNull();
+  screen.unmount();
+});
+
 test("Activity renders empty data distinctly from endpoint errors", () => {
   const refetch = jest.fn();
   setQuery(["activity", "family-1"], { data: [], isError: true, refetch });

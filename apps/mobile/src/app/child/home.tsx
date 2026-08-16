@@ -16,6 +16,9 @@ import {
 import { GuardianProtection } from "../../../modules/guardian-protection/src";
 import type { GuardianNativeEvent } from "@guardian/contracts";
 
+const ACCESSIBILITY_SIGNALS_DISABLED_BY_PARENT_POLICY =
+  "Disabled by the current signed parent policy. Ask a parent to enable Android content-safety signals.";
+
 export function appUsageEvents(byTarget: Record<string, number>, occurredAt: string) {
   return Object.entries(byTarget)
     .filter(([target, seconds]) => target.startsWith("APP:") && seconds > 0)
@@ -42,6 +45,10 @@ export default function ChildHomeRoute() {
   const revoked = isRevokedDeviceError(policy.error);
   const [protectionMessage, setProtectionMessage] = useState("Checking web protection…");
   const [canRetryProtection, setCanRetryProtection] = useState(false);
+  const [accessibilitySignals, setAccessibilitySignals] = useState<{
+    level: string;
+    detail?: string | null;
+  } | null>(null);
   const [appBlockingAvailable, setAppBlockingAvailable] = useState<boolean | null>(null);
   const [blockedEvent, setBlockedEvent] = useState<Extract<GuardianNativeEvent, { type: "WEB_BLOCKED" }> | null>(null);
   const [blockedEventCount, setBlockedEventCount] = useState(0);
@@ -125,6 +132,7 @@ export default function ChildHomeRoute() {
     const vpnCapability = capabilities.vpn_filtering;
     const webCapability = capabilities.web_filtering;
     const appBlockingCapability = capabilities.app_blocking;
+    const accessibilityCapability = capabilities.accessibility_signals;
     const vpnReady = vpnCapability.level === "LIMITED" || vpnCapability.level === "FULL";
     const webActive = webCapability.level === "LIMITED" || webCapability.level === "FULL";
     const vpnActive = status.active && vpnReady;
@@ -139,6 +147,7 @@ export default function ChildHomeRoute() {
           : "Web protection is active, but coverage may be limited. Some traffic may bypass Guardian.",
     );
     setAppBlockingAvailable(appBlockingCapability.level === "FULL");
+    setAccessibilitySignals(accessibilityCapability ?? null);
   };
 
   useEffect(() => {
@@ -400,9 +409,16 @@ export default function ChildHomeRoute() {
                 />
               </>
             ) : null}
-            <Text>Content-safety inspection is separate and optional. Guardian never claims coverage for text an app does not expose to Accessibility.</Text>
-            <PrimaryButton label="Enable content-safety inspection" onPress={requestAccessibilityContentConsent} />
-            <SecondaryButton label="Turn off content-safety inspection" onPress={() => { void GuardianProtection.setAccessibilityContentConsent(false); }} />
+            {accessibilitySignals?.level === "UNAVAILABLE" &&
+            accessibilitySignals.detail === ACCESSIBILITY_SIGNALS_DISABLED_BY_PARENT_POLICY ? (
+              <Text accessibilityRole="alert">Disabled by parent policy. Ask a parent to enable Android content-safety signals.</Text>
+            ) : (
+              <>
+                <Text>Content-safety inspection is separate and optional. Guardian never claims coverage for text an app does not expose to Accessibility.</Text>
+                <PrimaryButton label="Enable content-safety inspection" onPress={requestAccessibilityContentConsent} />
+                <SecondaryButton label="Turn off content-safety inspection" onPress={() => { void GuardianProtection.setAccessibilityContentConsent(false); }} />
+              </>
+            )}
             <Text>
               Communication Safety checks notification signals from supported communication apps.
               Guardian analyzes notification text briefly on this device, discards it, and sends
