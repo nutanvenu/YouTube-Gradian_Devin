@@ -4,8 +4,7 @@ apply plugin: "com.facebook.react"
 
 def projectRoot = rootDir.getAbsoluteFile().getParentFile().getAbsolutePath()
 def releaseValue = { String name ->
-    def configured = findProperty(name) ?: System.getenv(name) ?: ""
-    return configured.toString().trim()
+    return (System.getenv(name) ?: "").trim()
 }
 def releaseStoreFileValue = releaseValue("GUARDIAN_RELEASE_STORE_FILE")
 def releaseStorePassword = releaseValue("GUARDIAN_RELEASE_STORE_PASSWORD")
@@ -212,6 +211,7 @@ tasks.register(taskName, Exec) {
     group = "verification"
     description = "Verifies the merged manifest, fixture absence, signer, and version of the signed release ${kind.toUpperCase()}."
     workingDir projectRoot
+    environment releaseAdmissionEnvironment
     doFirst {
         def manifests = fileTree(buildDir).matching {
             include "intermediates/merged_manifest/release/**/AndroidManifest.xml"

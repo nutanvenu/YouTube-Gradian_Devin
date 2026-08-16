@@ -138,19 +138,26 @@ GUARDIAN_RELEASE_STORE_FILE=/secure/guardian-release.p12 \
 GUARDIAN_RELEASE_STORE_PASSWORD=from-secret-storage \
 GUARDIAN_RELEASE_KEY_ALIAS=guardian-release \
 GUARDIAN_RELEASE_KEY_PASSWORD=from-secret-storage \
+GUARDIAN_RELEASE_STORE_TYPE=PKCS12 \
+GUARDIAN_RELEASE_CERT_SHA256=64-lowercase-hex-certificate-fingerprint \
 GUARDIAN_POLICY_TRUSTED_PUBLIC_KEYS='{"guardian-prod-2026-01":"base64-public-key"}' \
 GUARDIAN_POLICY_KEY_ID=guardian-prod-2026-01 \
 EXPO_PUBLIC_API_URL=https://api.guardian.family \
 GUARDIAN_DOH_URL=https://dns.guardian.family/dns-query \
 GUARDIAN_RELEASE_VERSION_CODE=42 \
+GUARDIAN_ENABLE_TEST_FIXTURES=false \
 ./gradlew :app:assembleRelease
 ```
 
-The release task rejects debug signing, fixture mode, placeholder endpoints,
-missing public policy authority, and a missing/invalid release version code.
-It then verifies the signed APK and merged release manifest. Backend-only
-secrets are validated by the backend's production settings and are not passed
-to the Android build.
+All release controls above are process-environment inputs; `-P` properties are
+not accepted for them. `GUARDIAN_RELEASE_CERT_SHA256` is the SHA-256 digest of
+the configured public release certificate, without colons. The trusted-key map
+must contain canonical base64 32-byte public Ed25519 keys and the active key
+id. The release task rejects debug signing, fixture mode, placeholder
+endpoints, missing public policy authority, and a missing/invalid release
+version code. It then verifies signed APK/AAB artifacts, including their final
+manifests. Backend-only secrets (including JWT and policy private keys) are
+validated by the backend and are never passed to the Android build.
 
 ## Emulator harness
 

@@ -22,21 +22,26 @@ function metadataTag(xml, name) {
   return Array.from(xml.matchAll(/<meta-data\b[^>]*>/g)).find((tag) => tag[0].includes(`android:name="${name}"`))?.[0];
 }
 
-export function verifyMergedManifest(xml) {
+export function verifyArtifactManifestXml(xml, artifactLabel) {
   const errors = [];
+  const prefix = `Release ${artifactLabel} manifest`;
   const application = applicationTag(xml);
-  if (!/android:allowBackup="false"/.test(application)) errors.push("Release merged manifest must set android:allowBackup=false.");
-  if (!/android:usesCleartextTraffic="false"/.test(application)) errors.push("Release merged manifest must set android:usesCleartextTraffic=false.");
+  if (!/android:allowBackup="false"/.test(application)) errors.push(`${prefix} must set android:allowBackup=false.`);
+  if (!/android:usesCleartextTraffic="false"/.test(application)) errors.push(`${prefix} must set android:usesCleartextTraffic=false.`);
   for (const [name, requiredValue] of Object.entries(REQUIRED_METADATA)) {
     const metadata = metadataTag(xml, name);
     if (!metadata || (requiredValue && !metadata.includes(`android:value="${requiredValue}"`))) {
-      errors.push(name === "isMonitoringTool" ? "Release merged manifest must declare isMonitoringTool=child_monitoring." : `Release merged manifest is missing required metadata ${name}.`);
+      errors.push(name === "isMonitoringTool" ? `${prefix} must declare isMonitoringTool=child_monitoring.` : `${prefix} is missing required metadata ${name}.`);
     }
   }
-  for (const service of REQUIRED_SERVICES) if (!xml.includes(service)) errors.push(`Release merged manifest is missing ${service}.`);
-  for (const permission of PROHIBITED_PERMISSIONS) if (xml.includes(`android.permission.${permission}`)) errors.push(`Release merged manifest contains prohibited permission ${permission}.`);
-  if (FIXTURE_MARKER.test(xml)) errors.push("Release merged manifest must not contain fixture declarations.");
+  for (const service of REQUIRED_SERVICES) if (!xml.includes(service)) errors.push(`${prefix} is missing ${service}.`);
+  for (const permission of PROHIBITED_PERMISSIONS) if (xml.includes(`android.permission.${permission}`)) errors.push(`${prefix} contains prohibited permission ${permission}.`);
+  if (FIXTURE_MARKER.test(xml)) errors.push(`${prefix} must not contain fixture declarations.`);
   return errors;
+}
+
+export function verifyMergedManifest(xml) {
+  return verifyArtifactManifestXml(xml, "merged");
 }
 
 export function verifyArtifactManifestTree(tree) {
@@ -92,8 +97,7 @@ function verifyApkVersion(apk, aapt, expected) {
   const version = output(aapt, ["dump", "badging", apk]).match(/versionCode='(\d+)'/)?.[1];
   return version === expected ? [] : [`Release APK versionCode ${version ?? "is absent"} does not equal requested ${expected}.`];
 }
-function verifyAabVersion(aab, apkanalyzer, expected) {
-  const manifest = output(apkanalyzer, ["manifest", "print", aab]);
+function verifyAabVersion(manifest, expected) {
   const version = manifest.match(/(?:android:)?versionCode="(\d+)"/)?.[1];
   return version === expected ? [] : [`Release AAB versionCode ${version ?? "is absent"} does not equal requested ${expected}.`];
 }
@@ -116,7 +120,13 @@ function main() {
     const keytool = requiredFile(argument("--keytool"), "keytool");
     const jarsigner = requiredFile(argument("--jarsigner"), "jarsigner");
     const apkanalyzer = requiredFile(argument("--apkanalyzer"), "apkanalyzer");
-    errors.push(...verifyAabCertificate(artifact, keytool, jarsigner), ...verifyAabVersion(artifact, apkanalyzer, expectedVersion));
+    // APK Analyzer reconstructs the final manifest stored in an Android App Bundle.
+    const manifest = output(apkanalyzer, ["manifest", "print", artifact]);
+    errors.push(
+      ...verifyAabCertificate(artifact, keytool, jarsigner),
+      ...verifyArtifactManifestXml(manifest, "AAB"),
+      ...verifyAabVersion(manifest, expectedVersion),
+    );
   } else throw new Error("Release artifact kind must be apk or aab.");
   if (errors.length) throw new Error(`Release artifact policy failed:\n${errors.map((error) => `- ${error}`).join("\n")}`);
   process.stdout.write(`Guardian release ${kind.toUpperCase()} artifact policy passed.\n`);

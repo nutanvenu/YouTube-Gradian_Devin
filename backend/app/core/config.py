@@ -1,5 +1,6 @@
 import base64
 import json
+import re
 from functools import lru_cache
 from typing import Literal
 
@@ -47,12 +48,15 @@ class Settings(BaseSettings):
             trusted_keys = json.loads(self.policy_trusted_public_keys or "")
             if not isinstance(trusted_keys, dict) or not trusted_keys:
                 raise ValueError
-            if self.policy_key_id not in trusted_keys:
+            if self.policy_key_id not in trusted_keys or _is_placeholder_key_id(
+                self.policy_key_id
+            ):
                 raise ValueError
             if any(
                 not isinstance(key_id, str)
                 or not isinstance(encoded_key, str)
-                or len(base64.b64decode(encoded_key, validate=True)) != 32
+                or _is_placeholder_key_id(key_id)
+                or not _is_canonical_ed25519_public_key(encoded_key)
                 for key_id, encoded_key in trusted_keys.items()
             ):
                 raise ValueError
@@ -62,6 +66,26 @@ class Settings(BaseSettings):
                 "containing the active key"
             ) from None
         return self
+
+
+def _is_placeholder_key_id(key_id: str) -> bool:
+    return not key_id.strip() or bool(
+        re.search(
+            r"(?:^|[._/-])"
+            r"(example|invalid|localhost|change[-_ ]?me|replace[-_ ]?me|"
+            r"placeholder|fixture|test)(?:$|[._/-])",
+            key_id,
+            flags=re.IGNORECASE,
+        )
+    )
+
+
+def _is_canonical_ed25519_public_key(encoded_key: str) -> bool:
+    try:
+        decoded = base64.b64decode(encoded_key, validate=True)
+    except (ValueError, TypeError):
+        return False
+    return len(decoded) == 32 and base64.b64encode(decoded).decode("ascii") == encoded_key
 
 
 @lru_cache

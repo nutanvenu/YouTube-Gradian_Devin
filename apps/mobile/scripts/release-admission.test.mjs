@@ -9,6 +9,7 @@ import test from "node:test";
 import { validateReleaseAdmission } from "./release-admission.mjs";
 import {
   verifyArtifactManifestTree,
+  verifyArtifactManifestXml,
   fixtureMarkerErrors,
   verifyMergedManifest,
 } from "./verify-release-artifact.mjs";
@@ -190,6 +191,13 @@ test("Android release sources declare SDK 36, no debug signing, and fail-closed 
   assert.match(buildFile, /output\.versionCode\.set/);
   assert.match(buildFile, /java\.security\.KeyStore\.getInstance/);
   assert.match(buildFile, /MessageDigest\.getInstance\("SHA-256"\)/);
+  const releaseValueBlock = buildFile.match(/def releaseValue = \{[\s\S]*?\n\}/)?.[0] ?? "";
+  assert.doesNotMatch(releaseValueBlock, /findProperty/);
+  assert.equal(
+    buildFile.match(/environment releaseAdmissionEnvironment/g)?.length,
+    2,
+    "admission and artifact verification must receive the same environment-only release inputs",
+  );
   assert.match(buildFile, /assemble\|bundle\|package\|sign/);
   assert.match(
     buildFile,
@@ -298,6 +306,23 @@ test("APK manifest-tree policy verifier requires false backup and cleartext valu
   const errors = verifyArtifactManifestTree(tree);
   assert.ok(errors.some((error) => error.includes("allowBackup")));
   assert.ok(errors.some((error) => error.includes("usesCleartextTraffic")));
+});
+
+test("AAB effective-manifest policy verifier rejects changed release declarations", () => {
+  const invalidAabManifest = `
+    <manifest xmlns:android="http://schemas.android.com/apk/res/android">
+      <uses-permission android:name="android.permission.RECORD_AUDIO" />
+      <application android:allowBackup="true" android:usesCleartextTraffic="true">
+        <service android:name="GuardianVpnService" />
+        <meta-data android:name="isMonitoringTool" android:value="not_monitoring" />
+      </application>
+    </manifest>`;
+  const errors = verifyArtifactManifestXml(invalidAabManifest, "AAB");
+  assert.ok(errors.some((error) => error.includes("allowBackup")));
+  assert.ok(errors.some((error) => error.includes("Cleartext")));
+  assert.ok(errors.some((error) => error.includes("RECORD_AUDIO")));
+  assert.ok(errors.some((error) => error.includes("isMonitoringTool")));
+  assert.ok(errors.some((error) => error.includes("GuardianAccessibilityService")));
 });
 
 test("artifact archive policy rejects fixture names and fixture bytes", () => {
