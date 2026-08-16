@@ -75,19 +75,53 @@ export const CONTENT_RISK_SEVERITIES = contentRiskContract.severities as unknown
 export type ContentRiskSeverity = (typeof CONTENT_RISK_SEVERITIES)[number];
 
 export const CONTENT_RISK_CATEGORIES = contentRiskContract.categories as unknown as readonly [
-  "SELF_HARM",
+  "ADULT_NUDITY",
   "SEXUAL_CONTENT",
-  "SEXUAL_SOLICITATION",
-  "GROOMING",
-  "HARASSMENT",
-  "PHISHING_CREDENTIAL_THEFT",
-  "GRAPHIC_VIOLENCE_GORE",
-  "DRUGS_CONTROLLED_SUBSTANCES",
-  "GAMBLING",
+  "GROOMING_RISK",
+  "BULLYING_HARASSMENT",
   "HATE_EXTREMISM",
+  "SELF_HARM_SUICIDE",
+  "GRAPHIC_VIOLENCE",
+  "VIOLENCE",
+  "DRUGS",
+  "ALCOHOL_TOBACCO",
+  "GAMBLING",
+  "WEAPONS",
+  "DANGEROUS_CHALLENGE",
+  "ANONYMOUS_CHAT",
+  "SCAM_FRAUD",
+  "MALWARE_PHISHING",
+  "STRONG_LANGUAGE",
+  "AGE_INAPPROPRIATE",
+  "PARENT_CUSTOM_RULE",
   "UNKNOWN"
 ];
 export type ContentRiskCategory = (typeof CONTENT_RISK_CATEGORIES)[number];
+
+export const CONTENT_RISK_REASON_CODES = contentRiskContract.reason_codes as unknown as readonly [
+  "ADULT_NUDITY",
+  "AGE_INAPPROPRIATE",
+  "ALCOHOL_TOBACCO_PROMOTION",
+  "ANONYMOUS_CHAT",
+  "BULLYING_TARGETED",
+  "CONTEXT_NEGATED",
+  "DANGEROUS_CHALLENGE",
+  "DRUG_REFERENCE",
+  "GAMBLING_PROMOTION",
+  "GRAPHIC_VIOLENCE",
+  "GROOMING_PATTERN",
+  "HATE_EXTREMISM",
+  "MALWARE_PHISHING",
+  "PARENT_CUSTOM_RULE",
+  "SCAM_FRAUD",
+  "SELF_HARM_DIRECT",
+  "SELF_HARM_INTENT",
+  "SEXUAL_CONTENT_EXPLICIT",
+  "STRONG_LANGUAGE",
+  "VIOLENCE",
+  "WEAPONS_INSTRUCTION"
+];
+export type ContentRiskReasonCode = (typeof CONTENT_RISK_REASON_CODES)[number];
 
 export const CONTENT_RISK_CATEGORY_ALIASES = contentRiskContract.category_aliases as Readonly<
   Record<string, ContentRiskCategory>
@@ -103,10 +137,11 @@ export type PublicContentReference = {
 
 /** A local-only verdict: it contains no extracted title, message, or URL query. */
 export type ContentRiskVerdict = {
+  signalSource: SignalSource;
   category: ContentRiskCategory;
   severity: ContentRiskSeverity;
   confidence: number;
-  reasonCodes: readonly string[];
+  reasonCodes: readonly ContentRiskReasonCode[];
   classifierVersion: string;
   capabilityLevel: CapabilityLevel;
   action: ContentAction;
@@ -119,7 +154,7 @@ export type ContentReviewEvidence = {
   category: ContentRiskCategory;
   severity: ContentRiskSeverity;
   confidence: number;
-  reason_code: string;
+  reason_code: ContentRiskReasonCode | `${ContentRiskReasonCode}+${string}`;
   public_content_ref?: PublicContentReference;
 };
 

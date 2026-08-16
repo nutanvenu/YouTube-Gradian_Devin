@@ -215,6 +215,33 @@ test("Rules renders loading and pending-sync states and submits an app limit", a
   }));
 });
 
+test("Rules keeps content blocking separate from notification alert sensitivity", async () => {
+  setQuery(["children", "family-1"], {
+    data: [{
+      id: "child-1",
+      name: "Alex",
+      policy_document: {
+        app_rules: [],
+        domain_rules: [],
+        base_policy: {},
+        communication_safety: { severity_threshold: "HIGH" },
+        content_safety: { content_block_threshold: "MEDIUM" },
+      },
+    }],
+  });
+  setQuery(["child-inventory", "family-1", "child-1"], { data: [] });
+  setQuery(["health", "family-1"], { data: [] });
+  const screen = render(<RulesScreen />);
+  expect(screen.getByText("Content Safety")).toBeTruthy();
+  expect(screen.getByText("Block content at: MEDIUM")).toBeTruthy();
+  fireEvent.press(screen.getByLabelText("Use CRITICAL content block threshold"));
+  await waitFor(() => expect(mockMutatePolicy).toHaveBeenCalledWith({
+    operation: "CONTENT_BLOCK_THRESHOLD",
+    target: "content_safety",
+    value: "CRITICAL",
+  }));
+});
+
 test("Rules keeps a newly observed app in review until the parent marks it reviewed", async () => {
   setQuery(["children", "family-1"], {
     data: [{

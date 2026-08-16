@@ -304,7 +304,23 @@ async def create_request(
 ) -> RequestOut:
     await verify_device_request_headers(request, device, session)
     payload = body.model_dump(mode="json")
-    digest = payload_hash(payload)
+    family_id = await session.scalar(
+        select(ChildProfile.family_id).where(ChildProfile.id == device.child_profile_id)
+    )
+    if family_id is None:
+        raise HTTPException(status.HTTP_404_NOT_FOUND, "Child profile not found")
+    # Idempotency keys are client-chosen and therefore untrusted. Bind their
+    # digest to the authenticated device/resource scope so one child's replay
+    # cannot return a request identifier or approval state from another.
+    digest = payload_hash(
+        {
+            "device_id": str(device.id),
+            "child_profile_id": str(device.child_profile_id),
+            "family_id": str(family_id),
+            "request_type": body.request_type,
+            "body": payload,
+        }
+    )
     if idempotency_key is not None:
         await acquire_idempotency_lock(session, "request_create", idempotency_key)
         replay = await replay_or_conflict(session, "request_create", idempotency_key, digest)
@@ -377,9 +393,6 @@ async def create_request(
             status.HTTP_201_CREATED,
             result.model_dump(mode="json"),
         )
-    family_id = await session.scalar(
-        select(ChildProfile.family_id).where(ChildProfile.id == device.child_profile_id)
-    )
     deliveries: list[tuple[UUID, dict[str, object]]] = []
     if family_id is not None:
         parent_ids = await session.scalars(

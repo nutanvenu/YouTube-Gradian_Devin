@@ -309,16 +309,25 @@ export const openApiDocument = {
           },
           "category": {
             "enum": [
-              "SELF_HARM",
+              "ADULT_NUDITY",
               "SEXUAL_CONTENT",
-              "SEXUAL_SOLICITATION",
-              "GROOMING",
-              "HARASSMENT",
-              "PHISHING_CREDENTIAL_THEFT",
-              "GRAPHIC_VIOLENCE_GORE",
-              "DRUGS_CONTROLLED_SUBSTANCES",
-              "GAMBLING",
+              "GROOMING_RISK",
+              "BULLYING_HARASSMENT",
               "HATE_EXTREMISM",
+              "SELF_HARM_SUICIDE",
+              "GRAPHIC_VIOLENCE",
+              "VIOLENCE",
+              "DRUGS",
+              "ALCOHOL_TOBACCO",
+              "GAMBLING",
+              "WEAPONS",
+              "DANGEROUS_CHALLENGE",
+              "ANONYMOUS_CHAT",
+              "SCAM_FRAUD",
+              "MALWARE_PHISHING",
+              "STRONG_LANGUAGE",
+              "AGE_INAPPROPRIATE",
+              "PARENT_CUSTOM_RULE",
               "UNKNOWN"
             ],
             "title": "Category",
@@ -511,6 +520,34 @@ export const openApiDocument = {
       },
       "MinimizedEvent": {
         "additionalProperties": false,
+        "allOf": [
+          {
+            "if": {
+              "properties": {
+                "event_type": {
+                  "const": "SAFETY_CONTENT_RISK"
+                }
+              },
+              "required": [
+                "event_type"
+              ]
+            },
+            "then": {
+              "required": [
+                "app_ref",
+                "category",
+                "severity",
+                "confidence",
+                "reason_code",
+                "signal_source",
+                "action",
+                "classifier_version",
+                "capability_level",
+                "content_fingerprint"
+              ]
+            }
+          }
+        ],
         "properties": {
           "action": {
             "anyOf": [
@@ -532,6 +569,7 @@ export const openApiDocument = {
             "anyOf": [
               {
                 "maxLength": 200,
+                "pattern": "^[A-Za-z0-9._-]+$",
                 "type": "string"
               },
               {
@@ -878,6 +916,7 @@ export const openApiDocument = {
         "type": "object"
       },
       "PolicyMutationIn": {
+        "additionalProperties": false,
         "properties": {
           "expires_at": {
             "anyOf": [
@@ -912,6 +951,7 @@ export const openApiDocument = {
               "ROUTINE_DEACTIVATE",
               "COMMUNICATION_SENSITIVITY",
               "COMMUNICATION_ENABLED",
+              "CONTENT_BLOCK_THRESHOLD",
               "TEMPORARY_EXCEPTION",
               "TEMPORARY_SCREEN_TIME",
               "PAUSE_INTERNET",

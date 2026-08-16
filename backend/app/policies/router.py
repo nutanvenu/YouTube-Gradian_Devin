@@ -212,6 +212,12 @@ async def mutate_policy(
         communication = policy_mapping(policy, "communication_safety")
         communication["severity_threshold"] = body.value
         policy["communication_safety"] = communication
+    elif operation == "CONTENT_BLOCK_THRESHOLD":
+        # This independent, signed setting controls classifier enforcement.
+        # It deliberately does not reinterpret the notification alert threshold.
+        content_safety = policy_mapping(policy, "content_safety")
+        content_safety["content_block_threshold"] = body.value
+        policy["content_safety"] = content_safety
     elif operation == "TEMPORARY_EXCEPTION":
         if body.expires_at is None or body.expires_at <= datetime.now(UTC):
             raise HTTPException(status.HTTP_422_UNPROCESSABLE_ENTITY, "Future expiry required")

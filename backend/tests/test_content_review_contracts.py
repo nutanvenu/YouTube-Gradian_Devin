@@ -14,9 +14,11 @@ from cryptography.hazmat.primitives.serialization import Encoding, PublicFormat
 from jsonschema import Draft202012Validator, FormatChecker
 from sqlalchemy import delete, select
 
+from app.api.app import app
 from app.events.models import SafetyEvent
 from app.policies.models import PolicyBundle
 from app.policies.service import default_policy
+from app.policies.signing import verify_signed_bundle
 from app.requests import router as request_router
 from app.requests.models import Request
 
@@ -44,7 +46,7 @@ def content_review_payload(
         "content_review": {
             "app_ref": app_ref,
             "fingerprint": fingerprint,
-            "category": "SELF_HARM",
+            "category": "SELF_HARM_SUICIDE",
             "severity": "HIGH",
             "confidence": 0.91,
             "reason_code": "SELF_HARM_DIRECT+SELF_HARM_INTENT",
@@ -362,6 +364,58 @@ async def test_content_review_idempotency_conflict_and_concurrent_tuple_dedupe(
 
 
 @pytest.mark.asyncio
+async def test_request_create_idempotency_key_is_bound_to_authenticated_device(
+    client, paired_device
+) -> None:
+    key = "same-key-must-not-cross-device"
+    first = await post_content_review(client, paired_device, content_review_payload(), key)
+    assert first.status_code == 201, first.text
+
+    second_device = await pair_additional_device(client, paired_device)
+    cross_device = await post_content_review(
+        client, second_device, content_review_payload(), key
+    )
+    assert cross_device.status_code == 409
+    assert first.json()["id"] not in cross_device.text
+
+
+@pytest.mark.asyncio
+async def test_parent_can_set_a_signed_content_block_threshold_without_changing_alert_threshold(
+    client, parent_a
+) -> None:
+    url = (
+        f"/v1/families/{parent_a.family_id}/children/{parent_a.child_id}"
+        "/policy/mutations"
+    )
+    headers = {"Authorization": f"Bearer {parent_a.token}"}
+    updated = await client.post(
+        url,
+        headers=headers,
+        json={
+            "operation": "CONTENT_BLOCK_THRESHOLD",
+            "target": "content_safety",
+            "value": "CRITICAL",
+        },
+    )
+    assert updated.status_code == 200, updated.text
+    bundle = updated.json()["bundle"]
+    assert bundle["content_safety"]["content_block_threshold"] == "CRITICAL"
+    assert bundle["communication_safety"]["severity_threshold"] == "HIGH"
+    assert verify_signed_bundle(bundle, {"test-key": app.state.test_public_key})
+
+    invalid = await client.post(
+        url,
+        headers=headers,
+        json={
+            "operation": "CONTENT_BLOCK_THRESHOLD",
+            "target": "content_safety",
+            "value": "UNSAFE",
+        },
+    )
+    assert invalid.status_code == 422
+
+
+@pytest.mark.asyncio
 async def test_minimized_content_event_aliases_are_normalized_and_raw_fields_rejected(
     client, paired_device, database_session
 ) -> None:
@@ -370,7 +424,7 @@ async def test_minimized_content_event_aliases_are_normalized_and_raw_fields_rej
         "event_type": "SAFETY_CONTENT_RISK",
         "occurred_at": "2026-08-16T12:00:00Z",
         "app_ref": "com.example.video",
-        "category": "SELF_HARM_SUICIDE",
+        "category": "SELF_HARM",
         "severity": "HIGH",
         "confidence": 0.9,
         "reason_code": "SELF_HARM_DIRECT",
@@ -389,7 +443,7 @@ async def test_minimized_content_event_aliases_are_normalized_and_raw_fields_rej
     assert accepted.status_code == 202, accepted.text
     row = await database_session.scalar(select(SafetyEvent))
     assert row is not None
-    assert row.category == "SELF_HARM"
+    assert row.category == "SELF_HARM_SUICIDE"
     assert row.signal_source == "ACCESSIBILITY_TEXT"
     assert row.action == "BLOCK_AND_REQUEST"
     assert row.classifier_version == "rules-v1"
@@ -415,3 +469,98 @@ async def test_minimized_content_event_aliases_are_normalized_and_raw_fields_rej
         delete(SafetyEvent).where(SafetyEvent.event_type == "SAFETY_CONTENT_RISK")
     )
     await database_session.commit()
+
+
+@pytest.mark.asyncio
+async def test_content_risk_events_require_the_full_minimized_verdict_and_safe_destinations(
+    client, paired_device
+) -> None:
+    path = "/v1/devices/me/events"
+    content_event = {
+        "event_type": "SAFETY_CONTENT_RISK",
+        "occurred_at": "2026-08-16T12:00:00Z",
+        "app_ref": "com.example.video",
+        "category": "SELF_HARM_SUICIDE",
+        "severity": "HIGH",
+        "confidence": 0.9,
+        "reason_code": "SELF_HARM_DIRECT",
+        "signal_source": "ACCESSIBILITY_TEXT",
+        "action": "BLOCK_AND_REQUEST",
+        "classifier_version": "rules-v1",
+        "capability_level": "BEST_EFFORT",
+        "content_fingerprint": FINGERPRINT_A,
+    }
+
+    for field in (
+        "app_ref",
+        "category",
+        "severity",
+        "confidence",
+        "reason_code",
+        "signal_source",
+        "action",
+        "classifier_version",
+        "capability_level",
+        "content_fingerprint",
+    ):
+        event = {key: value for key, value in content_event.items() if key != field}
+        body = json.dumps({"events": [event]}, separators=(",", ":")).encode()
+        response = await client.post(
+            path,
+            content=body,
+            headers={
+                **paired_device.signed_headers(path, body),
+                "Content-Type": "application/json",
+            },
+        )
+        assert response.status_code == 422, field
+
+    arbitrary_reason = {**content_event, "reason_code": "UNREVIEWED_FREEFORM_REASON"}
+    body = json.dumps({"events": [arbitrary_reason]}, separators=(",", ":")).encode()
+    assert (
+        await client.post(
+            path,
+            content=body,
+            headers={
+                **paired_device.signed_headers(path, body),
+                "Content-Type": "application/json",
+            },
+        )
+    ).status_code == 422
+
+    raw_domain = "https://risk.example/path?RAW-DOMAIN-CANARY"
+    body = json.dumps(
+        {
+            "events": [
+                {
+                    "event_type": "DOMAIN",
+                    "occurred_at": "2026-08-16T12:00:00Z",
+                    "domain": raw_domain,
+                }
+            ]
+        },
+        separators=(",", ":"),
+    ).encode()
+    rejected_domain = await client.post(
+        path,
+        content=body,
+        headers={**paired_device.signed_headers(path, body), "Content-Type": "application/json"},
+    )
+    assert rejected_domain.status_code == 422
+    assert raw_domain not in rejected_domain.text
+
+    # Legacy safety events remain compatible; only content-risk records need
+    # the full verdict tuple.
+    legacy_body = json.dumps(
+        {"events": [{"event_type": "SAFETY_RISK", "occurred_at": "2026-08-16T12:00:00Z"}]},
+        separators=(",", ":"),
+    ).encode()
+    legacy = await client.post(
+        path,
+        content=legacy_body,
+        headers={
+            **paired_device.signed_headers(path, legacy_body),
+            "Content-Type": "application/json",
+        },
+    )
+    assert legacy.status_code == 202, legacy.text

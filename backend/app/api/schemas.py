@@ -35,6 +35,7 @@ RISK_SEVERITIES = tuple(_CONTENT_RISK_CONTRACT["severities"])
 CONTENT_RISK_SOURCES = tuple(_CONTENT_RISK_CONTRACT["signal_sources"])
 CONTENT_RISK_ACTIONS = tuple(_CONTENT_RISK_CONTRACT["actions"])
 CONTENT_RISK_CATEGORIES = tuple(_CONTENT_RISK_CONTRACT["categories"])
+CONTENT_RISK_REASON_CODES = frozenset(_CONTENT_RISK_CONTRACT["reason_codes"])
 # Older local providers used policy-taxonomy labels below. Keep their minimized
 # events readable, but persist one canonical content-risk taxonomy.
 CONTENT_RISK_CATEGORY_ALIASES = cast(
@@ -45,6 +46,21 @@ CONTENT_RISK_CATEGORY_ALIASES = cast(
 def normalize_content_risk_category(value: str) -> str:
     normalized = value.strip().upper()
     return CONTENT_RISK_CATEGORY_ALIASES.get(normalized, normalized)
+
+
+def validate_content_reason_code(value: str) -> str:
+    normalized = value.strip().upper()
+    if not re.fullmatch(r"[A-Z][A-Z0-9_]*(?:\+[A-Z][A-Z0-9_]*)*", normalized):
+        raise ValueError("Invalid content reason code")
+    if any(component not in CONTENT_RISK_REASON_CODES for component in normalized.split("+")):
+        raise ValueError("Unknown content reason code")
+    return normalized
+
+
+HOSTNAME = re.compile(
+    r"^(?=.{1,253}$)(?:[a-z0-9](?:[a-z0-9-]{0,61}[a-z0-9])?\.)*"
+    r"[a-z0-9](?:[a-z0-9-]{0,61}[a-z0-9])?$"
+)
 
 
 def validate_iana_timezone(value: str) -> str:
@@ -221,12 +237,40 @@ class DeviceHeartbeatIn(BaseModel):
 
 
 class MinimizedEvent(BaseModel):
-    model_config = ConfigDict(extra="forbid")
+    model_config = ConfigDict(
+        extra="forbid",
+        json_schema_extra={
+            "allOf": [
+                {
+                    "if": {
+                        "properties": {"event_type": {"const": "SAFETY_CONTENT_RISK"}},
+                        "required": ["event_type"],
+                    },
+                    "then": {
+                        "required": [
+                            "app_ref",
+                            "category",
+                            "severity",
+                            "confidence",
+                            "reason_code",
+                            "signal_source",
+                            "action",
+                            "classifier_version",
+                            "capability_level",
+                            "content_fingerprint",
+                        ]
+                    },
+                }
+            ]
+        },
+    )
 
     event_type: str = Field(min_length=1, max_length=50)
     occurred_at: datetime
     timezone: str | None = Field(default=None, min_length=1, max_length=64)
-    app_ref: str | None = Field(default=None, max_length=200)
+    app_ref: str | None = Field(
+        default=None, max_length=200, pattern=r"^[A-Za-z0-9._-]+$"
+    )
     domain: str | None = Field(default=None, max_length=253)
     category: str | None = Field(default=None, max_length=50)
     severity: Literal["LOW", "MEDIUM", "HIGH", "CRITICAL"] | None = None
@@ -271,6 +315,37 @@ class MinimizedEvent(BaseModel):
         # Event categories are intentionally additive: web/app policy categories
         # remain valid while legacy content-risk aliases become canonical.
         return normalize_content_risk_category(value) if value is not None else None
+
+    @field_validator("domain")
+    @classmethod
+    def normalize_domain(cls, value: str | None) -> str | None:
+        if value is None:
+            return None
+        normalized = value.strip().lower().rstrip(".")
+        if not HOSTNAME.fullmatch(normalized):
+            raise ValueError("Domain must be a hostname without a URL, path, or query")
+        return normalized
+
+    @model_validator(mode="after")
+    def require_content_risk_verdict(self) -> "MinimizedEvent":
+        if self.event_type.upper() != "SAFETY_CONTENT_RISK":
+            return self
+        if not self.app_ref:
+            raise ValueError("SAFETY_CONTENT_RISK requires app_ref")
+        if self.category not in CONTENT_RISK_CATEGORIES:
+            raise ValueError("SAFETY_CONTENT_RISK requires a canonical category")
+        if self.severity is None or self.confidence is None:
+            raise ValueError("SAFETY_CONTENT_RISK requires severity and confidence")
+        if self.signal_source is None or self.action is None:
+            raise ValueError("SAFETY_CONTENT_RISK requires signal source and action")
+        if self.classifier_version is None or self.capability_level is None:
+            raise ValueError("SAFETY_CONTENT_RISK requires classifier and capability")
+        if self.content_fingerprint is None:
+            raise ValueError("SAFETY_CONTENT_RISK requires a keyed fingerprint")
+        if self.reason_code is None:
+            raise ValueError("SAFETY_CONTENT_RISK requires a canonical reason code")
+        self.reason_code = validate_content_reason_code(self.reason_code)
+        return self
 
 
 class EventBatchIn(BaseModel):
@@ -353,16 +428,25 @@ class ContentReviewEvidenceIn(BaseModel):
     app_ref: str = Field(min_length=1, max_length=200, pattern=r"^[A-Za-z0-9._-]+$")
     fingerprint: str = Field(pattern=r"^[a-f0-9]{64}$")
     category: Literal[
-        "SELF_HARM",
+        "ADULT_NUDITY",
         "SEXUAL_CONTENT",
-        "SEXUAL_SOLICITATION",
-        "GROOMING",
-        "HARASSMENT",
-        "PHISHING_CREDENTIAL_THEFT",
-        "GRAPHIC_VIOLENCE_GORE",
-        "DRUGS_CONTROLLED_SUBSTANCES",
-        "GAMBLING",
+        "GROOMING_RISK",
+        "BULLYING_HARASSMENT",
         "HATE_EXTREMISM",
+        "SELF_HARM_SUICIDE",
+        "GRAPHIC_VIOLENCE",
+        "VIOLENCE",
+        "DRUGS",
+        "ALCOHOL_TOBACCO",
+        "GAMBLING",
+        "WEAPONS",
+        "DANGEROUS_CHALLENGE",
+        "ANONYMOUS_CHAT",
+        "SCAM_FRAUD",
+        "MALWARE_PHISHING",
+        "STRONG_LANGUAGE",
+        "AGE_INAPPROPRIATE",
+        "PARENT_CUSTOM_RULE",
         "UNKNOWN",
     ]
     severity: Literal["LOW", "MEDIUM", "HIGH", "CRITICAL"]
@@ -378,6 +462,11 @@ class ContentReviewEvidenceIn(BaseModel):
     @classmethod
     def normalize_category(cls, value: object) -> object:
         return normalize_content_risk_category(value) if isinstance(value, str) else value
+
+    @field_validator("reason_code")
+    @classmethod
+    def require_known_reason_code(cls, value: str) -> str:
+        return validate_content_reason_code(value)
 
 
 class RequestCreateIn(BaseModel):
@@ -435,6 +524,8 @@ class PushActionIn(BaseModel):
 
 
 class PolicyMutationIn(BaseModel):
+    model_config = ConfigDict(extra="forbid")
+
     operation: Literal[
         "APP_ALLOW",
         "APP_BLOCK",
@@ -455,6 +546,7 @@ class PolicyMutationIn(BaseModel):
         "ROUTINE_DEACTIVATE",
         "COMMUNICATION_SENSITIVITY",
         "COMMUNICATION_ENABLED",
+        "CONTENT_BLOCK_THRESHOLD",
         "TEMPORARY_EXCEPTION",
         "TEMPORARY_SCREEN_TIME",
         "PAUSE_INTERNET",
@@ -463,3 +555,13 @@ class PolicyMutationIn(BaseModel):
     target: str = Field(min_length=1, max_length=512)
     value: str | int | dict[str, object] | None = None
     expires_at: datetime | None = None
+
+    @model_validator(mode="after")
+    def validate_content_block_threshold(self) -> "PolicyMutationIn":
+        if self.operation != "CONTENT_BLOCK_THRESHOLD":
+            return self
+        if self.target != "content_safety":
+            raise ValueError("Content block threshold target must be content_safety")
+        if self.value not in RISK_SEVERITIES:
+            raise ValueError("Invalid content block threshold")
+        return self

@@ -52,7 +52,7 @@ class ContentRiskContractsTest {
     ContentReviewEvidence(
       appRef = "com.example.video",
       fingerprint = "a".repeat(64),
-      category = ContentRiskCategory.SELF_HARM,
+      category = ContentRiskCategory.SELF_HARM_SUICIDE,
       severity = ContentRiskSeverity.HIGH,
       confidence = 0.91,
       reasonCode = "SELF_HARM_DIRECT+SELF_HARM_INTENT",
@@ -63,7 +63,7 @@ class ContentRiskContractsTest {
       ContentReviewEvidence(
         appRef = "com.example video",
         fingerprint = "A".repeat(64),
-        category = ContentRiskCategory.SELF_HARM,
+        category = ContentRiskCategory.SELF_HARM_SUICIDE,
         severity = ContentRiskSeverity.HIGH,
         confidence = 0.91,
         reasonCode = "raw text is prohibited",

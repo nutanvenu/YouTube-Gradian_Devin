@@ -88,6 +88,7 @@ export default function ParentRulesRoute() {
   const domainRules = list<DomainRule>(policy.domain_rules);
   const basePolicy = record(policy.base_policy);
   const communicationPolicy = record(policy.communication_safety);
+  const contentSafetyPolicy = record(policy.content_safety);
   const routines = list<Routine>(policy.routines);
   const acknowledged = health.data?.some((item) => item.child_profile_id === childId && item.policy_version_applied === pendingVersion);
   const syncState = pendingVersion === null || acknowledged ? "Rules active on device." : `Pending sync · device has not acknowledged version ${pendingVersion}.`;
@@ -156,6 +157,28 @@ export default function ParentRulesRoute() {
             iPhone/iPad: Not available on iPhone/iPad. Android requires notification-listener consent;
             if permission is revoked, signals stop and access can be restored in Settings.
           </Text>
+        </SectionSurface>
+        <SectionSurface>
+          <Text>Content Safety</Text>
+          <Text>
+            Block content at: {typeof contentSafetyPolicy.content_block_threshold === "string"
+              ? contentSafetyPolicy.content_block_threshold
+              : "age-based default"}
+          </Text>
+          <Text>
+            This controls local content blocking and Ask Parent. It does not change notification alert sensitivity.
+          </Text>
+          {(["LOW", "MEDIUM", "HIGH", "CRITICAL"] as const).map((threshold) => (
+            <SecondaryButton
+              key={threshold}
+              label={`Use ${threshold} content block threshold`}
+              onPress={() => save({
+                operation: "CONTENT_BLOCK_THRESHOLD",
+                target: "content_safety",
+                value: threshold,
+              })}
+            />
+          ))}
         </SectionSurface>
         <SectionSurface>
           <Text>App controls</Text>

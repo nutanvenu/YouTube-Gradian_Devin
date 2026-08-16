@@ -33,17 +33,50 @@ enum class ContentRiskSeverity {
 }
 
 enum class ContentRiskCategory {
-  SELF_HARM,
+  ADULT_NUDITY,
   SEXUAL_CONTENT,
-  SEXUAL_SOLICITATION,
-  GROOMING,
-  HARASSMENT,
-  PHISHING_CREDENTIAL_THEFT,
-  GRAPHIC_VIOLENCE_GORE,
-  DRUGS_CONTROLLED_SUBSTANCES,
-  GAMBLING,
+  GROOMING_RISK,
+  BULLYING_HARASSMENT,
   HATE_EXTREMISM,
+  SELF_HARM_SUICIDE,
+  GRAPHIC_VIOLENCE,
+  VIOLENCE,
+  DRUGS,
+  ALCOHOL_TOBACCO,
+  GAMBLING,
+  WEAPONS,
+  DANGEROUS_CHALLENGE,
+  ANONYMOUS_CHAT,
+  SCAM_FRAUD,
+  MALWARE_PHISHING,
+  STRONG_LANGUAGE,
+  AGE_INAPPROPRIATE,
+  PARENT_CUSTOM_RULE,
   UNKNOWN,
+}
+
+enum class ContentRiskReasonCode {
+  ADULT_NUDITY,
+  AGE_INAPPROPRIATE,
+  ALCOHOL_TOBACCO_PROMOTION,
+  ANONYMOUS_CHAT,
+  BULLYING_TARGETED,
+  CONTEXT_NEGATED,
+  DANGEROUS_CHALLENGE,
+  DRUG_REFERENCE,
+  GAMBLING_PROMOTION,
+  GRAPHIC_VIOLENCE,
+  GROOMING_PATTERN,
+  HATE_EXTREMISM,
+  MALWARE_PHISHING,
+  PARENT_CUSTOM_RULE,
+  SCAM_FRAUD,
+  SELF_HARM_DIRECT,
+  SELF_HARM_INTENT,
+  SEXUAL_CONTENT_EXPLICIT,
+  STRONG_LANGUAGE,
+  VIOLENCE,
+  WEAPONS_INSTRUCTION,
 }
 
 enum class ContentCapabilityLevel {
@@ -53,6 +86,11 @@ enum class ContentCapabilityLevel {
   UNAVAILABLE,
   REGION_LIMITED,
 }
+
+private fun isCanonicalReasonCode(value: String): Boolean =
+  reasonCodePattern.matches(value) && value.split("+").all { component ->
+    ContentRiskReasonCode.entries.any { it.name == component }
+  }
 
 /**
  * Local-only classifier result. Extracted text deliberately has no field here,
@@ -70,7 +108,7 @@ data class ContentRiskVerdict(
   init {
     require(confidence in 0.0..1.0)
     require(reasonCodes.isNotEmpty() && reasonCodes.size <= 8)
-    require(reasonCodes.all { it.length <= 100 && reasonCodePattern.matches(it) })
+    require(reasonCodes.all { it.length <= 100 && isCanonicalReasonCode(it) })
     require(classifierVersion.length in 1..64 && classifierVersionPattern.matches(classifierVersion))
   }
 }
@@ -89,7 +127,7 @@ data class ContentReviewEvidence(
     require(appRef.length in 1..200 && appRefPattern.matches(appRef))
     require(fingerprintPattern.matches(fingerprint))
     require(confidence in 0.0..1.0)
-    require(reasonCode.length in 1..100 && reasonCodePattern.matches(reasonCode))
+    require(reasonCode.length in 1..100 && isCanonicalReasonCode(reasonCode))
     require(
       (publicContentProvider == null && publicContentId == null) ||
         (publicContentProvider in publicProviders &&
