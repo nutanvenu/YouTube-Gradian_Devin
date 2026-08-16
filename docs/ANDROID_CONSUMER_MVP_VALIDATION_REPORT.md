@@ -3,7 +3,7 @@
 Date: 2026-08-16  
 Branch: `codex/android-consumer-mvp-content-safety`  
 Base: `900ef272fa51369f075ecd1ed38cb26f0918d355`  
-Final reviewed implementation head before this report: `385bb63`
+Final implementation head covered by this report: `332f4a4`
 
 ## Outcome
 
@@ -137,6 +137,7 @@ real child data, or destructive change to the original checkout was performed.
 | Inventory claimed too little/grew stale | Lifecycle/source metadata was dropped and upload was one-shot | Source-tagged partial lifecycle contract, migration `0022`, foreground refresh |
 | Clean install failed at migration `0022` | Revision ID exceeded Alembic's 32-character version column | Shortened revision ID; fresh PostgreSQL inventory suite passes 4/4 |
 | Capability UI implied Accessibility was usable when parent policy disabled it | UI checked consent/permission but not the signed-policy capability | Native policy-aware capability plus child explanation; Luna closure review passed |
+| Accessibility declaration denied screen-content access while the consented runtime inspects exposed labels | Release metadata described older foreground-app-only behavior | Manifest and parent disclosures now state bounded local active-window inspection, exclusions, and immediate raw-text discard |
 | Authorized but stopped VPN had no recovery action | Button was shown only for missing permission wording | Preserve actionable LIMITED state and show Retry web protection |
 | Release could be debug-signed or point at placeholders | Release reused debug config and had no artifact admission | Explicit release-only signing and final-artifact validators |
 
