@@ -7,10 +7,17 @@ import org.junit.Test
 class InventoryObservationTest {
   @Test
   fun coverageIsAlwaysExplicitlyPartialAndListsOnlyObservedSources() {
-    val sources = setOf(InventorySource.LAUNCHER, InventorySource.USAGE_STATS)
+    val sources = setOf(
+      InventorySource.LAUNCHER,
+      InventorySource.USAGE_STATS,
+      InventorySource.ACCESSIBILITY_FOREGROUND,
+    )
 
     assertEquals("PARTIAL", InventoryCoverage.PARTIAL)
-    assertEquals(listOf("LAUNCHER", "USAGE_STATS"), InventoryCoverage.sourceLabels(sources))
+    assertEquals(
+      listOf("ACCESSIBILITY_FOREGROUND", "LAUNCHER", "USAGE_STATS"),
+      InventoryCoverage.sourceLabels(sources),
+    )
     assertTrue(InventoryCoverage.detail(sources).contains("incomplete"))
   }
 }

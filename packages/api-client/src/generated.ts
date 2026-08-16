@@ -776,6 +776,28 @@ export const openApiDocument = {
       "ObservedAppIn": {
         "additionalProperties": false,
         "properties": {
+          "capability_sources": {
+            "anyOf": [
+              {
+                "items": {
+                  "enum": [
+                    "LAUNCHER",
+                    "USAGE_STATS",
+                    "NOTIFICATION",
+                    "VPN_ATTRIBUTION",
+                    "ACCESSIBILITY_FOREGROUND"
+                  ],
+                  "type": "string"
+                },
+                "maxItems": 5,
+                "type": "array"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Capability Sources"
+          },
           "category": {
             "anyOf": [
               {
@@ -794,6 +816,57 @@ export const openApiDocument = {
             "title": "Display Name",
             "type": "string"
           },
+          "first_seen_at": {
+            "anyOf": [
+              {
+                "format": "date-time",
+                "type": "string"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "First Seen At"
+          },
+          "installation_state": {
+            "anyOf": [
+              {
+                "enum": [
+                  "INSTALLED",
+                  "UNINSTALLED_OR_NOT_VISIBLE"
+                ],
+                "type": "string"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Installation State"
+          },
+          "inventory_completeness": {
+            "anyOf": [
+              {
+                "const": "PARTIAL",
+                "type": "string"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Inventory Completeness"
+          },
+          "last_seen_at": {
+            "anyOf": [
+              {
+                "format": "date-time",
+                "type": "string"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Last Seen At"
+          },
           "observed_at": {
             "format": "date-time",
             "title": "Observed At",
@@ -804,6 +877,18 @@ export const openApiDocument = {
             "minLength": 1,
             "title": "Platform App Id",
             "type": "string"
+          },
+          "version_name": {
+            "anyOf": [
+              {
+                "maxLength": 200,
+                "type": "string"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Version Name"
           }
         },
         "required": [
@@ -816,6 +901,13 @@ export const openApiDocument = {
       },
       "ObservedAppOut": {
         "properties": {
+          "capability_sources": {
+            "items": {
+              "type": "string"
+            },
+            "title": "Capability Sources",
+            "type": "array"
+          },
           "category": {
             "anyOf": [
               {
@@ -831,6 +923,52 @@ export const openApiDocument = {
             "title": "Display Name",
             "type": "string"
           },
+          "first_seen_at": {
+            "anyOf": [
+              {
+                "format": "date-time",
+                "type": "string"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "First Seen At"
+          },
+          "installation_state": {
+            "anyOf": [
+              {
+                "type": "string"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Installation State"
+          },
+          "inventory_completeness": {
+            "anyOf": [
+              {
+                "type": "string"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Inventory Completeness"
+          },
+          "last_seen_at": {
+            "anyOf": [
+              {
+                "format": "date-time",
+                "type": "string"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Last Seen At"
+          },
           "observed_at": {
             "format": "date-time",
             "title": "Observed At",
@@ -843,6 +981,17 @@ export const openApiDocument = {
           "reviewed": {
             "title": "Reviewed",
             "type": "boolean"
+          },
+          "version_name": {
+            "anyOf": [
+              {
+                "type": "string"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Version Name"
           }
         },
         "required": [

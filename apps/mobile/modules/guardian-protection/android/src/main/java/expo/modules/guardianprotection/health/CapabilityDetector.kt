@@ -10,6 +10,7 @@ import android.provider.Settings
 import android.os.Process
 import expo.modules.guardianprotection.accessibility.GuardianAccessibilityService
 import expo.modules.guardianprotection.content.ContentSafetyConsentStore
+import expo.modules.guardianprotection.content.ContentSafetyServiceRuntime
 import expo.modules.guardianprotection.inventory.PackageInventory
 import expo.modules.guardianprotection.vpn.GuardianVpnService
 import expo.modules.guardianprotection.vpn.GuardianVpnPreferences
@@ -20,20 +21,27 @@ import java.time.Instant
 class CapabilityDetector(private val context: Context) {
   fun getCapabilities(): Map<String, Map<String, Any?>> {
     val now = Instant.now().toString()
-    val accessibilityContentEnabled = accessibilityGranted() &&
-      ContentSafetyConsentStore(context).hasAccessibilityContentConsent()
+    val accessibilityPermissionGranted = accessibilityGranted()
+    val accessibilityLocalConsentGranted = ContentSafetyConsentStore(context)
+      .hasAccessibilityContentConsent()
+    val signedPolicyAllowsAccessibility = accessibilityPermissionGranted &&
+      accessibilityLocalConsentGranted && ContentSafetyServiceRuntime.allowsAccessibilitySignals(
+        context,
+        expo.modules.guardianprotection.BuildConfig.GUARDIAN_POLICY_TRUSTED_PUBLIC_KEYS,
+      )
+    val accessibilitySignals = AccessibilitySignalCapabilityEvaluator.evaluate(
+      accessibilityPermissionGranted,
+      accessibilityLocalConsentGranted,
+      signedPolicyAllowsAccessibility,
+    )
     val vpn = vpnCapability()
     return mapOf(
       "vpn_filtering" to status(vpn.vpnLevel, now, vpn.detail),
       "app_usage" to status(if (usageAccessGranted()) "FULL" else "UNAVAILABLE", now, "Usage Access"),
       "accessibility_signals" to status(
-        if (accessibilityContentEnabled) "BEST_EFFORT" else "UNAVAILABLE",
+        accessibilitySignals.level,
         now,
-        if (accessibilityContentEnabled) {
-          "Active-window titles and headings only; editable/password text is excluded and discarded"
-        } else {
-          "Requires Android Accessibility permission and separate Content Safety consent"
-        },
+        accessibilitySignals.detail,
       ),
       "notification_signals" to status(
         if (notificationAccessGranted()) "BEST_EFFORT" else "UNAVAILABLE",
@@ -138,7 +146,10 @@ class CapabilityDetector(private val context: Context) {
         enabled -> "Protection was requested but the VPN is not running. Reopen Guardian to recover after reboot or a service stop."
         else -> "VPN protection is currently stopped."
       }
-      return VpnCapability("UNAVAILABLE", detail, "UNAVAILABLE", "$detail DNS traffic is not being intercepted.")
+      // The transport and consent are still usable even when the service was
+      // stopped. Report the inactive state honestly through web_filtering, but
+      // keep vpn_filtering recoverable so the child can explicitly retry.
+      return VpnCapability("LIMITED", detail, "UNAVAILABLE", "$detail DNS traffic is not being intercepted.")
     }
     val online = connectivityValidated()
     return VpnCapability(

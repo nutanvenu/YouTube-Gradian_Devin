@@ -28,8 +28,9 @@ const mockReputation = jest.fn<
   [number?]
 >();
 let mockGuardianEventListener: ((event: unknown) => void) | undefined;
-let mockGuardianCapabilities: Record<string, { level: string }> = {};
+let mockGuardianCapabilities: Record<string, { level: string; detail?: string }> = {};
 let mockGuardianProtectionStatus = { active: false, health: "UNKNOWN" };
+let mockObservedApps: Array<Record<string, unknown>> = [];
 let mockOffline = false;
 
 jest.mock("react-native-safe-area-context", () => ({
@@ -98,7 +99,7 @@ jest.mock("../modules/guardian-protection/src", () => ({
       mockGuardianEventListener = listener;
       return { remove: mockGuardianSubscriptionRemove };
     },
-    getObservedApps: () => Promise.resolve([]),
+    getObservedApps: () => Promise.resolve(mockObservedApps),
     markObservedAppReviewed: (...args: unknown[]) => {
       mockReviewApp(...args);
       return Promise.resolve();
@@ -194,6 +195,7 @@ beforeEach(() => {
   mockGuardianEventListener = undefined;
   mockGuardianCapabilities = {};
   mockGuardianProtectionStatus = { active: false, health: "UNKNOWN" };
+  mockObservedApps = [];
   mockFlushRequest.mockResolvedValue([]);
   mockOffline = false;
 });
@@ -784,6 +786,26 @@ test("Child home refreshes protection when the native tunnel status changes", as
   screen.unmount();
 });
 
+test("Child home explains an inactive authorized VPN and offers a retry", async () => {
+  mockGuardianCapabilities = {
+    vpn_filtering: {
+      level: "LIMITED",
+      detail: "Protection was requested but the VPN is not running after a service stop.",
+    },
+    web_filtering: { level: "UNAVAILABLE" },
+    app_blocking: { level: "FULL" },
+  };
+  mockGuardianProtectionStatus = { active: false, health: "DEGRADED" };
+
+  const screen = render(<ChildHomeScreen />);
+  await waitFor(() => {
+    expect(screen.getByText("Protection was requested but the VPN is not running after a service stop.")).toBeTruthy();
+  });
+  fireEvent.press(screen.getByLabelText("Retry web protection"));
+  await waitFor(() => expect(mockStartProtection).toHaveBeenCalled());
+  screen.unmount();
+});
+
 test("Child protection acknowledgement, heartbeat, usage, and inventory continue when reputation sync fails", async () => {
   mockGuardianCapabilities = {
     vpn_filtering: { level: "FULL" },
@@ -806,6 +828,45 @@ test("Child protection acknowledgement, heartbeat, usage, and inventory continue
     expect(screen.getByText("Reputation updates are temporarily unavailable. Protection and parent rules remain active.")).toBeTruthy();
   });
   expect(mockStartProtection).toHaveBeenCalled();
+  screen.unmount();
+});
+
+test("Child inventory uploads source-tagged lifecycle metadata without an icon", async () => {
+  mockGuardianCapabilities = {
+    vpn_filtering: { level: "FULL" },
+    web_filtering: { level: "LIMITED" },
+    app_blocking: { level: "FULL" },
+    communication_risk_signals: { level: "FULL" },
+  };
+  mockGuardianProtectionStatus = { active: true, health: "HEALTHY" };
+  mockObservedApps = [{
+    platformAppId: "com.example.observed",
+    displayName: "Observed",
+    category: "GAMES",
+    observedAt: "2026-08-16T10:00:00Z",
+    versionName: "2.0.0",
+    firstSeenAt: "2026-08-01T10:00:00Z",
+    lastSeenAt: "2026-08-16T10:00:00Z",
+    installationState: "INSTALLED",
+    capabilitySources: ["LAUNCHER", "ACCESSIBILITY_FOREGROUND"],
+    inventoryCompleteness: "PARTIAL",
+    iconUri: "android.resource://com.example.observed/42",
+  }];
+  setQuery(["device-policy"], { data: { policy_version: 12, bundle: {} } });
+
+  const screen = render(<ChildHomeScreen />);
+  await waitFor(() => expect(mockIngestInventory).toHaveBeenCalledWith([{
+    platform_app_id: "com.example.observed",
+    display_name: "Observed",
+    category: "GAMES",
+    observed_at: "2026-08-16T10:00:00Z",
+    version_name: "2.0.0",
+    first_seen_at: "2026-08-01T10:00:00Z",
+    last_seen_at: "2026-08-16T10:00:00Z",
+    installation_state: "INSTALLED",
+    capability_sources: ["LAUNCHER", "ACCESSIBILITY_FOREGROUND"],
+    inventory_completeness: "PARTIAL",
+  }]));
   screen.unmount();
 });
 

@@ -171,7 +171,7 @@ async def list_inventory(
             await session.scalars(
                 select(ChildAppInventory)
                 .where(ChildAppInventory.child_profile_id == child.id)
-                .order_by(ChildAppInventory.display_name)
+                .order_by(ChildAppInventory.display_name, ChildAppInventory.platform_app_id)
             )
         ).all()
     )
@@ -182,6 +182,12 @@ async def list_inventory(
             category=row.category,
             observed_at=row.observed_at,
             reviewed=row.reviewed_at is not None,
+            version_name=row.version_name,
+            first_seen_at=row.first_seen_at,
+            last_seen_at=row.last_seen_at,
+            installation_state=row.installation_state,
+            capability_sources=row.capability_sources or [],
+            inventory_completeness=row.inventory_completeness,
         )
         for row in rows
     ]

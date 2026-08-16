@@ -148,6 +148,14 @@ export type ObservedApp = {
   category: string | null;
   observed_at: string;
   reviewed: boolean;
+  version_name: string | null;
+  first_seen_at: string | null;
+  last_seen_at: string | null;
+  installation_state: "INSTALLED" | "UNINSTALLED_OR_NOT_VISIBLE" | null;
+  capability_sources: Array<
+    "LAUNCHER" | "USAGE_STATS" | "NOTIFICATION" | "VPN_ATTRIBUTION" | "ACCESSIBILITY_FOREGROUND"
+  >;
+  inventory_completeness: "PARTIAL" | null;
 };
 export type ReputationEntry = {
   target_kind: "DOMAIN" | "APP";
@@ -394,6 +402,14 @@ export class GuardianApiClient {
     display_name: string;
     category?: string | null;
     observed_at: string;
+    version_name?: string | null;
+    first_seen_at?: string;
+    last_seen_at?: string;
+    installation_state?: "INSTALLED" | "UNINSTALLED_OR_NOT_VISIBLE";
+    capability_sources?: Array<
+      "LAUNCHER" | "USAGE_STATS" | "NOTIFICATION" | "VPN_ATTRIBUTION" | "ACCESSIBILITY_FOREGROUND"
+    >;
+    inventory_completeness?: "PARTIAL";
   }>) {
     return this.request<undefined>("/v1/devices/me/inventory", {
       method: "POST",

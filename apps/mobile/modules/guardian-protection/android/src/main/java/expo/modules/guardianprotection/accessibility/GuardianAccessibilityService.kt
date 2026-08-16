@@ -16,6 +16,7 @@ import expo.modules.guardianprotection.content.ContentSafetyConsentStore
 import expo.modules.guardianprotection.content.ContentSafetyServiceRuntime
 import expo.modules.guardianprotection.content.ContentBlockCoordinator
 import expo.modules.guardianprotection.content.ContentSafetyObservationGate
+import expo.modules.guardianprotection.inventory.InventorySource
 import expo.modules.guardianprotection.inventory.PackageInventory
 import expo.modules.guardianprotection.policy.GuardianPolicyRuntime
 import expo.modules.guardianprotection.policy.PolicyManager
@@ -178,6 +179,14 @@ class GuardianAccessibilityService : AccessibilityService() {
   }
 
   private fun updateForeground(packageName: String) {
+    // Identifier and capability source only.  This deliberately runs before
+    // any optional content inspection and never persists Accessibility text.
+    if (packageName != packageNameOfGuardian()) {
+      inventory.recordObservedPackages(
+        setOf(packageName),
+        InventorySource.ACCESSIBILITY_FOREGROUND,
+      )
+    }
     val category = if (packageName == packageNameOfGuardian()) null else inventory.categoryFor(packageName)
     foregroundPackage = packageName
     foregroundCategory = category

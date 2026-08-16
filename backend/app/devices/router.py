@@ -271,25 +271,50 @@ async def ingest_inventory(
     session: AsyncSession = Depends(get_session),
 ) -> None:
     for app in body.apps:
+        statement = insert(ChildAppInventory).values(
+            child_profile_id=device.child_profile_id,
+            platform_app_id=app.platform_app_id,
+            display_name=app.display_name,
+            category=app.category,
+            observed_at=app.observed_at,
+            version_name=app.version_name,
+            first_seen_at=app.first_seen_at,
+            last_seen_at=app.last_seen_at or app.observed_at,
+            installation_state=app.installation_state,
+            capability_sources=app.capability_sources,
+            inventory_completeness=app.inventory_completeness,
+        )
+        # Preserve the initial local observation while keeping the current
+        # lifecycle/source metadata fresh.  Legacy children can continue to
+        # upload the smaller inventory payload without clearing later fields.
+        set_values: dict[str, object] = {
+            "display_name": app.display_name,
+            "category": app.category,
+            "observed_at": func.greatest(ChildAppInventory.observed_at, statement.excluded.observed_at),
+            "first_seen_at": func.coalesce(
+                ChildAppInventory.first_seen_at,
+                statement.excluded.first_seen_at,
+            ),
+            "last_seen_at": func.greatest(
+                func.coalesce(ChildAppInventory.last_seen_at, ChildAppInventory.observed_at),
+                func.coalesce(statement.excluded.last_seen_at, statement.excluded.observed_at),
+            ),
+        }
+        if app.version_name is not None:
+            set_values["version_name"] = app.version_name
+        if app.installation_state is not None:
+            set_values["installation_state"] = app.installation_state
+        if app.capability_sources is not None:
+            set_values["capability_sources"] = app.capability_sources
+        if app.inventory_completeness is not None:
+            set_values["inventory_completeness"] = app.inventory_completeness
         await session.execute(
-            insert(ChildAppInventory)
-            .values(
-                child_profile_id=device.child_profile_id,
-                platform_app_id=app.platform_app_id,
-                display_name=app.display_name,
-                category=app.category,
-                observed_at=app.observed_at,
-            )
-            .on_conflict_do_update(
+            statement.on_conflict_do_update(
                 index_elements=[
                     ChildAppInventory.child_profile_id,
                     ChildAppInventory.platform_app_id,
                 ],
-                set_={
-                    "display_name": app.display_name,
-                    "category": app.category,
-                    "observed_at": app.observed_at,
-                },
+                set_=set_values,
             )
         )
     device.last_seen_at = datetime.now(UTC)

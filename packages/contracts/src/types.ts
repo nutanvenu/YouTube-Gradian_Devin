@@ -301,6 +301,15 @@ export interface ObservedApp {
   iconUri?: string | null;
   newlyObserved?: boolean;
   observedAt: string;
+  /** Lifecycle metadata is source-tagged and explicitly partial, never a full package inventory. */
+  versionName?: string | null;
+  firstSeenAt?: string;
+  lastSeenAt?: string;
+  installationState?: "INSTALLED" | "UNINSTALLED_OR_NOT_VISIBLE";
+  capabilitySources?: Array<
+    "LAUNCHER" | "USAGE_STATS" | "NOTIFICATION" | "VPN_ATTRIBUTION" | "ACCESSIBILITY_FOREGROUND"
+  >;
+  inventoryCompleteness?: "PARTIAL";
 }
 
 export type PermissionResult =

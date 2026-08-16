@@ -361,6 +361,20 @@ class ObservedAppIn(BaseModel):
     display_name: str = Field(min_length=1, max_length=200)
     category: str | None = Field(default=None, max_length=50)
     observed_at: datetime
+    version_name: str | None = Field(default=None, max_length=200)
+    first_seen_at: datetime | None = None
+    last_seen_at: datetime | None = None
+    installation_state: Literal["INSTALLED", "UNINSTALLED_OR_NOT_VISIBLE"] | None = None
+    capability_sources: list[
+        Literal[
+            "LAUNCHER",
+            "USAGE_STATS",
+            "NOTIFICATION",
+            "VPN_ATTRIBUTION",
+            "ACCESSIBILITY_FOREGROUND",
+        ]
+    ] | None = Field(default=None, max_length=5)
+    inventory_completeness: Literal["PARTIAL"] | None = None
 
 
 class ObservedAppBatchIn(BaseModel):
@@ -373,6 +387,14 @@ class ObservedAppOut(BaseModel):
     category: str | None
     observed_at: datetime
     reviewed: bool
+    version_name: str | None = None
+    first_seen_at: datetime | None = None
+    last_seen_at: datetime | None = None
+    # Input is strict; output stays forward-compatible with source labels that
+    # a later Android capability may add without breaking older parent apps.
+    installation_state: str | None = None
+    capability_sources: list[str] = Field(default_factory=list)
+    inventory_completeness: str | None = None
 
 
 class ActivityEventOut(BaseModel):

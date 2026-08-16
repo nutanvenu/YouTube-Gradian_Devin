@@ -41,6 +41,7 @@ export default function ChildHomeRoute() {
   const [familyId, setFamilyId] = useState<string>();
   const revoked = isRevokedDeviceError(policy.error);
   const [protectionMessage, setProtectionMessage] = useState("Checking web protection…");
+  const [canRetryProtection, setCanRetryProtection] = useState(false);
   const [appBlockingAvailable, setAppBlockingAvailable] = useState<boolean | null>(null);
   const [blockedEvent, setBlockedEvent] = useState<Extract<GuardianNativeEvent, { type: "WEB_BLOCKED" }> | null>(null);
   const [blockedEventCount, setBlockedEventCount] = useState(0);
@@ -127,10 +128,11 @@ export default function ChildHomeRoute() {
     const vpnReady = vpnCapability.level === "LIMITED" || vpnCapability.level === "FULL";
     const webActive = webCapability.level === "LIMITED" || webCapability.level === "FULL";
     const vpnActive = status.active && vpnReady;
+    setCanRetryProtection(!vpnActive && vpnReady);
     setProtectionMessage(
       !vpnActive
         ? vpnReady
-          ? "Web protection is unavailable."
+          ? (vpnCapability.detail ?? "Web protection is unavailable.")
           : (vpnCapability.detail ?? "Web protection permission is required.")
         : webActive
           ? "Web protection is active for encrypted DNS and known blocked destinations. Other traffic may bypass Guardian."
@@ -263,6 +265,12 @@ export default function ChildHomeRoute() {
           display_name: app.displayName,
           category: app.category,
           observed_at: app.observedAt,
+          version_name: app.versionName,
+          first_seen_at: app.firstSeenAt,
+          last_seen_at: app.lastSeenAt,
+          installation_state: app.installationState,
+          capability_sources: app.capabilitySources,
+          inventory_completeness: app.inventoryCompleteness,
         })),
       );
       inventoryUploaded.current = true;
@@ -329,6 +337,9 @@ export default function ChildHomeRoute() {
     });
     const subscription = AppState.addEventListener("change", (state) => {
       if (state === "active") {
+        // Launcher/Usage/Accessibility observations may have changed while
+        // Guardian was backgrounded. Re-send the source-tagged partial view.
+        inventoryUploaded.current = false;
         void syncProtection().catch(() => {
           if (!cancelled) {
             void refreshNativeProtection().catch(() => {
@@ -369,6 +380,16 @@ export default function ChildHomeRoute() {
               />
             ) : null}
             <Text>{protectionMessage}</Text>
+            {canRetryProtection ? (
+              <PrimaryButton
+                label="Retry web protection"
+                onPress={() => {
+                  void GuardianProtection.startProtection()
+                    .then(() => refreshNativeProtection())
+                    .catch(() => refreshNativeProtection().catch(() => undefined));
+                }}
+              />
+            ) : null}
             {reputationMessage ? <Text accessibilityRole="alert">{reputationMessage}</Text> : null}
             {appBlockingAvailable === false ? (
               <>
