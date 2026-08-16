@@ -343,6 +343,10 @@ export interface GuardianProtectionNative {
   openUsageAccessSettings(): Promise<void>;
   openAccessibilitySettings(): Promise<void>;
   setAccessibilityContentConsent(granted: boolean): Promise<PermissionResult>;
+  setContentDeviceId(deviceId: string): Promise<void>;
+  applyContentApprovals(approvals: ContentApproval[]): Promise<void>;
+  getPendingContentReviewRequests(): Promise<ContentReviewRequest[]>;
+  acknowledgeContentReviewRequest(appRef: string, fingerprint: string): Promise<void>;
   openNotificationAccessSettings(): Promise<void>;
   startProtection(): Promise<void>;
   stopProtection(): Promise<void>;

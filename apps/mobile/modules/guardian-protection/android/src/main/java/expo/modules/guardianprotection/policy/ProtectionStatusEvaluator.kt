@@ -6,10 +6,10 @@ internal object ProtectionStatusEvaluator {
     policyVersion: Long?,
     capabilities: Map<String, Map<String, Any?>>,
   ): Map<String, Any?> {
-    val missing = capabilities.filterValues { it["level"] == "UNAVAILABLE" }.keys
+    val nonFull = capabilities.filterValues { it["level"] != "FULL" }.keys
     val health = when {
       !active -> "DISABLED"
-      missing.isEmpty() -> "HEALTHY"
+      nonFull.isEmpty() -> "HEALTHY"
       else -> "DEGRADED"
     }
     return mapOf(
@@ -17,7 +17,7 @@ internal object ProtectionStatusEvaluator {
       "health" to health,
       "policyVersion" to policyVersion,
       "observedAt" to java.time.Instant.now().toString(),
-      "details" to missing.takeIf { it.isNotEmpty() }?.joinToString(","),
+      "details" to nonFull.takeIf { it.isNotEmpty() }?.joinToString(","),
     )
   }
 }

@@ -1,5 +1,5 @@
 import { act, fireEvent, render, waitFor } from "@testing-library/react-native";
-import { AppState, Text, type AppStateStatus } from "react-native";
+import { Alert, AppState, Text, type AppStateStatus } from "react-native";
 
 const mockQueryState = new Map<string, Record<string, unknown>>();
 const mockMutatePolicy = jest.fn();
@@ -11,6 +11,11 @@ const mockDefaultRefetch = jest.fn(() => Promise.resolve());
 const mockGuardianSubscriptionRemove = jest.fn();
 const mockGetCapabilities = jest.fn();
 const mockGetProtectionStatus = jest.fn();
+const mockSetAccessibilityContentConsent = jest.fn((granted: boolean) => {
+  void granted;
+  return Promise.resolve({ granted: true });
+});
+const mockOpenAccessibilitySettings = jest.fn(() => Promise.resolve());
 const mockApplyPolicyBundle = jest.fn<Promise<{ applied: boolean }>, [unknown]>();
 const mockStartProtection = jest.fn<Promise<void>, []>();
 const mockGetReputationStatus = jest.fn(() => Promise.resolve({ version: 0 }));
@@ -77,6 +82,7 @@ jest.mock("@/api/client", () => ({
     ingestEvents: (events: unknown[], correlationId?: string) => mockIngestEvents(events, correlationId),
     ingestInventory: (apps: unknown[]) => mockIngestInventory(apps),
     reputation: (version?: number) => mockReputation(version),
+    contentApprovals: () => Promise.resolve([]),
   },
 }));
 
@@ -111,7 +117,12 @@ jest.mock("../modules/guardian-protection/src", () => ({
     applyReputationBundle: jest.fn(() => Promise.resolve({ applied: true })),
     getUsageSummary: () => Promise.resolve({ byTarget: {} }),
     openUsageAccessSettings: jest.fn(),
-    openAccessibilitySettings: jest.fn(),
+    openAccessibilitySettings: () => mockOpenAccessibilitySettings(),
+    setAccessibilityContentConsent: (granted: boolean) => mockSetAccessibilityContentConsent(granted),
+    getPendingContentReviewRequests: () => Promise.resolve([]),
+    applyContentApprovals: () => Promise.resolve(),
+    acknowledgeContentReviewRequest: () => Promise.resolve(),
+    setContentDeviceId: () => Promise.resolve(),
   },
 }));
 
@@ -348,6 +359,21 @@ test("Protection Health renders permission-denied and platform-unavailable capab
   expect(screen.getAllByText("Permission denied").length).toBeGreaterThan(0);
   expect(screen.getByText("Platform unavailable")).toBeTruthy();
   expect(screen.getByText("DEGRADED")).toBeTruthy();
+});
+
+test("Child device requires explicit content-inspection consent before opening Accessibility settings", async () => {
+  const alert = jest.spyOn(Alert, "alert").mockImplementation((_title, _message, buttons) => {
+    const continueButton = buttons?.find((button) => button.text === "Continue to Accessibility settings");
+    continueButton?.onPress?.();
+  });
+  const screen = render(<ChildHomeScreen />);
+
+  expect(screen.getByText("Content-safety inspection is separate and optional. Guardian never claims coverage for text an app does not expose to Accessibility.")).toBeTruthy();
+  fireEvent.press(screen.getByLabelText("Enable content-safety inspection"));
+
+  await waitFor(() => expect(mockSetAccessibilityContentConsent).toHaveBeenCalledWith(true));
+  await waitFor(() => expect(mockOpenAccessibilitySettings).toHaveBeenCalled());
+  alert.mockRestore();
 });
 
 test("Activity renders empty data distinctly from endpoint errors", () => {
@@ -667,7 +693,7 @@ test("Child home surfaces unavailable app blocking with a recovery action", asyn
     app_blocking: { level: "FULL" },
   };
   const full = render(<ChildHomeScreen />);
-  await waitFor(() => expect(full.getByText("Web protection is active for DNS and known blocked destinations. Other traffic may bypass Guardian.")).toBeTruthy());
+  await waitFor(() => expect(full.getByText("Web protection is active for encrypted DNS and known blocked destinations. Other traffic may bypass Guardian.")).toBeTruthy());
   expect(full.queryByText("App limits are not being enforced right now. Re-enable Accessibility to restore app blocking.")).toBeNull();
   full.unmount();
 
@@ -690,7 +716,7 @@ test("Child home applies app-blocking capability events without polling native s
   mockGuardianProtectionStatus = { active: true, health: "HEALTHY" };
   const screen = render(<ChildHomeScreen />);
   await waitFor(() => {
-    expect(screen.getByText("Web protection is active for DNS and known blocked destinations. Other traffic may bypass Guardian.")).toBeTruthy();
+    expect(screen.getByText("Web protection is active for encrypted DNS and known blocked destinations. Other traffic may bypass Guardian.")).toBeTruthy();
   });
 
   const capabilityCalls = mockGetCapabilities.mock.calls.length;
@@ -751,7 +777,7 @@ test("Child home refreshes protection when the native tunnel status changes", as
     });
   });
   await waitFor(() => {
-    expect(screen.getByText("Web protection is active for DNS and known blocked destinations. Other traffic may bypass Guardian.")).toBeTruthy();
+    expect(screen.getByText("Web protection is active for encrypted DNS and known blocked destinations. Other traffic may bypass Guardian.")).toBeTruthy();
   });
   expect(mockGetCapabilities).toHaveBeenCalledTimes(capabilityCalls + 1);
   expect(mockGetProtectionStatus).toHaveBeenCalledTimes(protectionCalls + 1);
@@ -770,10 +796,13 @@ test("Child protection acknowledgement, heartbeat, usage, and inventory continue
   mockReputation.mockRejectedValueOnce(new Error("reputation offline"));
 
   const screen = render(<ChildHomeScreen />);
+  await waitFor(() => expect(mockApplyPolicyBundle).toHaveBeenCalled());
+  await waitFor(() => expect(mockGetCapabilities).toHaveBeenCalled());
+  await waitFor(() => expect(mockStartProtection).toHaveBeenCalled());
+  await waitFor(() => expect(mockAcknowledgePolicy).toHaveBeenCalledWith(9));
+  await waitFor(() => expect(mockHeartbeat).toHaveBeenCalled());
+  await waitFor(() => expect(mockIngestInventory).toHaveBeenCalled());
   await waitFor(() => {
-    expect(mockAcknowledgePolicy).toHaveBeenCalledWith(9);
-    expect(mockHeartbeat).toHaveBeenCalled();
-    expect(mockIngestInventory).toHaveBeenCalled();
     expect(screen.getByText("Reputation updates are temporarily unavailable. Protection and parent rules remain active.")).toBeTruthy();
   });
   expect(mockStartProtection).toHaveBeenCalled();
@@ -789,7 +818,7 @@ test("Child home shows active protection when the tunnel is already up on mount"
   mockGuardianProtectionStatus = { active: true, health: "HEALTHY" };
   const screen = render(<ChildHomeScreen />);
   await waitFor(() => {
-    expect(screen.getByText("Web protection is active for DNS and known blocked destinations. Other traffic may bypass Guardian.")).toBeTruthy();
+    expect(screen.getByText("Web protection is active for encrypted DNS and known blocked destinations. Other traffic may bypass Guardian.")).toBeTruthy();
   });
   expect(screen.queryByText("Web protection is unavailable.")).toBeNull();
   screen.unmount();
@@ -806,7 +835,7 @@ test("Child home reports cached protection as active while the policy server is 
   setQuery(["device-policy"], { data: { policy_version: 7, bundle: {} }, isError: true });
   const screen = render(<ChildHomeScreen />);
   await waitFor(() => {
-    expect(screen.getByText("Web protection is active for DNS and known blocked destinations. Other traffic may bypass Guardian.")).toBeTruthy();
+    expect(screen.getByText("Web protection is active for encrypted DNS and known blocked destinations. Other traffic may bypass Guardian.")).toBeTruthy();
   });
   expect(screen.getByText("This data may be out of date.")).toBeTruthy();
   expect(screen.getByText("Policy acknowledged by this device.")).toBeTruthy();
@@ -826,7 +855,7 @@ test("Child home shows an error and retry when no policy data is available", asy
   const screen = render(<ChildHomeScreen />);
   await waitFor(() => {
     expect(screen.getByText("You're offline. Last-known data may be shown.")).toBeTruthy();
-    expect(screen.getByText("Web protection is active for DNS and known blocked destinations. Other traffic may bypass Guardian.")).toBeTruthy();
+    expect(screen.getByText("Web protection is active for encrypted DNS and known blocked destinations. Other traffic may bypass Guardian.")).toBeTruthy();
   });
   expect(screen.getByLabelText("Retry")).toBeTruthy();
   expect(screen.getByText("Policy status is not available yet.")).toBeTruthy();

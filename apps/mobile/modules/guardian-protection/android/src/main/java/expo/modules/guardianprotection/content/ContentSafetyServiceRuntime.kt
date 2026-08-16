@@ -3,6 +3,7 @@ package expo.modules.guardianprotection.content
 import android.content.Context
 import expo.modules.guardianprotection.policy.PolicyManager
 import expo.modules.guardianprotection.storage.EncryptedPolicyStore
+import java.time.Instant
 
 /**
  * Rehydrates from encrypted, already-verified policy storage in service processes. It intentionally
@@ -19,6 +20,8 @@ object ContentSafetyServiceRuntime {
     return ContentSafetyRuntime(
       policy = {
         manager.activeSnapshot()?.let { snapshot ->
+          val expiresSoftAt = snapshot.expiresSoftAt ?: return@let null
+          if (!ContentSafetyPolicyValidity.isUsable(expiresSoftAt, Instant.now())) return@let null
           ContentSafetyPolicy(
             notificationEnabled = snapshot.communicationSafety["enabled"] == true &&
               snapshot.communicationSafety["android_notification_signals"] != false,
@@ -48,7 +51,7 @@ object ContentSafetyServiceRuntime {
     text: CharSequence?,
   ): MinimizedContentRiskEvent? {
     val active = runtime ?: bootstrap(context, trustedKeysJson) ?: return null
-    return active.processNotification(
+    val event = active.processNotification(
       packageName,
       isSystemNoise,
       notificationCategory,
@@ -56,6 +59,8 @@ object ContentSafetyServiceRuntime {
       title,
       text,
     )
+    ContentBlockCoordinator.observe(context, event, foregroundSignal = false)
+    return event
   }
 
   fun processAccessibility(
@@ -65,7 +70,12 @@ object ContentSafetyServiceRuntime {
     text: CharSequence,
   ): MinimizedContentRiskEvent? {
     val active = runtime ?: bootstrap(context, trustedKeysJson) ?: return null
-    return active.processAccessibility(packageName, text)
+    val event = active.processAccessibility(packageName, text)
+    // An expired signed policy is neither a safe result nor an approval: preserve a prior block.
+    if (active.hasUsablePolicy()) {
+      ContentBlockCoordinator.observe(context, event, foregroundSignal = true, observedAppRef = packageName)
+    }
+    return event
   }
 
   fun allowsAccessibilitySignals(context: Context, trustedKeysJson: String): Boolean {

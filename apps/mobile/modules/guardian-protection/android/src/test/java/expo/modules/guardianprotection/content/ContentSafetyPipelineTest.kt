@@ -63,6 +63,7 @@ class ContentSafetyPipelineTest {
   fun `notification filter accepts future user apps but excludes system OTP financial and media controls`() {
     assertTrue(NotificationContentFilter.shouldInspect("com.future.messenger", false, null, null, "Watch this", null))
     assertFalse(NotificationContentFilter.shouldInspect("com.android.systemui", true, "msg", null, "Watch this", null))
+    assertFalse(NotificationContentFilter.shouldInspect("com.android.chrome", true, "msg", null, "Watch this", null))
     assertFalse(NotificationContentFilter.shouldInspect("com.future.messenger", false, "msg", "chat", "Your verification code", "123456"))
     assertFalse(NotificationContentFilter.shouldInspect("com.future.messenger", false, "msg", "bank", "Bank alert", "Balance \$50"))
     assertFalse(NotificationContentFilter.shouldInspect("com.future.music", false, "transport", "media", "Song title", "Artist"))
@@ -99,6 +100,23 @@ class ContentSafetyPipelineTest {
   }
 
   @Test
+  fun `repeat app source and fingerprint is deduped before the event sink`() {
+    val emitted = mutableListOf<MinimizedContentRiskEvent>()
+    val runtime = ContentSafetyRuntime(
+      policy = { ContentSafetyPolicy(true, true, ContentRiskSeverity.MEDIUM) },
+      fingerprintKey = fingerprintKey,
+      eventSink = emitted::add,
+      classifier = DeterministicContentRiskClassifier(),
+    )
+    repeat(2) {
+      runtime.processNotification(
+        "com.future.social", false, "msg", "direct", "Urgent", "I am going to kill myself tonight",
+      )
+    }
+    assertEquals(1, emitted.size)
+  }
+
+  @Test
   fun `accessibility inspection is consent and event gated before text is read`() {
     assertFalse(AccessibilityContentGate.shouldInspect(false, true, AccessibilityEvent.TYPE_WINDOW_CONTENT_CHANGED))
     assertFalse(AccessibilityContentGate.shouldInspect(true, false, AccessibilityEvent.TYPE_WINDOW_CONTENT_CHANGED))
@@ -112,5 +130,18 @@ class ContentSafetyPipelineTest {
     val normalized = ContentTextNormalizer.normalize("A\u200b" + "x".repeat(2_000))
     assertFalse(normalized.contains('\u200b'))
     assertTrue(normalized.length <= ContentTextNormalizer.MAX_NORMALIZED_CHARS)
+  }
+
+  @Test
+  fun `blank or unavailable accessibility observations never enter a clearing classification`() {
+    assertFalse(ContentSafetyObservationGate.shouldProcess(null))
+    assertFalse(ContentSafetyObservationGate.shouldProcess("   \n\t"))
+    assertTrue(ContentSafetyObservationGate.shouldProcess("A safe visible heading"))
+  }
+
+  @Test
+  fun `expired signed policy is not usable for content classification`() {
+    assertFalse(ContentSafetyPolicyValidity.isUsable(java.time.Instant.parse("2026-08-16T12:00:00Z"), java.time.Instant.parse("2026-08-16T12:00:01Z")))
+    assertTrue(ContentSafetyPolicyValidity.isUsable(java.time.Instant.parse("2026-08-16T12:00:01Z"), java.time.Instant.parse("2026-08-16T12:00:00Z")))
   }
 }

@@ -82,6 +82,40 @@ export default function ChildHomeRoute() {
     }
   };
 
+  const flushContentReviewOutbox = async () => {
+    const requests = await GuardianProtection.getPendingContentReviewRequests();
+    for (const request of requests) {
+      await api.createRequest(
+        request,
+        `content-review:${request.content_review.app_ref}:${request.content_review.fingerprint}`,
+      );
+      await GuardianProtection.acknowledgeContentReviewRequest(
+        request.content_review.app_ref,
+        request.content_review.fingerprint,
+      );
+    }
+  };
+
+  const requestAccessibilityContentConsent = () => Alert.alert(
+    "Optional content-safety inspection",
+    "Guardian can inspect only titles, headings, and media labels exposed in the active window. It processes that text briefly on this device, excludes editable fields and passwords, and immediately discards it. It does not capture keystrokes, click history, screenshots, messages, or full Accessibility trees. Some apps use inaccessible custom views, so coverage is partial.",
+    [
+      {
+        text: "Keep off",
+        style: "cancel",
+        onPress: () => { void GuardianProtection.setAccessibilityContentConsent(false); },
+      },
+      {
+        text: "Continue to Accessibility settings",
+        onPress: () => {
+          void GuardianProtection.setAccessibilityContentConsent(true)
+            .then(() => GuardianProtection.openAccessibilitySettings())
+            .catch(() => undefined);
+        },
+      },
+    ],
+  );
+
   const refreshNativeProtection = async () => {
     const [status, capabilities] = await Promise.all([
       GuardianProtection.getProtectionStatus(),
@@ -90,16 +124,16 @@ export default function ChildHomeRoute() {
     const vpnCapability = capabilities.vpn_filtering;
     const webCapability = capabilities.web_filtering;
     const appBlockingCapability = capabilities.app_blocking;
-    const vpnActive =
-      status.active &&
-      vpnCapability.level === "FULL";
+    const vpnReady = vpnCapability.level === "LIMITED" || vpnCapability.level === "FULL";
+    const webActive = webCapability.level === "LIMITED" || webCapability.level === "FULL";
+    const vpnActive = status.active && vpnReady;
     setProtectionMessage(
       !vpnActive
-        ? vpnCapability.level === "FULL"
+        ? vpnReady
           ? "Web protection is unavailable."
-          : "Web protection permission is required."
-        : webCapability.level === "LIMITED"
-          ? "Web protection is active for DNS and known blocked destinations. Other traffic may bypass Guardian."
+          : (vpnCapability.detail ?? "Web protection permission is required.")
+        : webActive
+          ? "Web protection is active for encrypted DNS and known blocked destinations. Other traffic may bypass Guardian."
           : "Web protection is active, but coverage may be limited. Some traffic may bypass Guardian.",
     );
     setAppBlockingAvailable(appBlockingCapability.level === "FULL");
@@ -241,8 +275,9 @@ export default function ChildHomeRoute() {
         return;
       }
       const capabilities = await GuardianProtection.getCapabilities();
-      if (capabilities.vpn_filtering.level !== "FULL") {
-        setProtectionMessage("Web protection permission is required.");
+      const vpnReady = capabilities.vpn_filtering.level === "LIMITED" || capabilities.vpn_filtering.level === "FULL";
+      if (!vpnReady) {
+        setProtectionMessage(capabilities.vpn_filtering.detail ?? "Web protection permission is required.");
         return;
       }
       const communication = policy.data.bundle as { communication_safety?: { enabled?: boolean } };
@@ -257,8 +292,13 @@ export default function ChildHomeRoute() {
         protection_state: protectionStatus.health,
         capabilities: currentCapabilities,
       });
+      // Approval transport is opportunistic. A failed refresh never unlocks locally.
+      void api.contentApprovals()
+        .then((approvals) => GuardianProtection.applyContentApprovals(approvals))
+        .catch(() => undefined);
+      void flushContentReviewOutbox().catch(() => undefined);
       setAcknowledgedVersion(policy.data.policy_version);
-      setProtectionMessage("Web protection is active for DNS and known blocked destinations. Other traffic may bypass Guardian.");
+      setProtectionMessage("Web protection is active for encrypted DNS and known blocked destinations. Other traffic may bypass Guardian.");
       // Reputation is advisory and independently retryable. A transient
       // reputation outage must never suppress policy acknowledgement,
       // heartbeat, app inventory, or usage reporting.
@@ -339,6 +379,9 @@ export default function ChildHomeRoute() {
                 />
               </>
             ) : null}
+            <Text>Content-safety inspection is separate and optional. Guardian never claims coverage for text an app does not expose to Accessibility.</Text>
+            <PrimaryButton label="Enable content-safety inspection" onPress={requestAccessibilityContentConsent} />
+            <SecondaryButton label="Turn off content-safety inspection" onPress={() => { void GuardianProtection.setAccessibilityContentConsent(false); }} />
             <Text>
               Communication Safety checks notification signals from supported communication apps.
               Guardian analyzes notification text briefly on this device, discards it, and sends

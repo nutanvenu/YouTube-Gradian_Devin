@@ -2,6 +2,7 @@ package expo.modules.guardianprotection.content
 
 import java.nio.charset.StandardCharsets
 import java.text.Normalizer
+import java.time.Instant
 import javax.crypto.Mac
 import javax.crypto.spec.SecretKeySpec
 
@@ -252,8 +253,10 @@ class ContentSafetyRuntime(
   classifier: ContentRiskClassifier,
 ) {
   private val pipeline = ContentSafetyPipeline(classifier)
+  private val deduper = ContentRiskEventDeduper()
 
   fun allowsAccessibilitySignals(): Boolean = policy()?.accessibilitySignalsEnabled == true
+  fun hasUsablePolicy(): Boolean = policy() != null
 
   fun processNotification(
     packageName: String,
@@ -304,7 +307,38 @@ class ContentSafetyRuntime(
     observation,
     current.blockThreshold,
     fingerprintKey,
-  )?.also(eventSink)
+  )?.also { event ->
+    // Repeated Android callbacks must not grow encrypted event/request queues.
+    if (deduper.shouldPersist(event)) eventSink(event)
+  }
+}
+
+/** Bounded in-memory first gate; encrypted storage performs a durable second dedupe. */
+class ContentRiskEventDeduper {
+  private val recent = object : LinkedHashMap<String, Unit>(128, 0.75f, true) {
+    override fun removeEldestEntry(eldest: MutableMap.MutableEntry<String, Unit>?): Boolean = size > MAX_RECENT
+  }
+
+  @Synchronized
+  fun shouldPersist(event: MinimizedContentRiskEvent): Boolean {
+    val key = "${event.appRef}|${event.source.name}|${event.fingerprint}"
+    if (recent.containsKey(key)) return false
+    recent[key] = Unit
+    return true
+  }
+
+  private companion object {
+    const val MAX_RECENT = 128
+  }
+}
+
+object ContentSafetyPolicyValidity {
+  fun isUsable(expiresSoftAt: Instant, now: Instant = Instant.now()): Boolean = expiresSoftAt.isAfter(now)
+}
+
+/** A missing/blank Accessibility traversal is unknown, never a safe verdict. */
+object ContentSafetyObservationGate {
+  fun shouldProcess(extractedText: CharSequence?): Boolean = !extractedText.isNullOrBlank()
 }
 
 object AccessibilityContentGate {

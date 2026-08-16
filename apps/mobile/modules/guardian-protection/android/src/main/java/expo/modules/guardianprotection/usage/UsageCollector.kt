@@ -25,6 +25,7 @@ class UsageCollector(
     val events = query(dayStart.minusSeconds(24 * 60 * 60), now)
     val slices = UsageSessionDeriver.derive(events, dayStart, now, zone)
     val appTotals = slices.groupBy { it.packageName }.mapValues { (_, values) -> values.sumOf { it.durationMs } }
+    inventory.recordObservedPackages(appTotals.keys, expo.modules.guardianprotection.inventory.InventorySource.USAGE_STATS)
     val categoryTotals = appTotals.entries.groupBy { inventory.categoryFor(it.key) }
       .mapValues { (_, values) -> values.sumOf { it.value } }
     val totals = buildMap {

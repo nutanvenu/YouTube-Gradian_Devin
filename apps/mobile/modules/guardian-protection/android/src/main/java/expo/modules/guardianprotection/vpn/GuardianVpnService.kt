@@ -16,14 +16,14 @@ import android.os.ParcelFileDescriptor
 import android.os.SystemClock
 import expo.modules.guardianprotection.BuildConfig
 import expo.modules.guardianprotection.flow.AndroidFlowAttribution
+import expo.modules.guardianprotection.inventory.InventorySource
+import expo.modules.guardianprotection.inventory.PackageInventory
 import expo.modules.guardianprotection.policy.GuardianPolicyRuntime
 import expo.modules.guardianprotection.policy.PolicyManager
 import expo.modules.guardianprotection.storage.EncryptedPolicyStore
 import expo.modules.guardianprotection.observability.GuardianPerformanceMetrics
 import java.io.FileInputStream
 import java.io.FileOutputStream
-import java.net.DatagramPacket
-import java.net.DatagramSocket
 import java.net.InetAddress
 import java.util.concurrent.CopyOnWriteArraySet
 import java.util.concurrent.atomic.AtomicBoolean
@@ -39,11 +39,13 @@ class GuardianVpnService : VpnService() {
   private val blockedRoutes = BlockedDestinationRoutes(MAX_BLOCKED_DESTINATIONS)
   private val dnsCache = DnsCache()
   private val attribution by lazy { AndroidFlowAttribution(this) }
+  private val inventory by lazy { PackageInventory(this) }
   private var interfaceFd: ParcelFileDescriptor? = null
   private var worker: Thread? = null
   private var output: FileOutputStream? = null
   private var networkCallback: ConnectivityManager.NetworkCallback? = null
   private var dnsServers: List<InetAddress> = emptyList()
+  private var dohTransport: EncryptedDohTransport? = null
 
   override fun onStartCommand(intent: Intent?, flags: Int, startId: Int): Int {
     if (running.compareAndSet(false, true)) {
@@ -58,22 +60,42 @@ class GuardianVpnService : VpnService() {
       }
       if (VpnService.prepare(this) != null) {
         GuardianVpnPreferences.setEnabled(this, false)
+        GuardianVpnPreferences.recordRuntimeStatus(this, GuardianVpnRuntimeState.REVOKED, "VPN_CONSENT_REVOKED")
         fail("VPN_CONSENT_REVOKED")
+        stopSelf()
+        return START_NOT_STICKY
+      }
+      val dohEndpoint = DohEndpoint.parse(BuildConfig.GUARDIAN_DOH_URL)
+      if (dohEndpoint == null) {
+        GuardianVpnPreferences.setEnabled(this, false)
+        GuardianVpnPreferences.recordRuntimeStatus(this, GuardianVpnRuntimeState.UNAVAILABLE, "DOH_TRANSPORT_UNAVAILABLE")
+        setRunningState(false, "DOH_TRANSPORT_UNAVAILABLE")
+        fail("DOH_TRANSPORT_UNAVAILABLE")
+        stopSelf()
+        return START_NOT_STICKY
+      }
+      dohTransport = EncryptedDohTransport.bootstrap(dohEndpoint) { socket -> protect(socket) }
+      if (dohTransport == null) {
+        GuardianVpnPreferences.setEnabled(this, false)
+        GuardianVpnPreferences.recordRuntimeStatus(this, GuardianVpnRuntimeState.UNAVAILABLE, "DOH_BOOTSTRAP_UNAVAILABLE")
+        setRunningState(false, "DOH_BOOTSTRAP_UNAVAILABLE")
+        fail("DOH_BOOTSTRAP_UNAVAILABLE")
         stopSelf()
         return START_NOT_STICKY
       }
       ensurePolicyRuntime()
       registerNetworkCallback()
       dnsServers = currentDnsServers()
-      addKnownResolverRoutes()
       if (!establishInterface()) {
         GuardianVpnPreferences.setEnabled(this, false)
+        GuardianVpnPreferences.recordRuntimeStatus(this, GuardianVpnRuntimeState.UNAVAILABLE, "VPN_ESTABLISH_FAILED")
         setRunningState(false, "VPN_ESTABLISH_FAILED")
         fail("VPN_ESTABLISH_FAILED")
         stopSelf()
         return START_NOT_STICKY
       }
       GuardianVpnPreferences.setEnabled(this, true)
+      GuardianVpnPreferences.recordRuntimeStatus(this, GuardianVpnRuntimeState.RUNNING)
       setRunningState(true)
       startPacketWorker()
     }
@@ -82,6 +104,7 @@ class GuardianVpnService : VpnService() {
 
   override fun onRevoke() {
     GuardianVpnPreferences.setEnabled(this, false)
+    GuardianVpnPreferences.recordRuntimeStatus(this, GuardianVpnRuntimeState.REVOKED, "VPN_REVOKED")
     fail("VPN_REVOKED")
     stopSelf()
     super.onRevoke()
@@ -102,7 +125,10 @@ class GuardianVpnService : VpnService() {
       interfaceFd = null
     }
     blockedRoutes.clear()
-    setRunningState(false, "VPN_STOPPED")
+    if (GuardianVpnPreferences.runtimeStatus(this).state == GuardianVpnRuntimeState.RUNNING) {
+      GuardianVpnPreferences.recordRuntimeStatus(this, GuardianVpnRuntimeState.STOPPED, "VPN_STOPPED")
+    }
+    setRunningState(false, GuardianVpnPreferences.runtimeStatus(this).reason ?: "VPN_STOPPED")
     super.onDestroy()
   }
 
@@ -151,6 +177,7 @@ class GuardianVpnService : VpnService() {
     if (!blockedRoutes.contains(ip.destination)) return
     val domain = dnsCache.domainFor(ip.destination)
     val responsibleApp = attribution.packageNamesForFlow(key.attributionKey()).firstOrNull()
+    responsibleApp?.let { inventory.recordObservedPackages(setOf(it), InventorySource.VPN_ATTRIBUTION) }
     if (domain != null) {
       val decision = evaluateDomain(domain, ip.destination.hostAddress)
       if (decision.blocked) reportBlocked(domain, decision, responsibleApp)
@@ -167,6 +194,7 @@ class GuardianVpnService : VpnService() {
     val decision = evaluateDomain(domain, ip.destination.hostAddress)
     if (decision.blocked) {
       val responsibleApp = attribution.packageNamesForFlow(key.attributionKey()).firstOrNull()
+      responsibleApp?.let { inventory.recordObservedPackages(setOf(it), InventorySource.VPN_ATTRIBUTION) }
       reportBlocked(domain, decision, responsibleApp)
     }
   }
@@ -174,20 +202,9 @@ class GuardianVpnService : VpnService() {
   private fun handleDns(ip: IpPacket, datagram: UdpDatagram, key: FlowKey) {
     val query = DnsMessage.parse(datagram.payload) ?: return
     val responsibleApp = attribution.packageNamesForFlow(key.attributionKey()).firstOrNull()
-    val upstream = if (ip.isIpv6) InetAddress.getByName("2606:4700:4700::1111")
-    else InetAddress.getByName("1.1.1.1")
+    responsibleApp?.let { inventory.recordObservedPackages(setOf(it), InventorySource.VPN_ATTRIBUTION) }
     val decision = evaluateDomain(query.domain, ip.destination.hostAddress)
-    val primaryResponse = queryUpstream(datagram.payload, upstream)
     if (decision.blocked) {
-      val leases = buildList {
-        primaryResponse?.let { addAll(dnsCache.record(query.domain, it)) }
-        query.supplementalAddressQueries().forEach { supplementalQuery ->
-          queryUpstream(supplementalQuery, upstream)?.let {
-            addAll(dnsCache.record(query.domain, it))
-          }
-        }
-      }
-      val routesChanged = leases.any { blockedRoutes.add(it.address, it.expiresAtMillis) }
       reportBlocked(query.domain, decision, responsibleApp)
       write(PacketCodec.buildUdp(
         ip,
@@ -197,8 +214,10 @@ class GuardianVpnService : VpnService() {
         datagram.sourcePort,
         query.blockedResponse(),
       ))
-      if (routesChanged) restartInterface()
-    } else if (primaryResponse != null) {
+      return
+    }
+    val primaryResponse = dohTransport?.query(datagram.payload)
+    if (primaryResponse != null) {
       dnsCache.record(query.domain, primaryResponse)
       write(PacketCodec.buildUdp(
         ip,
@@ -209,22 +228,8 @@ class GuardianVpnService : VpnService() {
         primaryResponse,
       ))
     } else {
-      fail("DNS_UPSTREAM_UNAVAILABLE")
+      failOnce("DOH_UPSTREAM_UNAVAILABLE")
     }
-  }
-
-  private fun queryUpstream(query: ByteArray, upstream: InetAddress): ByteArray? {
-    return runCatching {
-      DatagramSocket().use { socket ->
-        protect(socket)
-        socket.soTimeout = DNS_TIMEOUT_MS
-        socket.send(DatagramPacket(query, query.size, upstream, DNS_PORT))
-        val received = ByteArray(4096)
-        val response = DatagramPacket(received, received.size)
-        socket.receive(response)
-        response.data.copyOf(response.length)
-      }
-    }.getOrNull()
   }
 
   private fun write(packet: ByteArray) {
@@ -308,6 +313,7 @@ class GuardianVpnService : VpnService() {
       if (establishInterface()) {
         startPacketWorker()
       } else {
+        GuardianVpnPreferences.recordRuntimeStatus(this, GuardianVpnRuntimeState.UNAVAILABLE, "VPN_REESTABLISH_FAILED")
         setRunningState(false, "VPN_REESTABLISH_FAILED")
         fail("VPN_REESTABLISH_FAILED")
       }
@@ -323,13 +329,6 @@ class GuardianVpnService : VpnService() {
     val connectivity = getSystemService(ConnectivityManager::class.java)
     val network = connectivity.activeNetwork ?: return emptyList()
     return connectivity.getLinkProperties(network)?.dnsServers.orEmpty()
-  }
-
-  private fun addKnownResolverRoutes() {
-    val expiresAt = System.currentTimeMillis() + KNOWN_ENDPOINT_TTL_MS
-    KNOWN_DOH_DOT_ENDPOINTS.forEach { endpoint ->
-      runCatching { blockedRoutes.add(InetAddress.getByName(endpoint), expiresAt) }
-    }
   }
 
   private fun registerNetworkCallback() {
@@ -465,12 +464,9 @@ class GuardianVpnService : VpnService() {
     private const val QUIC_PORT = 443
     private const val UDP = 17
     private const val TCP = 6
-    private const val DNS_TIMEOUT_MS = 2000
     private const val MAX_BLOCKED_DESTINATIONS = 1024
     private const val MAX_INTERFACE_ESTABLISH_ATTEMPTS = 4
     private const val INTERFACE_ESTABLISH_RETRY_DELAY_MS = 250L
-    private const val KNOWN_ENDPOINT_TTL_MS = 24 * 60 * 60 * 1000L
-    private val KNOWN_DOH_DOT_ENDPOINTS = listOf("1.1.1.1", "1.0.0.1", "8.8.8.8", "8.8.4.4", "9.9.9.9")
     @Volatile private var runningState = false
 
     fun isRunning(): Boolean = runningState
