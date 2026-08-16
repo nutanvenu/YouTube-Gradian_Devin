@@ -20,7 +20,7 @@ object ContentBlockCoordinator {
     context: Context,
     event: MinimizedContentRiskEvent?,
     foregroundSignal: Boolean,
-    observedAppRef: String? = null,
+    safeObservationAppRef: String? = null,
   ): ContentBlockDecision {
     val store = EncryptedPolicyStore(context.applicationContext)
     val active = store.activeContentBlock()
@@ -32,7 +32,7 @@ object ContentBlockCoordinator {
       Instant.now(),
     )
     if (!decision.shouldBlock) {
-      observedAppRef?.let { observed ->
+      safeObservationAppRef?.let { observed ->
         active?.takeIf { it.appRef == observed }?.let { store.clearActiveContentBlock(it.appRef, it.fingerprint) }
       }
       return decision
@@ -47,14 +47,6 @@ object ContentBlockCoordinator {
     store.saveActiveContentBlock(reference)
     if (foregroundSignal) present(context, reference)
     return decision
-  }
-
-  /** A safe/changed active-window result releases only its own previous fingerprint. */
-  fun clearForSafeContent(context: Context, appRef: String) {
-    val store = EncryptedPolicyStore(context.applicationContext)
-    store.activeContentBlock()?.takeIf { it.appRef == appRef }?.let {
-      store.clearActiveContentBlock(it.appRef, it.fingerprint)
-    }
   }
 
   /** Called from the foreground Accessibility path to restore an undismissable-in-place block. */

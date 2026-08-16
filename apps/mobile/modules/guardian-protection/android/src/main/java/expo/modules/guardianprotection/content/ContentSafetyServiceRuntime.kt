@@ -68,12 +68,20 @@ object ContentSafetyServiceRuntime {
     trustedKeysJson: String,
     packageName: String,
     text: CharSequence,
+    completeObservation: Boolean,
   ): MinimizedContentRiskEvent? {
     val active = runtime ?: bootstrap(context, trustedKeysJson) ?: return null
     val event = active.processAccessibility(packageName, text)
     // An expired signed policy is neither a safe result nor an approval: preserve a prior block.
     if (active.hasUsablePolicy()) {
-      ContentBlockCoordinator.observe(context, event, foregroundSignal = true, observedAppRef = packageName)
+      ContentBlockCoordinator.observe(
+        context,
+        event,
+        foregroundSignal = true,
+        safeObservationAppRef = packageName.takeIf {
+          ContentSafetyObservationGate.mayClearActiveBlock(text, completeObservation, event)
+        },
+      )
     }
     return event
   }

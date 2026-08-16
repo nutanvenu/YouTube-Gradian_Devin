@@ -336,9 +336,16 @@ object ContentSafetyPolicyValidity {
   fun isUsable(expiresSoftAt: Instant, now: Instant = Instant.now()): Boolean = expiresSoftAt.isAfter(now)
 }
 
-/** A missing/blank Accessibility traversal is unknown, never a safe verdict. */
+/** A partial Accessibility traversal is unknown, never a safe verdict. */
 object ContentSafetyObservationGate {
   fun shouldProcess(extractedText: CharSequence?): Boolean = !extractedText.isNullOrBlank()
+
+  fun mayClearActiveBlock(
+    extractedText: CharSequence?,
+    complete: Boolean,
+    event: MinimizedContentRiskEvent?,
+  ): Boolean = complete && shouldProcess(extractedText) &&
+    (event == null || event.action == ContentAction.ALLOW)
 }
 
 object AccessibilityContentGate {

@@ -109,9 +109,9 @@ class GuardianAccessibilityService : AccessibilityService() {
     if (lastContentInspectionAt.put(packageName, now)?.let { now - it < CONTENT_DEBOUNCE_MS } == true) {
       return
     }
-    var extracted: String? = collectActiveWindowText()
+    var extraction: AccessibilityTextExtraction? = collectActiveWindowText()
     try {
-      val candidate = extracted
+      val candidate = extraction?.text
       if (ContentSafetyObservationGate.shouldProcess(candidate)) {
         // The service runtime has no JS dependency and persists only its minimized output.
         ContentSafetyServiceRuntime.processAccessibility(
@@ -119,24 +119,30 @@ class GuardianAccessibilityService : AccessibilityService() {
           BuildConfig.GUARDIAN_POLICY_TRUSTED_PUBLIC_KEYS,
           packageName,
           requireNotNull(candidate),
+          requireNotNull(extraction).complete,
         )
       }
     } finally {
-      extracted = null
+      extraction = null
     }
   }
 
-  private fun collectActiveWindowText(): String? {
-    val root = rootInActiveWindow ?: return null
+  private fun collectActiveWindowText(): AccessibilityTextExtraction {
+    val root = rootInActiveWindow ?: return AccessibilityTextExtraction(null, complete = false)
     val deadline = SystemClock.elapsedRealtime() + CONTENT_TRAVERSAL_BUDGET_MS
     val queue = ArrayDeque<AccessibilityNodeInfo>()
     val text = StringBuilder(CONTENT_MAX_CHARS)
     queue.addLast(root)
     var visited = 0
+    var complete = true
     try {
-      while (queue.isNotEmpty() && visited < CONTENT_MAX_NODES &&
-        SystemClock.elapsedRealtime() <= deadline && text.length < CONTENT_MAX_CHARS
-      ) {
+      while (queue.isNotEmpty()) {
+        if (visited >= CONTENT_MAX_NODES || SystemClock.elapsedRealtime() >= deadline ||
+          text.length >= CONTENT_MAX_CHARS
+        ) {
+          complete = false
+          break
+        }
         val node = queue.removeFirst()
         try {
           visited += 1
@@ -154,10 +160,16 @@ class GuardianAccessibilityService : AccessibilityService() {
         }
       }
     } finally {
+      if (queue.isNotEmpty()) complete = false
       while (queue.isNotEmpty()) runCatching { queue.removeFirst().recycle() }
     }
-    return text.takeIf { it.isNotEmpty() }?.toString()
+    if (visited >= CONTENT_MAX_NODES || SystemClock.elapsedRealtime() >= deadline ||
+      text.length >= CONTENT_MAX_CHARS
+    ) complete = false
+    return AccessibilityTextExtraction(text.takeIf { it.isNotEmpty() }?.toString(), complete)
   }
+
+  private data class AccessibilityTextExtraction(val text: String?, val complete: Boolean)
 
   private fun appendBounded(destination: StringBuilder, value: CharSequence?) {
     if (value == null || destination.length >= CONTENT_MAX_CHARS) return

@@ -140,8 +140,36 @@ class ContentSafetyPipelineTest {
   }
 
   @Test
+  fun `only a complete nonblank safe accessibility observation can clear an active block`() {
+    assertFalse(ContentSafetyObservationGate.mayClearActiveBlock(null, complete = true, event = null))
+    assertFalse(ContentSafetyObservationGate.mayClearActiveBlock("Safe heading", complete = false, event = null))
+    assertFalse(ContentSafetyObservationGate.mayClearActiveBlock("Safe heading", complete = true, event = blockedEvent()))
+    assertTrue(ContentSafetyObservationGate.mayClearActiveBlock("Safe heading", complete = true, event = null))
+    assertTrue(
+      ContentSafetyObservationGate.mayClearActiveBlock(
+        "Safe heading",
+        complete = true,
+        event = blockedEvent().copy(action = ContentAction.ALLOW),
+      ),
+    )
+  }
+
+  @Test
   fun `expired signed policy is not usable for content classification`() {
     assertFalse(ContentSafetyPolicyValidity.isUsable(java.time.Instant.parse("2026-08-16T12:00:00Z"), java.time.Instant.parse("2026-08-16T12:00:01Z")))
     assertTrue(ContentSafetyPolicyValidity.isUsable(java.time.Instant.parse("2026-08-16T12:00:01Z"), java.time.Instant.parse("2026-08-16T12:00:00Z")))
   }
+
+  private fun blockedEvent() = MinimizedContentRiskEvent(
+    source = SignalSource.ACCESSIBILITY_TEXT,
+    appRef = "com.future.video",
+    fingerprint = "a".repeat(64),
+    category = ContentRiskCategory.SELF_HARM_SUICIDE,
+    severity = ContentRiskSeverity.CRITICAL,
+    confidence = 0.94,
+    reasonCode = "SELF_HARM_DIRECT+SELF_HARM_INTENT",
+    classifierVersion = "deterministic-rules-v1",
+    capabilityLevel = ContentCapabilityLevel.BEST_EFFORT,
+    action = ContentAction.BLOCK_AND_REQUEST,
+  )
 }
