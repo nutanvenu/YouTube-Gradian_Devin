@@ -152,6 +152,13 @@ class ContentSafetyPipelineTest {
         event = blockedEvent().copy(action = ContentAction.ALLOW),
       ),
     )
+    assertTrue(
+      ContentSafetyObservationGate.mayClearActiveBlock(
+        "Changed medium-risk heading",
+        complete = true,
+        event = blockedEvent().copy(action = ContentAction.WARN),
+      ),
+    )
   }
 
   @Test

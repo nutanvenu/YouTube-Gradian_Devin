@@ -345,7 +345,7 @@ object ContentSafetyObservationGate {
     complete: Boolean,
     event: MinimizedContentRiskEvent?,
   ): Boolean = complete && shouldProcess(extractedText) &&
-    (event == null || event.action == ContentAction.ALLOW)
+    event?.action != ContentAction.BLOCK_AND_REQUEST
 }
 
 object AccessibilityContentGate {
