@@ -14,13 +14,25 @@ branch_labels = None
 depends_on = None
 
 BACKFILL_USAGE_SNAPSHOTS_SQL = """
-UPDATE usage_aggregates
-SET snapshot_day = (occurred_at AT TIME ZONE timezone)::date,
+UPDATE usage_aggregates AS usage
+SET snapshot_day = (usage.occurred_at AT TIME ZONE resolved.timezone_name)::date,
     snapshot_key = CASE
-      WHEN app_ref IS NOT NULL THEN 'APP:' || app_ref
-      WHEN category IS NOT NULL THEN 'CATEGORY:' || category
+      WHEN usage.app_ref IS NOT NULL THEN 'APP:' || usage.app_ref
+      WHEN usage.category IS NOT NULL THEN 'CATEGORY:' || usage.category
       ELSE 'DEVICE'
     END
+FROM (
+  SELECT legacy.id,
+         COALESCE(valid_timezone.name, 'UTC') AS timezone_name
+  FROM usage_aggregates AS legacy
+  LEFT JOIN LATERAL (
+    SELECT timezone.name
+    FROM pg_timezone_names AS timezone
+    WHERE timezone.name = legacy.timezone
+    LIMIT 1
+  ) AS valid_timezone ON TRUE
+) AS resolved
+WHERE usage.id = resolved.id
 """
 
 # Keep the row with the latest timestamp/metadata, but retain the greatest

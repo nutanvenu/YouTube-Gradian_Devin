@@ -39,6 +39,38 @@ async def test_signup_family_child_and_tenant_isolation(client) -> None:
 
 
 @pytest.mark.asyncio
+async def test_child_timezone_rejects_invalid_iana_names_and_accepts_valid_names(
+    client, parent_a
+) -> None:
+    headers = {"Authorization": f"Bearer {parent_a.token}"}
+    invalid_create = await client.post(
+        f"/v1/families/{parent_a.family_id}/children",
+        headers=headers,
+        json={
+            "name": "Invalid zone",
+            "date_of_birth": "2015-08-15",
+            "timezone": "Not/ARealZone",
+        },
+    )
+    assert invalid_create.status_code == 422
+
+    invalid_update = await client.patch(
+        f"/v1/families/{parent_a.family_id}/children/{parent_a.child_id}",
+        headers=headers,
+        json={"timezone": "Not/ARealZone"},
+    )
+    assert invalid_update.status_code == 422
+
+    valid_update = await client.patch(
+        f"/v1/families/{parent_a.family_id}/children/{parent_a.child_id}",
+        headers=headers,
+        json={"timezone": "America/New_York"},
+    )
+    assert valid_update.status_code == 200, valid_update.text
+    assert valid_update.json()["timezone"] == "America/New_York"
+
+
+@pytest.mark.asyncio
 async def test_child_age_or_timezone_update_publishes_a_signed_policy_without_erasing_rules(
     client, parent_a
 ) -> None:

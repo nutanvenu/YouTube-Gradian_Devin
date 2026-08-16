@@ -1,10 +1,18 @@
 import re
 from datetime import date, datetime
-from typing import Literal
+from typing import Annotated, Literal
 from uuid import UUID
 from zoneinfo import ZoneInfo
 
-from pydantic import BaseModel, ConfigDict, EmailStr, Field, field_validator, model_validator
+from pydantic import (
+    AfterValidator,
+    BaseModel,
+    ConfigDict,
+    EmailStr,
+    Field,
+    field_validator,
+    model_validator,
+)
 
 PASSWORD_WORDS = re.compile(r"\S+")
 CAPABILITY_LEVELS = {"FULL", "LIMITED", "BEST_EFFORT", "UNAVAILABLE", "REGION_LIMITED"}
@@ -17,6 +25,17 @@ CAPABILITY_KEYS = {
     "accessibility_signals",
     "notification_signals",
 }
+
+
+def validate_iana_timezone(value: str) -> str:
+    try:
+        ZoneInfo(value)
+    except Exception as error:
+        raise ValueError("Invalid IANA timezone") from error
+    return value
+
+
+IanaTimezone = Annotated[str, AfterValidator(validate_iana_timezone)]
 
 
 class ErrorBody(BaseModel):
@@ -101,13 +120,13 @@ class FamilyOut(BaseModel):
 class ChildCreate(BaseModel):
     name: str = Field(min_length=1, max_length=120)
     date_of_birth: date
-    timezone: str = Field(min_length=1, max_length=64)
+    timezone: IanaTimezone = Field(min_length=1, max_length=64)
 
 
 class ChildUpdate(BaseModel):
     name: str | None = Field(default=None, min_length=1, max_length=120)
     date_of_birth: date | None = None
-    timezone: str | None = Field(default=None, min_length=1, max_length=64)
+    timezone: IanaTimezone | None = Field(default=None, min_length=1, max_length=64)
 
 
 class ChildOut(BaseModel):

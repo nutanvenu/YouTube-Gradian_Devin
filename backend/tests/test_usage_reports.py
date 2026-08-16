@@ -251,6 +251,17 @@ async def test_0020_migration_sql_keeps_max_duration_on_latest_legacy_snapshot(
                     app_ref="com.example.reader",
                     duration_seconds=300,
                 ),
+                UsageAggregate(
+                    device_id=device.id,
+                    event_type="APP_USAGE",
+                    occurred_at=first,
+                    # Legacy data can contain an invalid string even though new
+                    # child input is now constrained. The migration must still
+                    # complete and use its deterministic UTC fallback.
+                    timezone="Not/ARealZone",
+                    app_ref="com.example.legacy-invalid-zone",
+                    duration_seconds=60,
+                ),
             ]
         )
         await database_session.flush()
@@ -270,6 +281,12 @@ async def test_0020_migration_sql_keeps_max_duration_on_latest_legacy_snapshot(
         assert len(matching) == 1
         assert matching[0].occurred_at == later
         assert matching[0].duration_seconds == 420
+        invalid_timezone = [
+            row for row in rows if row.app_ref == "com.example.legacy-invalid-zone"
+        ]
+        assert len(invalid_timezone) == 1
+        assert invalid_timezone[0].snapshot_day == first.date()
+        assert invalid_timezone[0].snapshot_key == "APP:com.example.legacy-invalid-zone"
     finally:
         await database_session.rollback()
 
@@ -378,6 +395,88 @@ async def test_parent_usage_keeps_device_rollup_residual_as_explicit_partial_cov
         ("com.example.reader", "EDUCATION", 300),
         (None, "UNATTRIBUTED", 120),
     }
+
+
+@pytest.mark.asyncio
+async def test_activity_usage_resolves_more_than_500_rows_before_reporting(
+    client, parent_a, paired_device, database_session
+):
+    """The seven-day activity window must not discard snapshots before resolution."""
+    device = await database_session.get(Device, paired_device.device_id)
+    assert device is not None
+    occurred_at = datetime.now(UTC).replace(microsecond=0)
+    snapshot_day = occurred_at.date()
+    apps = [
+        UsageAggregate(
+            device_id=device.id,
+            event_type="APP_USAGE",
+            occurred_at=occurred_at,
+            timezone="UTC",
+            app_ref=f"com.example.activity-{index}",
+            category="EDUCATION",
+            duration_seconds=1,
+            snapshot_day=snapshot_day,
+            snapshot_key=f"APP:com.example.activity-{index}",
+        )
+        for index in range(501)
+    ]
+    database_session.add_all(
+        [
+            *apps,
+            UsageAggregate(
+                device_id=device.id,
+                event_type="DEVICE_USAGE",
+                occurred_at=occurred_at,
+                timezone="UTC",
+                duration_seconds=600,
+                snapshot_day=snapshot_day,
+                snapshot_key="DEVICE",
+            ),
+            # The window remains bounded: this older row must not be visible.
+            UsageAggregate(
+                device_id=device.id,
+                event_type="APP_USAGE",
+                occurred_at=occurred_at - timedelta(days=8),
+                timezone="UTC",
+                app_ref="com.example.outside-window",
+                duration_seconds=999,
+                snapshot_day=(occurred_at - timedelta(days=8)).date(),
+                snapshot_key="APP:com.example.outside-window",
+            ),
+        ]
+    )
+    await database_session.commit()
+
+    headers = {"Authorization": f"Bearer {parent_a.token}"}
+    activity = await client.get(
+        f"/v1/families/{parent_a.family_id}/activity/usage", headers=headers
+    )
+    report = await client.get(
+        f"/v1/families/{parent_a.family_id}/usage/reports",
+        params={
+            "child_id": parent_a.child_id,
+            "start": snapshot_day.isoformat(),
+            "end": (snapshot_day + timedelta(days=1)).isoformat(),
+            "timezone": "UTC",
+        },
+        headers=headers,
+    )
+
+    assert activity.status_code == report.status_code == 200
+    activity_rows = activity.json()
+    assert len(activity_rows) == 502
+    assert sum(row["duration_seconds"] for row in activity_rows) == 600
+    assert sum(row["duration_seconds"] for row in activity_rows if row["app_ref"]) == 501
+    assert not any(row["app_ref"] == "com.example.outside-window" for row in activity_rows)
+    assert {
+        (row["app_ref"], row["category"], row["duration_seconds"])
+        for row in activity_rows
+        if row["category"] == "UNATTRIBUTED"
+    } == {(None, "UNATTRIBUTED", 99)}
+    bucket = report.json()[0]
+    assert bucket["duration_seconds"] == 600
+    assert bucket["unattributed_seconds"] == 99
+    assert bucket["coverage"] == "PARTIAL"
 
 
 @pytest.mark.asyncio

@@ -122,7 +122,6 @@ async def family_usage(
                     UsageAggregate.occurred_at <= usage_end,
                 )
                 .order_by(UsageAggregate.occurred_at.desc())
-                .limit(500)
             )
         ).tuples().all()
     )
