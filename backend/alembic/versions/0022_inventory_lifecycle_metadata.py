@@ -1,6 +1,6 @@
 """persist source-tagged partial inventory lifecycle metadata
 
-Revision ID: 0022_inventory_lifecycle_metadata
+Revision ID: 0022_inventory_lifecycle
 Revises: 0021_content_review_contracts
 """
 
@@ -11,7 +11,7 @@ from sqlalchemy.dialects import postgresql
 
 from alembic import op
 
-revision = "0022_inventory_lifecycle_metadata"
+revision = "0022_inventory_lifecycle"
 down_revision = "0021_content_review_contracts"
 branch_labels: str | Sequence[str] | None = None
 depends_on: str | Sequence[str] | None = None
