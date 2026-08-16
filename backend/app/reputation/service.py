@@ -1,5 +1,5 @@
 from datetime import UTC, datetime, timedelta
-from typing import Final, Protocol
+from typing import Final, Literal, Protocol, cast
 
 from sqlalchemy import select
 from sqlalchemy.ext.asyncio import AsyncSession
@@ -10,17 +10,18 @@ from .schemas import ReputationEntryOut
 
 REPUTATION_TTL: Final = timedelta(days=30)
 MAX_DELTA_CHAIN: Final = 32
+ReputationVerdict = Literal["KNOWN_SAFE", "KNOWN_RISK", "UNKNOWN"]
 
 
 class ReputationClassifier(Protocol):
-    async def classify(self, identifier: str) -> tuple[str, str, str]:
+    async def classify(self, identifier: str) -> tuple[ReputationVerdict, str, str]:
         """Return verdict, source, and deterministic rationale."""
 
 
 class NoCuratedVerdictClassifier:
     """Production-safe placeholder until a reviewed reputation provider is supplied."""
 
-    async def classify(self, identifier: str) -> tuple[str, str, str]:
+    async def classify(self, identifier: str) -> tuple[ReputationVerdict, str, str]:
         del identifier
         return (
             "UNKNOWN",
@@ -152,7 +153,7 @@ async def sync_for_version(
 
 async def classify_and_store(
     session: AsyncSession, identifier: str
-) -> tuple[str, str]:
+) -> tuple[ReputationVerdict, str]:
     normalized = normalize_domain_identifier(identifier)
     state = await _ensure_state(session)
     existing = await session.scalar(
@@ -162,7 +163,7 @@ async def classify_and_store(
         )
     )
     if existing is not None and existing.expires_at > _now():
-        return existing.verdict, "CACHED_SERVER_REPUTATION"
+        return cast(ReputationVerdict, existing.verdict), "CACHED_SERVER_REPUTATION"
     verdict, source, rationale = await classifier.classify(normalized)
     now = _now()
     next_version = state.current_version + 1

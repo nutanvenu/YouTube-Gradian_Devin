@@ -18,12 +18,25 @@ depends_on: str | Sequence[str] | None = None
 
 
 def upgrade() -> None:
-    op.add_column("child_app_inventory", sa.Column("version_name", sa.String(length=200), nullable=True))
-    op.add_column("child_app_inventory", sa.Column("first_seen_at", sa.DateTime(timezone=True), nullable=True))
-    op.add_column("child_app_inventory", sa.Column("last_seen_at", sa.DateTime(timezone=True), nullable=True))
-    op.add_column("child_app_inventory", sa.Column("installation_state", sa.String(length=64), nullable=True))
-    op.add_column("child_app_inventory", sa.Column("capability_sources", postgresql.JSONB(), nullable=True))
-    op.add_column("child_app_inventory", sa.Column("inventory_completeness", sa.String(length=20), nullable=True))
+    op.add_column(
+        "child_app_inventory", sa.Column("version_name", sa.String(length=200), nullable=True)
+    )
+    op.add_column(
+        "child_app_inventory", sa.Column("first_seen_at", sa.DateTime(timezone=True), nullable=True)
+    )
+    op.add_column(
+        "child_app_inventory", sa.Column("last_seen_at", sa.DateTime(timezone=True), nullable=True)
+    )
+    op.add_column(
+        "child_app_inventory", sa.Column("installation_state", sa.String(length=64), nullable=True)
+    )
+    op.add_column(
+        "child_app_inventory", sa.Column("capability_sources", postgresql.JSONB(), nullable=True)
+    )
+    op.add_column(
+        "child_app_inventory",
+        sa.Column("inventory_completeness", sa.String(length=20), nullable=True),
+    )
 
 
 def downgrade() -> None:
