@@ -29,6 +29,13 @@ def releaseAdmissionEnvironment = [
     "GUARDIAN_ENABLE_TEST_FIXTURES",
 ].collectEntries { name -> [name, name == "GUARDIAN_RELEASE_STORE_FILE" && releaseStoreFileValue ? file(releaseStoreFileValue).absolutePath : releaseValue(name)] }
 
+configurations {
+    guardianBundletool {
+        canBeConsumed = false
+        canBeResolved = true
+    }
+}
+
 def verifyReleaseCertificate = {
     if (!releaseStoreFileValue || !releaseStorePassword || !releaseKeyAlias || !releaseKeyPassword) {
         throw new GradleException("Release signing keystore path, passwords, and alias must be configured.")
@@ -222,16 +229,18 @@ tasks.register(taskName, Exec) {
         if (artifacts.size() != 1) throw new GradleException("Expected exactly one signed release ${kind.toUpperCase()}.")
         def aapt = new File(android.sdkDirectory, "build-tools/${android.buildToolsVersion}/aapt")
         def apksigner = new File(android.sdkDirectory, "build-tools/${android.buildToolsVersion}/apksigner")
-        def apkanalyzer = new File(android.sdkDirectory, "cmdline-tools/latest/bin/apkanalyzer")
         def javaBin = new File(System.getProperty("java.home"), "bin")
+        def javaExecutable = new File(javaBin, "java")
         def keytool = new File(javaBin, "keytool")
         def jarsigner = new File(javaBin, "jarsigner")
+        def bundletoolClasspath = kind == "aab" ? configurations.guardianBundletool.asPath : ""
         if (kind == "apk" && (!aapt.isFile() || !apksigner.isFile())) throw new GradleException("Android aapt and apksigner are required for APK policy verification.")
-        if (kind == "aab" && (!apkanalyzer.isFile() || !keytool.isFile() || !jarsigner.isFile())) throw new GradleException("Android apkanalyzer and JDK signing tools are required for AAB policy verification.")
+        if (kind == "aab" && (!javaExecutable.isFile() || !keytool.isFile() || !jarsigner.isFile() || !bundletoolClasspath)) throw new GradleException("Bundletool and JDK signing tools are required for AAB policy verification.")
         commandLine "node", new File(projectRoot, "scripts/verify-release-artifact.mjs").absolutePath,
             "--merged-manifest", manifests.first().absolutePath, "--artifact", artifacts.first().absolutePath, "--kind", kind,
-            "--aapt", aapt.absolutePath, "--apksigner", apksigner.absolutePath, "--apkanalyzer", apkanalyzer.absolutePath,
-            "--keytool", keytool.absolutePath, "--jarsigner", jarsigner.absolutePath
+            "--aapt", aapt.absolutePath, "--apksigner", apksigner.absolutePath,
+            "--keytool", keytool.absolutePath, "--jarsigner", jarsigner.absolutePath,
+            "--java", javaExecutable.absolutePath, "--bundletool-classpath", bundletoolClasspath
     }
 }
 }
@@ -268,6 +277,7 @@ tasks.configureEach { task ->
 }
 
 dependencies {
+    guardianBundletool "com.android.tools.build:bundletool:1.18.1"
     // The version of react-native is set by the React Native Gradle Plugin
     implementation("com.facebook.react:react-android")
 

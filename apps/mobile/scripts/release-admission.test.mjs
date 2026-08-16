@@ -8,6 +8,7 @@ import test from "node:test";
 
 import { validateReleaseAdmission } from "./release-admission.mjs";
 import {
+  bundletoolDumpManifestArgs,
   verifyArtifactManifestTree,
   verifyArtifactManifestXml,
   fixtureMarkerErrors,
@@ -187,6 +188,8 @@ test("Android release sources declare SDK 36, no debug signing, and fail-closed 
   assert.match(buildFile, /verifyGuardianReleaseAdmission/);
   assert.match(buildFile, /verifyGuardianReleaseApkArtifact/);
   assert.match(buildFile, /verifyGuardianReleaseAabArtifact/);
+  assert.match(buildFile, /com\.android\.tools\.build:bundletool:1\.18\.1/);
+  assert.doesNotMatch(buildFile, /apkanalyzer/);
   assert.match(buildFile, /GUARDIAN_RELEASE_VERSION_CODE/);
   assert.match(buildFile, /output\.versionCode\.set/);
   assert.match(buildFile, /java\.security\.KeyStore\.getInstance/);
@@ -323,6 +326,20 @@ test("AAB effective-manifest policy verifier rejects changed release declaration
   assert.ok(errors.some((error) => error.includes("RECORD_AUDIO")));
   assert.ok(errors.some((error) => error.includes("isMonitoringTool")));
   assert.ok(errors.some((error) => error.includes("GuardianAccessibilityService")));
+});
+
+test("AAB manifest inspection uses bundletool's supported base-module command", () => {
+  assert.deepEqual(
+    bundletoolDumpManifestArgs(
+      "/tmp/guardian-release.aab",
+      "/tmp/bundletool.jar:/tmp/protobuf.jar",
+    ),
+    [
+      "-cp", "/tmp/bundletool.jar:/tmp/protobuf.jar",
+      "com.android.tools.build.bundletool.BundleToolMain",
+      "dump", "manifest", "--bundle=/tmp/guardian-release.aab", "--module=base",
+    ],
+  );
 });
 
 test("artifact archive policy rejects fixture names and fixture bytes", () => {

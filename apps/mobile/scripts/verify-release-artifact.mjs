@@ -97,12 +97,21 @@ function verifyApkVersion(apk, aapt, expected) {
   const version = output(aapt, ["dump", "badging", apk]).match(/versionCode='(\d+)'/)?.[1];
   return version === expected ? [] : [`Release APK versionCode ${version ?? "is absent"} does not equal requested ${expected}.`];
 }
+export function bundletoolDumpManifestArgs(aab, classpath) {
+  return [
+    "-cp", classpath,
+    "com.android.tools.build.bundletool.BundleToolMain",
+    "dump", "manifest", `--bundle=${aab}`, "--module=base",
+  ];
+}
+
 function verifyAabVersion(manifest, expected) {
   const version = manifest.match(/(?:android:)?versionCode="(\d+)"/)?.[1];
   return version === expected ? [] : [`Release AAB versionCode ${version ?? "is absent"} does not equal requested ${expected}.`];
 }
 function argument(name) { const index = process.argv.indexOf(name); return index >= 0 ? process.argv[index + 1] : undefined; }
 function requiredFile(path, label) { if (!path || !existsSync(path) || !statSync(path).isFile()) throw new Error(`${label} is required.`); return path; }
+function requiredValue(value, label) { if (!value) throw new Error(`${label} is required.`); return value; }
 
 function main() {
   const mergedManifest = requiredFile(argument("--merged-manifest"), "Merged release manifest");
@@ -119,9 +128,15 @@ function main() {
   } else if (kind === "aab") {
     const keytool = requiredFile(argument("--keytool"), "keytool");
     const jarsigner = requiredFile(argument("--jarsigner"), "jarsigner");
-    const apkanalyzer = requiredFile(argument("--apkanalyzer"), "apkanalyzer");
-    // APK Analyzer reconstructs the final manifest stored in an Android App Bundle.
-    const manifest = output(apkanalyzer, ["manifest", "print", artifact]);
+    const java = requiredFile(argument("--java"), "JDK Java executable");
+    const bundletoolClasspath = requiredValue(
+      argument("--bundletool-classpath"),
+      "Bundletool classpath",
+    );
+    const manifest = output(
+      java,
+      bundletoolDumpManifestArgs(artifact, bundletoolClasspath),
+    );
     errors.push(
       ...verifyAabCertificate(artifact, keytool, jarsigner),
       ...verifyArtifactManifestXml(manifest, "AAB"),
