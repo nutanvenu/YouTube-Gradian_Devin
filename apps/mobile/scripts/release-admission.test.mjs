@@ -240,6 +240,13 @@ test("release manifest is private by default and declares transparent monitoring
     ),
     "utf8",
   );
+  const accessibilityStrings = await readFile(
+    new URL(
+      "../modules/guardian-protection/android/src/main/res/values/strings.xml",
+      import.meta.url,
+    ),
+    "utf8",
+  );
   assert.match(manifest, /android:allowBackup="false"/);
   assert.match(manifest, /android:usesCleartextTraffic="false"/);
   assert.match(
@@ -254,7 +261,9 @@ test("release manifest is private by default and declares transparent monitoring
     /android:name="isMonitoringTool" android:value="child_monitoring"/,
   );
   assert.match(networkSecurity, /cleartextTrafficPermitted="false"/);
-  assert.match(accessibility, /android:canRetrieveWindowContent="false"/);
+  assert.match(accessibility, /android:canRetrieveWindowContent="true"/);
+  assert.match(accessibility, /@string\/guardian_accessibility_description/);
+  assert.match(accessibilityStrings, /separate Content Safety disclosure/);
   assert.doesNotMatch(
     manifest,
     /android\.permission\.(?:ACCESS_FINE_LOCATION|ACCESS_COARSE_LOCATION|RECORD_AUDIO|READ_SMS|QUERY_ALL_PACKAGES)/,

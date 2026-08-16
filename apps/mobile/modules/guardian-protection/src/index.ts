@@ -28,6 +28,8 @@ export const GuardianProtection: GuardianProtectionNative = {
   requestVpnPermission: () => native.requestVpnPermission(),
   openUsageAccessSettings: () => native.openUsageAccessSettings(),
   openAccessibilitySettings: () => native.openAccessibilitySettings(),
+  setAccessibilityContentConsent: (granted: boolean): Promise<PermissionResult> =>
+    native.setAccessibilityContentConsent(granted),
   openNotificationAccessSettings: () => native.openNotificationAccessSettings(),
   startProtection: () => native.startProtection(),
   stopProtection: () => native.stopProtection(),

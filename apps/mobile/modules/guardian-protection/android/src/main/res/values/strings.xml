@@ -1,4 +1,4 @@
 <resources>
   <string name="guardian_notification_listener_label">Guardian communication safety</string>
-  <string name="guardian_accessibility_description">Guardian uses foreground app names to enforce the limits and routines chosen by a parent. It cannot read passwords, messages, or screen content.</string>
+  <string name="guardian_accessibility_description">Guardian uses foreground app names for parent-set limits. Only after a separate Content Safety disclosure is accepted, it can briefly inspect exposed titles and headings in the active window for safety risks. It excludes editable and password fields and never stores raw screen text.</string>
 </resources>

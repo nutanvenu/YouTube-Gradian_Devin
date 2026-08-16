@@ -16,7 +16,8 @@ import expo.modules.guardianprotection.vpn.UserInitiatedEnableIntent
 import expo.modules.guardianprotection.vpn.UserInitiatedEnableIntentAction
 import expo.modules.guardianprotection.vpn.ProtectionStatusChange
 import expo.modules.guardianprotection.vpn.ProtectionStatusEvents
-import expo.modules.guardianprotection.communication.CommunicationSafetyRuntime
+import expo.modules.guardianprotection.content.ContentSafetyConsentStore
+import expo.modules.guardianprotection.content.ContentSafetyServiceRuntime
 import expo.modules.guardianprotection.observability.GuardianPerformanceMetrics
 import android.util.Log
 import android.os.SystemClock
@@ -69,12 +70,10 @@ class GuardianProtectionModule : Module() {
         }
         if (!startedFromRequest) GuardianVpnService.startWithPersistedPolicy(it)
       }
-      installCommunicationListener()
       reportCapabilityChanges(capabilities.getCapabilities())
     }
 
     AsyncFunction("getCapabilities") {
-      installCommunicationListener()
       reportCapabilityChanges(capabilities.getCapabilities())
     }
     AsyncFunction("getProtectionStatus") {
@@ -101,11 +100,16 @@ class GuardianProtectionModule : Module() {
     AsyncFunction("openAccessibilitySettings") {
       capabilities.openAccessibilitySettings()
     }
+    AsyncFunction("setAccessibilityContentConsent") { granted: Boolean ->
+      val context = requireNotNull(appContext.reactContext)
+      ContentSafetyConsentStore(context).setAccessibilityContentConsent(granted)
+      reportCapabilityChanges(capabilities.getCapabilities())
+      mapOf("granted" to granted)
+    }
     AsyncFunction("openNotificationAccessSettings") {
       capabilities.openNotificationAccessSettings()
     }
     AsyncFunction("startProtection") {
-      installCommunicationListener()
       GuardianPolicyRuntime.install(policyManager)
       GuardianPolicyRuntime.installReputation(reputationManager)
       GuardianPolicyRuntime.addListener(eventListener)
@@ -121,8 +125,10 @@ class GuardianProtectionModule : Module() {
       GuardianPolicyRuntime.install(policyManager)
       val result = policyManager.apply(bundle)
       if (result["applied"] == true) {
-        val communication = bundle["communication_safety"] as? Map<*, *>
-        CommunicationSafetyRuntime.setEnabled(communication?.get("enabled") == true)
+        ContentSafetyServiceRuntime.refresh(
+          requireNotNull(appContext.reactContext),
+          BuildConfig.GUARDIAN_POLICY_TRUSTED_PUBLIC_KEYS,
+        )
         emit(mapOf(
           "type" to "POLICY_APPLIED",
           "version" to result["policyVersion"],
@@ -218,20 +224,6 @@ class GuardianProtectionModule : Module() {
       emit(mapOf(
         "type" to "TIME_EXPIRED",
         "targetRef" to targetRef,
-      ))
-    }
-  }
-
-  private fun installCommunicationListener() {
-    CommunicationSafetyRuntime.setListener { signal, packageName ->
-      emit(mapOf(
-        "type" to "SAFETY_EVENT",
-        "category" to signal.category,
-        "severity" to signal.severity,
-        "confidence" to signal.confidence,
-        "reasonCode" to signal.reasonCode,
-        "appRef" to packageName,
-        "occurredAt" to Instant.now().toString(),
       ))
     }
   }

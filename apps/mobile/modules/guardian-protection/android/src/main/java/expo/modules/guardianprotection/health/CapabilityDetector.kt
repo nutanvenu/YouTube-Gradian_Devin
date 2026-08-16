@@ -8,6 +8,7 @@ import android.net.VpnService
 import android.provider.Settings
 import android.os.Process
 import expo.modules.guardianprotection.accessibility.GuardianAccessibilityService
+import expo.modules.guardianprotection.content.ContentSafetyConsentStore
 import expo.modules.guardianprotection.inventory.PackageInventory
 import expo.modules.guardianprotection.vpn.GuardianVpnService
 import java.time.Instant
@@ -15,10 +16,20 @@ import java.time.Instant
 class CapabilityDetector(private val context: Context) {
   fun getCapabilities(): Map<String, Map<String, Any?>> {
     val now = Instant.now().toString()
+    val accessibilityContentEnabled = accessibilityGranted() &&
+      ContentSafetyConsentStore(context).hasAccessibilityContentConsent()
     return mapOf(
       "vpn_filtering" to status(if (VpnService.prepare(context) == null) "FULL" else "UNAVAILABLE", now, "VPN consent"),
       "app_usage" to status(if (usageAccessGranted()) "FULL" else "UNAVAILABLE", now, "Usage Access"),
-      "accessibility_signals" to status(if (accessibilityGranted()) "FULL" else "UNAVAILABLE", now, "Accessibility"),
+      "accessibility_signals" to status(
+        if (accessibilityContentEnabled) "BEST_EFFORT" else "UNAVAILABLE",
+        now,
+        if (accessibilityContentEnabled) {
+          "Active-window titles and headings only; editable/password text is excluded and discarded"
+        } else {
+          "Requires Android Accessibility permission and separate Content Safety consent"
+        },
+      ),
       "notification_signals" to status(if (notificationAccessGranted()) "FULL" else "UNAVAILABLE", now, "Notification access"),
       "app_blocking" to status(
         if (accessibilityGranted() && GuardianAccessibilityService.isRunning()) "FULL" else "UNAVAILABLE",

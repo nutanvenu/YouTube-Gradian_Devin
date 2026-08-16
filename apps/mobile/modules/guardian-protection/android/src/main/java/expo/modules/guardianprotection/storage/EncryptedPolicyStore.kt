@@ -7,10 +7,12 @@ import android.util.Base64
 import java.util.concurrent.atomic.AtomicBoolean
 import org.json.JSONObject
 import java.security.KeyStore
+import java.security.SecureRandom
 import javax.crypto.Cipher
 import javax.crypto.KeyGenerator
 import javax.crypto.spec.GCMParameterSpec
 import expo.modules.guardianprotection.usage.deviceTotalSeconds
+import org.json.JSONArray
 
 class EncryptedPolicyStore(
   context: Context,
@@ -97,12 +99,38 @@ class EncryptedPolicyStore(
     }
   }
 
+  /** Device-local HMAC material; the raw observed text is never stored with it. */
+  @Synchronized
+  fun contentFingerprintKey(): ByteArray {
+    read("content-fingerprint-key")?.let { encoded ->
+      return Base64.decode(encoded, Base64.NO_WRAP)
+    }
+    return ByteArray(32).also { key ->
+      SecureRandom().nextBytes(key)
+      write("content-fingerprint-key", Base64.encodeToString(key, Base64.NO_WRAP))
+    }
+  }
+
+  /** Bounded encrypted queue used while the JS runtime is absent. Values are pre-minimized. */
+  @Synchronized
+  fun appendContentRiskEvent(event: Map<String, Any>) {
+    require(event.keys == CONTENT_RISK_EVENT_FIELDS) { "Unexpected content event field" }
+    val queue = read("content-risk-events")?.let { encoded -> JSONArray(encoded) } ?: JSONArray()
+    while (queue.length() >= MAX_CONTENT_RISK_EVENTS) queue.remove(0)
+    queue.put(JSONObject(event))
+    write("content-risk-events", queue.toString())
+  }
+
   private fun read(key: String): String? {
     val encoded = preferences.getString(key, null) ?: return null
     return runCatching { decrypt(encoded) }.getOrElse {
       corruptState.set(true)
       null
     }
+  }
+
+  private fun write(key: String, value: String) {
+    preferences.edit().putString(key, encrypt(value)).commit()
   }
 
   private fun usageCounters(): MutableMap<String, CounterState> {
@@ -146,4 +174,21 @@ class EncryptedPolicyStore(
     val totalSeconds: Long = 0,
     val lastElapsedRealtime: Long = 0,
   )
+
+  private companion object {
+    const val MAX_CONTENT_RISK_EVENTS = 50
+    val CONTENT_RISK_EVENT_FIELDS = setOf(
+      "signal_source",
+      "app_ref",
+      "fingerprint",
+      "category",
+      "severity",
+      "confidence",
+      "reason_code",
+      "classifier_version",
+      "capability_level",
+      "action",
+      "occurred_at_millis",
+    )
+  }
 }

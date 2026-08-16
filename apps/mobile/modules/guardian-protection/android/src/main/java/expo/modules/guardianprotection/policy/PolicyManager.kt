@@ -73,6 +73,11 @@ class PolicyManager(
       is Map<*, *> -> raw.cast()
       else -> throw IllegalArgumentException("Invalid content_safety policy section")
     }
+    val communicationSafety = when (val raw = bundle["communication_safety"]) {
+      null -> emptyMap()
+      is Map<*, *> -> raw.cast()
+      else -> throw IllegalArgumentException("Invalid communication_safety policy section")
+    }
     val appRules = (bundle["app_rules"] as? List<*>).orEmpty()
       .filterIsInstance<Map<*, *>>()
       .mapNotNull { rule -> (rule["app_ref"] as? String)?.let { it to rule.cast() } }
@@ -89,6 +94,7 @@ class PolicyManager(
       temporaryOverrides = (bundle["temporary_overrides"] as? List<*>)?.filterIsInstance<Map<*, *>>()?.map { it.cast() }.orEmpty(),
       routines = (bundle["routines"] as? List<*>)?.filterIsInstance<Map<*, *>>()?.map { it.cast() }.orEmpty(),
       basePolicy = (bundle["base_policy"] as? Map<*, *>)?.let { it.cast() } ?: emptyMap(),
+      communicationSafety = communicationSafety,
       expiresSoftAt = (bundle["expires_soft_at"] as? String)?.let { Instant.parse(it) },
       contentBlockThreshold = ContentRiskPolicy.parseSignedThreshold(ageBand, contentSafety),
     )
@@ -108,6 +114,9 @@ class PolicyManager(
     val ageBand = bundle["age_band"] as? String ?: return "SCHEMA_INVALID"
     if (bundle.containsKey("content_safety") && bundle["content_safety"] !is Map<*, *>) {
       return "CONTENT_SAFETY_INVALID"
+    }
+    if (bundle.containsKey("communication_safety") && bundle["communication_safety"] !is Map<*, *>) {
+      return "COMMUNICATION_SAFETY_INVALID"
     }
     val contentSafety = (bundle["content_safety"] as? Map<*, *>)?.cast()
     if (runCatching { ContentRiskPolicy.parseSignedThreshold(ageBand, contentSafety) }.isFailure) {

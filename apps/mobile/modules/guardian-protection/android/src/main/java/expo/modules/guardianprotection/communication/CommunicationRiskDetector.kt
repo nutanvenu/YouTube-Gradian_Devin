@@ -146,16 +146,4 @@ object CommunicationRiskDetector {
     )
   }
 
-  fun isCommunicationPackage(packageName: String): Boolean {
-    return packageName in setOf(
-      "com.google.android.apps.messaging",
-      "com.android.mms",
-      "com.facebook.orca",
-      "com.whatsapp",
-      "com.instagram.android",
-      "org.telegram.messenger",
-      "com.discord",
-      "com.snapchat.android",
-    )
-  }
 }

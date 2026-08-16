@@ -342,6 +342,7 @@ export interface GuardianProtectionNative {
   requestVpnPermission(): Promise<PermissionResult>;
   openUsageAccessSettings(): Promise<void>;
   openAccessibilitySettings(): Promise<void>;
+  setAccessibilityContentConsent(granted: boolean): Promise<PermissionResult>;
   openNotificationAccessSettings(): Promise<void>;
   startProtection(): Promise<void>;
   stopProtection(): Promise<void>;
