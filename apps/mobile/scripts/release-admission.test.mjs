@@ -1,5 +1,7 @@
 import assert from "node:assert/strict";
-import { mkdtemp, readFile, writeFile } from "node:fs/promises";
+import { execFileSync } from "node:child_process";
+import { createHash, X509Certificate } from "node:crypto";
+import { mkdtemp, readFile, rm } from "node:fs/promises";
 import { tmpdir } from "node:os";
 import { join } from "node:path";
 import test from "node:test";
@@ -7,31 +9,62 @@ import test from "node:test";
 import { validateReleaseAdmission } from "./release-admission.mjs";
 import {
   verifyArtifactManifestTree,
+  fixtureMarkerErrors,
   verifyMergedManifest,
 } from "./verify-release-artifact.mjs";
 
 const validPublicKey = Buffer.alloc(32, 7).toString("base64");
 
+let validationEnvironment;
+
 async function validEnvironment() {
+  if (validationEnvironment) return validationEnvironment;
   const directory = await mkdtemp(
     join(tmpdir(), "guardian-release-admission-"),
   );
-  const storeFile = join(directory, "guardian-release.jks");
-  await writeFile(storeFile, "ephemeral-validation-keystore");
-  return {
+  const storeFile = join(directory, "guardian-release.p12");
+  const password = "validation-store-password";
+  assert.ok(process.env.JAVA_HOME, "JAVA_HOME is required for real-keystore tests");
+  const keytool = join(process.env.JAVA_HOME, "bin", "keytool");
+  execFileSync(keytool, [
+    "-genkeypair", "-alias", "guardian-release", "-keystore", storeFile,
+    "-storetype", "PKCS12", "-storepass", password, "-keypass", password,
+    "-dname", "CN=Guardian Release Validation,O=Guardian", "-keyalg", "RSA",
+    "-keysize", "2048", "-validity", "1", "-noprompt",
+  ], { stdio: "pipe" });
+  const certificate = execFileSync(keytool, [
+    "-exportcert", "-rfc", "-keystore", storeFile, "-storetype", "PKCS12",
+    "-storepass", password, "-alias", "guardian-release",
+  ], { encoding: "utf8" });
+  const expectedCertificateDigest = createHash("sha256")
+    .update(new X509Certificate(certificate).raw)
+    .digest("hex");
+  validationEnvironment = {
     EXPO_PUBLIC_API_URL: "https://api.guardian.family",
     GUARDIAN_DOH_URL: "https://dns.guardian.family/dns-query",
     GUARDIAN_POLICY_TRUSTED_PUBLIC_KEYS: JSON.stringify({
       "guardian-prod-2026-01": validPublicKey,
     }),
     GUARDIAN_RELEASE_STORE_FILE: storeFile,
-    GUARDIAN_RELEASE_STORE_PASSWORD: "validation-store-password",
+    GUARDIAN_RELEASE_STORE_PASSWORD: password,
     GUARDIAN_RELEASE_KEY_ALIAS: "guardian-release",
-    GUARDIAN_RELEASE_KEY_PASSWORD: "validation-key-password",
+    GUARDIAN_RELEASE_KEY_PASSWORD: password,
+    GUARDIAN_RELEASE_STORE_TYPE: "PKCS12",
+    GUARDIAN_RELEASE_CERT_SHA256: expectedCertificateDigest,
     GUARDIAN_POLICY_KEY_ID: "guardian-prod-2026-01",
     GUARDIAN_RELEASE_VERSION_CODE: "42",
   };
+  return validationEnvironment;
 }
+
+test.after(async () => {
+  if (validationEnvironment) {
+    await rm(join(validationEnvironment.GUARDIAN_RELEASE_STORE_FILE, ".."), {
+      recursive: true,
+      force: true,
+    });
+  }
+});
 
 test("release admission fails closed when the required configuration is absent", () => {
   const errors = validateReleaseAdmission({});
@@ -59,6 +92,20 @@ test("release admission rejects debug signing and fixture mode", async () => {
   });
   assert.ok(errors.some((error) => error.includes("debug signing")));
   assert.ok(errors.some((error) => error.includes("fixture")));
+});
+
+test("release admission requires an existing regular-file keystore and certificate digest", async () => {
+  const environment = await validEnvironment();
+  const missingStore = validateReleaseAdmission({
+    ...environment,
+    GUARDIAN_RELEASE_STORE_FILE: join(tmpdir(), "guardian-missing-release-store.p12"),
+  });
+  assert.ok(missingStore.some((error) => error.includes("existing regular keystore file")));
+  const missingDigest = validateReleaseAdmission({
+    ...environment,
+    GUARDIAN_RELEASE_CERT_SHA256: "",
+  });
+  assert.ok(missingDigest.some((error) => error.includes("GUARDIAN_RELEASE_CERT_SHA256")));
 });
 
 test("release admission rejects empty trust anchors and placeholder endpoints", async () => {
@@ -137,14 +184,16 @@ test("Android release sources declare SDK 36, no debug signing, and fail-closed 
   assert.match(buildFile, /targetSdkVersion 36/);
   assert.match(buildFile, /signingConfig signingConfigs\.release/);
   assert.match(buildFile, /verifyGuardianReleaseAdmission/);
-  assert.match(buildFile, /verifyGuardianReleaseArtifact/);
+  assert.match(buildFile, /verifyGuardianReleaseApkArtifact/);
+  assert.match(buildFile, /verifyGuardianReleaseAabArtifact/);
   assert.match(buildFile, /GUARDIAN_RELEASE_VERSION_CODE/);
   assert.match(buildFile, /output\.versionCode\.set/);
   assert.match(buildFile, /java\.security\.KeyStore\.getInstance/);
+  assert.match(buildFile, /MessageDigest\.getInstance\("SHA-256"\)/);
   assert.match(buildFile, /assemble\|bundle\|package\|sign/);
   assert.match(
     buildFile,
-    /task\.name in \["assembleRelease", "packageRelease"\].*finalizedBy/,
+    /task\.name in \["assembleRelease", "packageRelease"\].*verifyGuardianReleaseApkArtifact/,
   );
   assert.doesNotMatch(
     buildFile,
@@ -249,6 +298,12 @@ test("APK manifest-tree policy verifier requires false backup and cleartext valu
   const errors = verifyArtifactManifestTree(tree);
   assert.ok(errors.some((error) => error.includes("allowBackup")));
   assert.ok(errors.some((error) => error.includes("usesCleartextTraffic")));
+});
+
+test("artifact archive policy rejects fixture names and fixture bytes", () => {
+  assert.ok(fixtureMarkerErrors(["assets/fixture-policy.json"], []).length > 0);
+  assert.ok(fixtureMarkerErrors(["classes.dex"], [Buffer.from("fixture payload")]).length > 0);
+  assert.deepEqual(fixtureMarkerErrors(["assets/policy.json"], [Buffer.from("production payload")]), []);
 });
 
 test("the mobile API client has no production placeholder endpoint", async () => {

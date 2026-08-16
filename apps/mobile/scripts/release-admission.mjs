@@ -1,3 +1,4 @@
+import { existsSync, statSync } from "node:fs";
 import { fileURLToPath } from "node:url";
 
 const PLACEHOLDER_PATTERN =
@@ -108,6 +109,13 @@ export function validateReleaseAdmission(environment = process.env) {
       "GUARDIAN_RELEASE_STORE_FILE must name a non-debug signing keystore; Gradle validates the keystore and certificate.",
     );
   }
+  if (storeFile) {
+    try {
+      if (!existsSync(storeFile) || !statSync(storeFile).isFile()) throw new Error();
+    } catch {
+      errors.push("GUARDIAN_RELEASE_STORE_FILE must be an existing regular keystore file.");
+    }
+  }
   if (
     DEBUG_SIGNING_PATTERN.test(storeFile) ||
     DEBUG_SIGNING_PATTERN.test(keyAlias)
@@ -121,6 +129,10 @@ export function validateReleaseAdmission(environment = process.env) {
   })) {
     if (!configured || isPlaceholder(configured))
       errors.push(`${name} must be explicitly configured for release signing.`);
+  }
+  const certificateDigest = value(environment, "GUARDIAN_RELEASE_CERT_SHA256");
+  if (!/^[a-fA-F0-9]{64}$/.test(certificateDigest.replaceAll(":", ""))) {
+    errors.push("GUARDIAN_RELEASE_CERT_SHA256 must be the configured release certificate SHA-256 digest.");
   }
 
   validateHttpsUrl(

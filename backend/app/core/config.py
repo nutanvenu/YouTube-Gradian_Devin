@@ -1,11 +1,9 @@
 import base64
 import json
-import os
 from functools import lru_cache
 from typing import Literal
 
-from pydantic import Field
-from pydantic import model_validator
+from pydantic import Field, model_validator
 from pydantic_settings import BaseSettings, SettingsConfigDict
 
 
@@ -14,7 +12,9 @@ class Settings(BaseSettings):
 
     database_url: str = "postgresql+asyncpg://guardian:guardian@localhost:5432/guardian"
     environment: Literal["development", "test", "production"] = "development"
-    jwt_secret: str = Field(min_length=32)
+    jwt_secret: str = Field(
+        default="development-only-change-me-please-32", min_length=32
+    )
     access_minutes: int = 15
     refresh_days: int = 30
     policy_key_id: str = "guardian-dev"
@@ -66,8 +66,4 @@ class Settings(BaseSettings):
 
 @lru_cache
 def get_settings() -> Settings:
-    return Settings(
-        jwt_secret=os.environ.get(
-            "GUARDIAN_JWT_SECRET", "development-only-change-me-please-32"
-        )
-    )
+    return Settings()

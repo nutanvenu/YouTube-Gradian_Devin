@@ -15,6 +15,18 @@ export default tseslint.config(
   },
   eslint.configs.recommended,
   ...tseslint.configs.strictTypeChecked,
+  {
+    files: ["**/*.mjs"],
+    extends: [tseslint.configs.disableTypeChecked],
+    languageOptions: {
+      globals: {
+        Buffer: "readonly",
+        URL: "readonly",
+        console: "readonly",
+        process: "readonly"
+      }
+    }
+  },
   prettier,
   {
     files: ["**/*.{ts,tsx}"],

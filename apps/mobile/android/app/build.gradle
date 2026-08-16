@@ -12,6 +12,7 @@ def releaseStorePassword = releaseValue("GUARDIAN_RELEASE_STORE_PASSWORD")
 def releaseKeyAlias = releaseValue("GUARDIAN_RELEASE_KEY_ALIAS")
 def releaseKeyPassword = releaseValue("GUARDIAN_RELEASE_KEY_PASSWORD")
 def releaseStoreType = releaseValue("GUARDIAN_RELEASE_STORE_TYPE") ?: "JKS"
+def releaseCertificateDigest = releaseValue("GUARDIAN_RELEASE_CERT_SHA256").replace(":", "").toLowerCase()
 def releaseVersionCodeValue = releaseValue("GUARDIAN_RELEASE_VERSION_CODE")
 
 def releaseAdmissionEnvironment = [
@@ -23,24 +24,31 @@ def releaseAdmissionEnvironment = [
     "GUARDIAN_RELEASE_KEY_ALIAS",
     "GUARDIAN_RELEASE_KEY_PASSWORD",
     "GUARDIAN_RELEASE_STORE_TYPE",
+    "GUARDIAN_RELEASE_CERT_SHA256",
     "GUARDIAN_POLICY_KEY_ID",
     "GUARDIAN_RELEASE_VERSION_CODE",
     "GUARDIAN_ENABLE_TEST_FIXTURES",
 ].collectEntries { name -> [name, name == "GUARDIAN_RELEASE_STORE_FILE" && releaseStoreFileValue ? file(releaseStoreFileValue).absolutePath : releaseValue(name)] }
 
 def verifyReleaseCertificate = {
-    if (!releaseStoreFileValue || !releaseStorePassword || !releaseKeyAlias || !releaseKeyPassword) return
+    if (!releaseStoreFileValue || !releaseStorePassword || !releaseKeyAlias || !releaseKeyPassword) {
+        throw new GradleException("Release signing keystore path, passwords, and alias must be configured.")
+    }
     def signingStore = file(releaseStoreFileValue)
-    if (!signingStore.isFile()) return
+    if (!signingStore.isFile()) throw new GradleException("Release signing keystore path must be an existing regular file.")
+    if (!(releaseCertificateDigest ==~ /^[a-f0-9]{64}$/)) throw new GradleException("GUARDIAN_RELEASE_CERT_SHA256 must be a SHA-256 certificate digest.")
     try {
         def keyStore = java.security.KeyStore.getInstance(releaseStoreType)
         signingStore.withInputStream { keyStore.load(it, releaseStorePassword.toCharArray()) }
         if (!keyStore.containsAlias(releaseKeyAlias)) throw new GradleException("Release signing alias is absent from the configured keystore.")
         def certificate = keyStore.getCertificate(releaseKeyAlias)
+        if (!certificate) throw new GradleException("Release signing alias has no certificate.")
         def subject = certificate instanceof java.security.cert.X509Certificate ? certificate.subjectX500Principal.name : ""
         if (releaseKeyAlias.equalsIgnoreCase("androiddebugkey") || subject.toLowerCase().contains("cn=android debug")) {
             throw new GradleException("Release builds must not use an Android debug certificate.")
         }
+        def actualDigest = java.security.MessageDigest.getInstance("SHA-256").digest(certificate.encoded).collect { String.format("%02x", it & 0xff) }.join()
+        if (actualDigest != releaseCertificateDigest) throw new GradleException("Release signing certificate does not match GUARDIAN_RELEASE_CERT_SHA256.")
     } catch (GradleException exception) {
         throw exception
     } catch (Exception exception) {
@@ -199,9 +207,10 @@ tasks.register("verifyGuardianReleaseAdmission", Exec) {
     doFirst { verifyReleaseCertificate() }
 }
 
-tasks.register("verifyGuardianReleaseArtifact", Exec) {
+def configureReleaseArtifactVerification = { String taskName, String kind, String outputDirectory, String outputPattern ->
+tasks.register(taskName, Exec) {
     group = "verification"
-    description = "Verifies the merged manifest and signed release APK policy after packaging."
+    description = "Verifies the merged manifest, fixture absence, signer, and version of the signed release ${kind.toUpperCase()}."
     workingDir projectRoot
     doFirst {
         def manifests = fileTree(buildDir).matching {
@@ -209,20 +218,33 @@ tasks.register("verifyGuardianReleaseArtifact", Exec) {
             include "intermediates/merged_manifests/release/**/AndroidManifest.xml"
         }.files
         if (manifests.size() != 1) throw new GradleException("Expected exactly one merged release AndroidManifest.xml.")
-        def apks = fileTree("$buildDir/outputs/apk/release").matching { include "**/*.apk" }.files
-        if (apks.size() != 1) throw new GradleException("Expected exactly one signed release APK.")
+        def artifacts = fileTree(outputDirectory).matching { include outputPattern }.files
+        if (artifacts.size() != 1) throw new GradleException("Expected exactly one signed release ${kind.toUpperCase()}.")
         def aapt = new File(android.sdkDirectory, "build-tools/${android.buildToolsVersion}/aapt")
-        if (!aapt.isFile()) throw new GradleException("Android aapt is required for release artifact policy verification.")
+        def apksigner = new File(android.sdkDirectory, "build-tools/${android.buildToolsVersion}/apksigner")
+        def apkanalyzer = new File(android.sdkDirectory, "cmdline-tools/latest/bin/apkanalyzer")
+        def javaBin = new File(System.getProperty("java.home"), "bin")
+        def keytool = new File(javaBin, "keytool")
+        def jarsigner = new File(javaBin, "jarsigner")
+        if (kind == "apk" && (!aapt.isFile() || !apksigner.isFile())) throw new GradleException("Android aapt and apksigner are required for APK policy verification.")
+        if (kind == "aab" && (!apkanalyzer.isFile() || !keytool.isFile() || !jarsigner.isFile())) throw new GradleException("Android apkanalyzer and JDK signing tools are required for AAB policy verification.")
         commandLine "node", new File(projectRoot, "scripts/verify-release-artifact.mjs").absolutePath,
-            "--merged-manifest", manifests.first().absolutePath, "--apk", apks.first().absolutePath, "--aapt", aapt.absolutePath
+            "--merged-manifest", manifests.first().absolutePath, "--artifact", artifacts.first().absolutePath, "--kind", kind,
+            "--aapt", aapt.absolutePath, "--apksigner", apksigner.absolutePath, "--apkanalyzer", apkanalyzer.absolutePath,
+            "--keytool", keytool.absolutePath, "--jarsigner", jarsigner.absolutePath
     }
 }
+}
+
+configureReleaseArtifactVerification("verifyGuardianReleaseApkArtifact", "apk", "$buildDir/outputs/apk/release", "**/*.apk")
+configureReleaseArtifactVerification("verifyGuardianReleaseAabArtifact", "aab", "$buildDir/outputs/bundle/release", "**/*.aab")
 
 tasks.configureEach { task ->
     if (task.name != "verifyGuardianReleaseAdmission" && (task.name ==~ /(?i).*(assemble|bundle|package|sign).*release.*/)) {
         task.dependsOn("verifyGuardianReleaseAdmission")
     }
-    if (task.name in ["assembleRelease", "packageRelease"]) task.finalizedBy("verifyGuardianReleaseArtifact")
+    if (task.name in ["assembleRelease", "packageRelease"]) task.finalizedBy("verifyGuardianReleaseApkArtifact")
+    if (task.name == "bundleRelease") task.finalizedBy("verifyGuardianReleaseAabArtifact")
 }
 
 // Apply static values from `gradle.properties` to the `android.packagingOptions`
