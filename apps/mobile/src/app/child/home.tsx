@@ -147,7 +147,7 @@ export default function ChildHomeRoute() {
           : "Web protection is active, but coverage may be limited. Some traffic may bypass Guardian.",
     );
     setAppBlockingAvailable(appBlockingCapability.level === "FULL");
-    setAccessibilitySignals(accessibilityCapability ?? null);
+    setAccessibilitySignals(accessibilityCapability);
   };
 
   useEffect(() => {
