@@ -46,7 +46,9 @@
     "web": "expo start --web",
     "test": "jest",
     "lint": "eslint .",
-    "typecheck": "tsc --noEmit"
+    "typecheck": "tsc --noEmit",
+    "test:release-admission": "node --test scripts/release-admission.test.mjs",
+    "verify:release-admission": "node scripts/release-admission.mjs"
   },
   "private": true
 }

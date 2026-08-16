@@ -132,7 +132,10 @@ export type ReputationEntry = {
 const configuredApiUrl = typeof process.env.EXPO_PUBLIC_API_URL === "string"
   ? process.env.EXPO_PUBLIC_API_URL.replace(/\/+$/, "")
   : undefined;
-const API_URL = configuredApiUrl ?? (__DEV__ ? "http://10.0.2.2:8000" : "https://api.guardian.example");
+const API_URL = configuredApiUrl ?? (__DEV__ ? "http://10.0.2.2:8000" : "");
+if (!API_URL && !__DEV__) {
+  throw new Error("Release builds require an explicitly configured HTTPS API URL.");
+}
 if (!__DEV__ && !API_URL.startsWith("https://")) {
   throw new Error("Release builds require an HTTPS API URL.");
 }
