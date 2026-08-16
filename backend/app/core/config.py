@@ -1,5 +1,6 @@
 import base64
 import json
+import os
 from functools import lru_cache
 from typing import Literal
 
@@ -65,4 +66,8 @@ class Settings(BaseSettings):
 
 @lru_cache
 def get_settings() -> Settings:
-    return Settings(jwt_secret="development-only-change-me-please-32")
+    return Settings(
+        jwt_secret=os.environ.get(
+            "GUARDIAN_JWT_SECRET", "development-only-change-me-please-32"
+        )
+    )

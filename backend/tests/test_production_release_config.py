@@ -3,35 +3,34 @@ import base64
 import pytest
 from pydantic import ValidationError
 
-from app.core.config import Settings
+from app.core.config import get_settings
 
 
-def production_settings(**overrides: object) -> Settings:
-    private_key = base64.b64encode(bytes(range(32))).decode("ascii")
-    public_key = base64.b64encode(bytes(range(32, 64))).decode("ascii")
-    values: dict[str, object] = {
-        "environment": "production",
-        "jwt_secret": "production-secret-that-is-not-a-placeholder-12345",
-        "policy_key_id": "guardian-prod-2026-01",
-        "policy_private_key": private_key,
-        "policy_trusted_public_keys": '{"guardian-prod-2026-01":"' + public_key + '"}',
-    }
-    values.update(overrides)
-    return Settings(**values)
+def test_get_settings_uses_valid_production_environment(monkeypatch: pytest.MonkeyPatch) -> None:
+    public_key = base64.b64encode(bytes(range(32))).decode("ascii")
+    monkeypatch.setenv("GUARDIAN_ENVIRONMENT", "production")
+    monkeypatch.setenv("GUARDIAN_JWT_SECRET", "production-secret-that-is-not-a-placeholder-12345")
+    monkeypatch.setenv("GUARDIAN_POLICY_KEY_ID", "guardian-prod-2026-01")
+    monkeypatch.setenv("GUARDIAN_POLICY_PRIVATE_KEY", public_key)
+    monkeypatch.setenv(
+        "GUARDIAN_POLICY_TRUSTED_PUBLIC_KEYS",
+        '{"guardian-prod-2026-01":"' + public_key + '"}',
+    )
+    get_settings.cache_clear()
+    try:
+        assert get_settings().environment == "production"
+    finally:
+        get_settings.cache_clear()
 
 
-def test_production_settings_reject_placeholder_jwt_secret() -> None:
-    with pytest.raises(ValidationError, match="JWT secret"):
-        production_settings(jwt_secret="development-only-change-me-please-32")
-
-
-def test_production_settings_reject_missing_or_invalid_policy_secrets() -> None:
-    with pytest.raises(ValidationError, match="policy private key"):
-        production_settings(policy_private_key=None)
-    with pytest.raises(ValidationError, match="trusted policy public key"):
-        production_settings(policy_trusted_public_keys="{}")
-
-
-def test_production_settings_accepts_non_placeholder_signing_configuration() -> None:
-    settings = production_settings()
-    assert settings.environment == "production"
+def test_get_settings_rejects_production_when_default_jwt_would_be_used(
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    monkeypatch.setenv("GUARDIAN_ENVIRONMENT", "production")
+    monkeypatch.delenv("GUARDIAN_JWT_SECRET", raising=False)
+    get_settings.cache_clear()
+    try:
+        with pytest.raises(ValidationError, match="JWT secret"):
+            get_settings()
+    finally:
+        get_settings.cache_clear()

@@ -12,6 +12,7 @@ def releaseStorePassword = releaseValue("GUARDIAN_RELEASE_STORE_PASSWORD")
 def releaseKeyAlias = releaseValue("GUARDIAN_RELEASE_KEY_ALIAS")
 def releaseKeyPassword = releaseValue("GUARDIAN_RELEASE_KEY_PASSWORD")
 def releaseStoreType = releaseValue("GUARDIAN_RELEASE_STORE_TYPE") ?: "JKS"
+def releaseVersionCodeValue = releaseValue("GUARDIAN_RELEASE_VERSION_CODE")
 
 def releaseAdmissionEnvironment = [
     "EXPO_PUBLIC_API_URL",
@@ -22,10 +23,8 @@ def releaseAdmissionEnvironment = [
     "GUARDIAN_RELEASE_KEY_ALIAS",
     "GUARDIAN_RELEASE_KEY_PASSWORD",
     "GUARDIAN_RELEASE_STORE_TYPE",
-    "GUARDIAN_JWT_SECRET",
-    "GUARDIAN_POLICY_PRIVATE_KEY",
     "GUARDIAN_POLICY_KEY_ID",
-    "GUARDIAN_ENVIRONMENT",
+    "GUARDIAN_RELEASE_VERSION_CODE",
     "GUARDIAN_ENABLE_TEST_FIXTURES",
 ].collectEntries { name -> [name, name == "GUARDIAN_RELEASE_STORE_FILE" && releaseStoreFileValue ? file(releaseStoreFileValue).absolutePath : releaseValue(name)] }
 
@@ -183,19 +182,47 @@ android {
     }
 }
 
+androidComponents {
+    onVariants(selector().withBuildType("release")) { variant ->
+        if (releaseVersionCodeValue ==~ /^[1-9]\d*$/) {
+            variant.outputs.forEach { output -> output.versionCode.set(releaseVersionCodeValue.toInteger()) }
+        }
+    }
+}
+
 tasks.register("verifyGuardianReleaseAdmission", Exec) {
     group = "verification"
-    description = "Fails release builds without validated signing, policy, endpoint, and backend configuration."
+    description = "Fails release builds without validated signing, public policy authority, endpoints, version code, and fixture mode."
     workingDir projectRoot
     commandLine "node", new File(projectRoot, "scripts/release-admission.mjs").absolutePath
     environment releaseAdmissionEnvironment
     doFirst { verifyReleaseCertificate() }
 }
 
+tasks.register("verifyGuardianReleaseArtifact", Exec) {
+    group = "verification"
+    description = "Verifies the merged manifest and signed release APK policy after packaging."
+    workingDir projectRoot
+    doFirst {
+        def manifests = fileTree(buildDir).matching {
+            include "intermediates/merged_manifest/release/**/AndroidManifest.xml"
+            include "intermediates/merged_manifests/release/**/AndroidManifest.xml"
+        }.files
+        if (manifests.size() != 1) throw new GradleException("Expected exactly one merged release AndroidManifest.xml.")
+        def apks = fileTree("$buildDir/outputs/apk/release").matching { include "**/*.apk" }.files
+        if (apks.size() != 1) throw new GradleException("Expected exactly one signed release APK.")
+        def aapt = new File(android.sdkDirectory, "build-tools/${android.buildToolsVersion}/aapt")
+        if (!aapt.isFile()) throw new GradleException("Android aapt is required for release artifact policy verification.")
+        commandLine "node", new File(projectRoot, "scripts/verify-release-artifact.mjs").absolutePath,
+            "--merged-manifest", manifests.first().absolutePath, "--apk", apks.first().absolutePath, "--aapt", aapt.absolutePath
+    }
+}
+
 tasks.configureEach { task ->
     if (task.name != "verifyGuardianReleaseAdmission" && (task.name ==~ /(?i).*(assemble|bundle|package|sign).*release.*/)) {
         task.dependsOn("verifyGuardianReleaseAdmission")
     }
+    if (task.name in ["assembleRelease", "packageRelease"]) task.finalizedBy("verifyGuardianReleaseArtifact")
 }
 
 // Apply static values from `gradle.properties` to the `android.packagingOptions`

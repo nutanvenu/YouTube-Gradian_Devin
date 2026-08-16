@@ -1,12 +1,10 @@
-import { existsSync } from "node:fs";
 import { fileURLToPath } from "node:url";
 
 const PLACEHOLDER_PATTERN =
   /(?:^|[._/-])(example|invalid|localhost|127\.0\.0\.1|0\.0\.0\.0|change[-_ ]?me|replace[-_ ]?me|placeholder|fixture|test)(?:$|[._/-])/i;
-const WEAK_SECRET_PATTERN =
-  /change[-_ ]?me|replace|placeholder|fixture|development|example|secret(?:$|[-_ ]?secret)/i;
 const DEBUG_SIGNING_PATTERN =
   /debug\.keystore|androiddebugkey|cn\s*=\s*android debug/i;
+const TRUTHY_VALUES = new Set(["true", "1", "yes", "on"]);
 
 function value(environment, name) {
   const configured = environment[name];
@@ -15,6 +13,19 @@ function value(environment, name) {
 
 function isPlaceholder(valueToCheck) {
   return !valueToCheck || PLACEHOLDER_PATTERN.test(valueToCheck);
+}
+
+function decodeCanonicalBase64(valueToCheck) {
+  if (
+    typeof valueToCheck !== "string" ||
+    !/^(?:[A-Za-z0-9+/]{4})*(?:[A-Za-z0-9+/]{2}==|[A-Za-z0-9+/]{3}=)?$/.test(
+      valueToCheck,
+    )
+  ) {
+    return null;
+  }
+  const decoded = Buffer.from(valueToCheck, "base64");
+  return decoded.toString("base64") === valueToCheck ? decoded : null;
 }
 
 function validateHttpsUrl(raw, label, errors) {
@@ -28,7 +39,7 @@ function validateHttpsUrl(raw, label, errors) {
   }
 }
 
-function validateTrustedKeys(raw, errors) {
+function validateTrustedKeys(raw, activeKeyId, errors) {
   if (!raw) {
     errors.push(
       "GUARDIAN_POLICY_TRUSTED_PUBLIC_KEYS must contain at least one trusted policy public key.",
@@ -46,14 +57,12 @@ function validateTrustedKeys(raw, errors) {
       throw new Error("empty object");
     }
     for (const [keyId, encodedKey] of Object.entries(keys)) {
-      const decoded =
-        typeof encodedKey === "string"
-          ? Buffer.from(encodedKey, "base64")
-          : Buffer.alloc(0);
+      const decoded = decodeCanonicalBase64(encodedKey);
       if (
         isPlaceholder(keyId) ||
         typeof encodedKey !== "string" ||
         isPlaceholder(encodedKey) ||
+        decoded === null ||
         decoded.length !== 32
       ) {
         throw new Error("invalid anchor");
@@ -64,37 +73,28 @@ function validateTrustedKeys(raw, errors) {
       "GUARDIAN_POLICY_TRUSTED_PUBLIC_KEYS must be a non-empty production Ed25519 trust-anchor JSON object.",
     );
   }
-}
-
-function validateBackendSecrets(environment, errors) {
-  const jwtSecret = value(environment, "GUARDIAN_JWT_SECRET");
-  if (jwtSecret.length < 32 || WEAK_SECRET_PATTERN.test(jwtSecret)) {
-    errors.push(
-      "GUARDIAN_JWT_SECRET must be a non-placeholder production secret of at least 32 characters.",
-    );
-  }
-  const privateKey = value(environment, "GUARDIAN_POLICY_PRIVATE_KEY");
-  const decodedPrivateKey = Buffer.from(privateKey, "base64");
-  if (isPlaceholder(privateKey) || decodedPrivateKey.length !== 32) {
-    errors.push(
-      "GUARDIAN_POLICY_PRIVATE_KEY must be a non-placeholder base64-encoded 32-byte Ed25519 private key.",
-    );
-  }
-  const keyId = value(environment, "GUARDIAN_POLICY_KEY_ID");
+  const keyId = activeKeyId;
   if (isPlaceholder(keyId)) {
     errors.push(
-      "GUARDIAN_POLICY_KEY_ID must identify a production policy signing key.",
+      "GUARDIAN_POLICY_KEY_ID must identify the active trusted policy key.",
     );
+    return;
   }
-  if (value(environment, "GUARDIAN_ENVIRONMENT") !== "production") {
-    errors.push("GUARDIAN_ENVIRONMENT must be exactly production.");
+  try {
+    const keys = JSON.parse(raw);
+    if (!Object.hasOwn(keys, keyId)) {
+      errors.push(
+        "GUARDIAN_POLICY_KEY_ID must be present in the active trust-anchor map.",
+      );
+    }
+  } catch {
+    // The invalid JSON diagnostic above is sufficient.
   }
 }
 
 /**
  * Returns deterministic, non-secret diagnostics suitable for CI and Gradle.
- * It deliberately validates backend secrets without emitting them or making
- * them available to the application build configuration.
+ * Backend private secrets are deliberately outside this mobile boundary.
  */
 export function validateReleaseAdmission(environment = process.env) {
   const errors = [];
@@ -103,9 +103,9 @@ export function validateReleaseAdmission(environment = process.env) {
   const keyAlias = value(environment, "GUARDIAN_RELEASE_KEY_ALIAS");
   const keyPassword = value(environment, "GUARDIAN_RELEASE_KEY_PASSWORD");
 
-  if (!storeFile || !existsSync(storeFile)) {
+  if (!storeFile) {
     errors.push(
-      "GUARDIAN_RELEASE_STORE_FILE must name an existing non-debug signing keystore.",
+      "GUARDIAN_RELEASE_STORE_FILE must name a non-debug signing keystore; Gradle validates the keystore and certificate.",
     );
   }
   if (
@@ -135,11 +135,25 @@ export function validateReleaseAdmission(environment = process.env) {
   );
   validateTrustedKeys(
     value(environment, "GUARDIAN_POLICY_TRUSTED_PUBLIC_KEYS"),
+    value(environment, "GUARDIAN_POLICY_KEY_ID"),
     errors,
   );
-  validateBackendSecrets(environment, errors);
+  const releaseVersionCode = value(
+    environment,
+    "GUARDIAN_RELEASE_VERSION_CODE",
+  );
   if (
-    value(environment, "GUARDIAN_ENABLE_TEST_FIXTURES").toLowerCase() === "true"
+    !/^[1-9]\d*$/.test(releaseVersionCode) ||
+    BigInt(releaseVersionCode || "0") > 2147483647n
+  ) {
+    errors.push(
+      "GUARDIAN_RELEASE_VERSION_CODE must be a positive 32-bit integer.",
+    );
+  }
+  if (
+    TRUTHY_VALUES.has(
+      value(environment, "GUARDIAN_ENABLE_TEST_FIXTURES").toLowerCase(),
+    )
   ) {
     errors.push("Release admission forbids fixture code.");
   }

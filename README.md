@@ -29,7 +29,7 @@ scripts/                          OpenAPI generation and platform verification t
 
 The verified local toolchain is:
 
-- Node `22.12.0` and pnpm `10.14.0` (the repository pins both in `.nvmrc` and
+- Node `22.13.0` and pnpm `10.14.0` (the repository pins both in `.nvmrc` and
   `package.json`).
 - Python managed by `uv` using `.python-version` and `.uv-version` (normally
   installed at `$HOME/.local/bin/uv`).
@@ -49,7 +49,7 @@ Do not commit secrets. In particular, keep
 From the repository root, use a clean shell with Node 22 on `PATH`:
 
 ```bash
-export PATH="$HOME/.nvm/versions/node/v22.12.0/bin:$PATH"
+export PATH="$HOME/.nvm/versions/node/v22.13.0/bin:$PATH"
 node --version
 pnpm --version
 pnpm install --frozen-lockfile
@@ -106,7 +106,7 @@ The exact Expo SDK v57 documentation is at
 Start Metro from the mobile package:
 
 ```bash
-export PATH="$HOME/.nvm/versions/node/v22.12.0/bin:$PATH"
+export PATH="$HOME/.nvm/versions/node/v22.13.0/bin:$PATH"
 pnpm --dir apps/mobile start
 ```
 
@@ -134,12 +134,23 @@ For a release build:
 
 ```bash
 cd apps/mobile/android
+GUARDIAN_RELEASE_STORE_FILE=/secure/guardian-release.p12 \
+GUARDIAN_RELEASE_STORE_PASSWORD=from-secret-storage \
+GUARDIAN_RELEASE_KEY_ALIAS=guardian-release \
+GUARDIAN_RELEASE_KEY_PASSWORD=from-secret-storage \
+GUARDIAN_POLICY_TRUSTED_PUBLIC_KEYS='{"guardian-prod-2026-01":"base64-public-key"}' \
+GUARDIAN_POLICY_KEY_ID=guardian-prod-2026-01 \
+EXPO_PUBLIC_API_URL=https://api.guardian.family \
+GUARDIAN_DOH_URL=https://dns.guardian.family/dns-query \
+GUARDIAN_RELEASE_VERSION_CODE=42 \
 ./gradlew :app:assembleRelease
 ```
 
-The local release variant uses the development signing configuration. A
-production release requires a separately managed signing key and store
-configuration.
+The release task rejects debug signing, fixture mode, placeholder endpoints,
+missing public policy authority, and a missing/invalid release version code.
+It then verifies the signed APK and merged release manifest. Backend-only
+secrets are validated by the backend's production settings and are not passed
+to the Android build.
 
 ## Emulator harness
 
