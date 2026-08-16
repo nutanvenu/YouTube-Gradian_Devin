@@ -37,7 +37,7 @@ export default function ParentHomeRoute() {
   const explainCapability = (capability: string, explanation: string, open: () => void) => {
     Alert.alert(
       `${capability} access`,
-      `${explanation}\n\nGuardian does not read passwords or message content through this capability.`,
+      `${explanation}\n\nGuardian never reads editable input or password fields. When an enabled safety capability exposes notification or active-window text, Guardian processes it briefly on-device and immediately discards the raw text.`,
       [
         { text: "Not now", style: "cancel" },
         { text: `Open ${capability} settings`, onPress: open },

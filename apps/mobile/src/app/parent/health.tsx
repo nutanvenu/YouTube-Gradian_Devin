@@ -15,7 +15,7 @@ export default function ParentHealthRoute() {
   const status = useQuery({ queryKey: ["guardian-status"], queryFn: () => GuardianProtection.getProtectionStatus(), refetchInterval: 5000 });
   const explain = (title: string, message: string, onConfirm: () => void) => Alert.alert(
     title,
-    `${message}\n\nGuardian does not read passwords or message content through this capability.`,
+    `${message}\n\nGuardian never reads editable input or password fields. When an enabled safety capability exposes notification or active-window text, Guardian processes it briefly on-device and immediately discards the raw text.`,
     [
       { text: "Not now", style: "cancel" },
       { text: "Open settings", onPress: onConfirm },
