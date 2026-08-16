@@ -16,6 +16,7 @@ from ..api.handler_support import (
     RequestOut,
     RequestRow,
     RequestState,
+    acquire_idempotency_lock,
     broadcaster,
     create_next_bundle,
     current_bundle_for_update,
@@ -58,15 +59,11 @@ async def decide_request(
     body: RequestDecisionIn,
     parent: Parent,
     session: AsyncSession,
+    *,
+    locked_row: RequestRow | None = None,
+    commit: bool = True,
 ) -> RequestOut:
-    row = await session.scalar(
-        select(RequestRow)
-        .join(ChildProfile, ChildProfile.id == RequestRow.child_profile_id)
-        .join(Family, Family.id == ChildProfile.family_id)
-        .join(FamilyGuardian, FamilyGuardian.family_id == Family.id)
-        .where(RequestRow.id == request_id, FamilyGuardian.parent_id == parent.id)
-        .with_for_update()
-    )
+    row = locked_row or await _request_for_parent_for_update(request_id, parent, session)
     if row is None:
         raise HTTPException(status.HTTP_404_NOT_FOUND, "Request not found")
     if is_expired(row.expires_at):
@@ -131,7 +128,28 @@ async def decide_request(
             {"state": previous, "request_id": str(row.id)},
             expires_at=expires_at,
         )
-    await session.commit()
+    result = RequestOut.model_validate(row)
+    if commit:
+        await session.commit()
+        await _publish_request_decision(session, row)
+    return result
+
+
+async def _request_for_parent_for_update(
+    request_id: UUID, parent: Parent, session: AsyncSession
+) -> RequestRow | None:
+    row = await session.scalar(
+        select(RequestRow)
+        .join(ChildProfile, ChildProfile.id == RequestRow.child_profile_id)
+        .join(Family, Family.id == ChildProfile.family_id)
+        .join(FamilyGuardian, FamilyGuardian.family_id == Family.id)
+        .where(RequestRow.id == request_id, FamilyGuardian.parent_id == parent.id)
+        .with_for_update()
+    )
+    return row if isinstance(row, RequestRow) else None
+
+
+async def _publish_request_decision(session: AsyncSession, row: RequestRow) -> None:
     family_id = await session.scalar(
         select(ChildProfile.family_id).where(ChildProfile.id == row.child_profile_id)
     )
@@ -141,7 +159,56 @@ async def decide_request(
             {"type": "request-decided", "request_id": str(row.id), "state": row.state},
             row.child_profile_id,
         )
-    return RequestOut.model_validate(row)
+
+
+async def _idempotent_decision(
+    family_id: UUID,
+    request_id: UUID,
+    target: RequestState,
+    body: RequestDecisionIn,
+    parent: Parent,
+    idempotency_key: str,
+    session: AsyncSession,
+) -> RequestOut:
+    # Advisory-key -> request row -> policy document is the global lock order.
+    # The lock covers both replay lookup and result insert, so concurrent
+    # deliveries with the same key produce one decision and one replay.
+    operation = "request_decision"
+    digest = payload_hash(
+        {
+            "family_id": str(family_id),
+            "request_id": str(request_id),
+            "action": target.value,
+            "body": body.model_dump(mode="json"),
+        }
+    )
+    await acquire_idempotency_lock(session, operation, idempotency_key)
+    row = await _request_for_parent_for_update(request_id, parent, session)
+    if row is None:
+        raise HTTPException(status.HTTP_404_NOT_FOUND, "Request not found")
+    replay = await replay_or_conflict(session, operation, idempotency_key, digest)
+    if replay is not None:
+        return RequestOut.model_validate(replay.response_body)
+    result = await decide_request(
+        request_id,
+        target,
+        body,
+        parent,
+        session,
+        locked_row=row,
+        commit=False,
+    )
+    await save_result(
+        session,
+        operation,
+        idempotency_key,
+        digest,
+        status.HTTP_200_OK,
+        result.model_dump(mode="json"),
+    )
+    await session.commit()
+    await _publish_request_decision(session, row)
+    return result
 
 async def approve_request(
     family_id: UUID,
@@ -152,32 +219,37 @@ async def approve_request(
     session: AsyncSession = Depends(get_session),
 ) -> RequestOut:
     await family_for_parent(session, parent, family_id)
-    digest = payload_hash(body.model_dump(mode="json"))
     if idempotency_key is not None:
-        replay = await replay_or_conflict(session, "request_approval", idempotency_key, digest)
-        if replay is not None:
-            return RequestOut.model_validate(replay.response_body)
-    result = await decide_request(request_id, RequestState.APPROVED, body, parent, session)
-    if idempotency_key is not None:
-        await save_result(
-            session,
-            "request_approval",
+        return await _idempotent_decision(
+            family_id,
+            request_id,
+            RequestState.APPROVED,
+            body,
+            parent,
             idempotency_key,
-            digest,
-            status.HTTP_200_OK,
-            result.model_dump(mode="json"),
+            session,
         )
-        await session.commit()
-    return result
+    return await decide_request(request_id, RequestState.APPROVED, body, parent, session)
 
 async def deny_request(
     family_id: UUID,
     request_id: UUID,
     body: RequestDecisionIn,
     parent: Parent = Depends(current_parent),
+    idempotency_key: str | None = Header(default=None, alias="Idempotency-Key"),
     session: AsyncSession = Depends(get_session),
 ) -> RequestOut:
     await family_for_parent(session, parent, family_id)
+    if idempotency_key is not None:
+        return await _idempotent_decision(
+            family_id,
+            request_id,
+            RequestState.DENIED,
+            body,
+            parent,
+            idempotency_key,
+            session,
+        )
     return await decide_request(request_id, RequestState.DENIED, body, parent, session)
 
 router.add_api_route("/v1/families/{family_id}/requests", list_requests, methods=["GET"], response_model=None)

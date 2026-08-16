@@ -261,6 +261,8 @@ class UsageReportOut(BaseModel):
     event_count: int
     by_app: dict[str, int]
     by_category: dict[str, int]
+    unattributed_seconds: int = 0
+    coverage: Literal["COMPLETE", "PARTIAL"] = "COMPLETE"
 
 
 class RequestCreateIn(BaseModel):

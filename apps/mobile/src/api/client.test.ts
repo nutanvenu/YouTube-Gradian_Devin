@@ -19,10 +19,15 @@ test("API client sends parent credentials and parses structured responses", asyn
 });
 
 test("refreshes once and retries a parent request after a 401", async () => {
-  (SecureStore.getItemAsync as jest.Mock)
-    .mockResolvedValueOnce("expired-access")
-    .mockResolvedValueOnce(null)
-    .mockResolvedValueOnce("refresh-token");
+  const values: Record<string, string | null> = {
+    "guardian.access-token": "expired-access",
+    "guardian.refresh-token": "refresh-token",
+  };
+  (SecureStore.getItemAsync as jest.Mock).mockImplementation((key: string) => Promise.resolve(values[key] ?? null));
+  (SecureStore.setItemAsync as jest.Mock).mockImplementation((key: string, value: string) => {
+    values[key] = value;
+    return Promise.resolve();
+  });
   const fetcher = jest
     .spyOn(globalThis, "fetch")
     .mockResolvedValueOnce(new Response(JSON.stringify({ error: { message: "expired" } }), { status: 401 }))
@@ -62,6 +67,55 @@ test("shares one refresh across concurrent parent requests", async () => {
   await expect(Promise.all([client.me(), client.me()])).resolves.toHaveLength(2);
   expect(fetcher.mock.calls.filter(([url]) => requestUrlFor(url).endsWith("/v1/auth/refresh"))).toHaveLength(1);
   expect(values["guardian.device-token"]).toBe("paired-child-device");
+  fetcher.mockRestore();
+});
+
+test("a delayed 401 reuses a token refreshed by a concurrent request", async () => {
+  const values: Record<string, string | null> = {
+    "guardian.access-token": "expired-access",
+    "guardian.refresh-token": "refresh-token",
+  };
+  let resolveSecondExpired!: (response: Response) => void;
+  let resolveSecondObserved!: () => void;
+  let resolveAccessUpdated!: () => void;
+  const secondObserved = new Promise<void>((resolve) => { resolveSecondObserved = resolve; });
+  const accessUpdated = new Promise<void>((resolve) => { resolveAccessUpdated = resolve; });
+  (SecureStore.getItemAsync as jest.Mock).mockImplementation((key: string) => Promise.resolve(values[key] ?? null));
+  (SecureStore.setItemAsync as jest.Mock).mockImplementation((key: string, value: string) => {
+    values[key] = value;
+    if (key === "guardian.access-token" && value === "new-access") resolveAccessUpdated();
+    return Promise.resolve();
+  });
+  let expiredCalls = 0;
+  const requestUrlFor = (url: RequestInfo | URL) => (
+    typeof url === "string" ? url : url instanceof URL ? url.href : url.url
+  );
+  const fetcher = jest.spyOn(globalThis, "fetch").mockImplementation((url, init) => {
+    const requestUrl = requestUrlFor(url);
+    if (requestUrl.endsWith("/v1/auth/refresh")) {
+      return Promise.resolve(new Response(JSON.stringify({ access_token: "new-access", refresh_token: "new-refresh" }), { status: 200 }));
+    }
+    const authorization = new Headers(init?.headers).get("Authorization");
+    if (authorization === "Bearer new-access") {
+      return Promise.resolve(new Response(JSON.stringify({ id: "p1", email: "parent@example.com" }), { status: 200 }));
+    }
+    expiredCalls += 1;
+    if (expiredCalls === 1) {
+      return Promise.resolve(new Response(JSON.stringify({ error: { message: "expired" } }), { status: 401 }));
+    }
+    resolveSecondObserved();
+    return new Promise<Response>((resolve) => { resolveSecondExpired = resolve; });
+  });
+
+  const client = new GuardianApiClient("https://guardian.test");
+  const first = client.me();
+  const second = client.me();
+  await secondObserved;
+  await accessUpdated;
+  resolveSecondExpired(new Response(JSON.stringify({ error: { message: "expired" } }), { status: 401 }));
+
+  await expect(Promise.all([first, second])).resolves.toHaveLength(2);
+  expect(fetcher.mock.calls.filter(([url]) => requestUrlFor(url).endsWith("/v1/auth/refresh"))).toHaveLength(1);
   fetcher.mockRestore();
 });
 

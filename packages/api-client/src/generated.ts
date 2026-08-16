@@ -1210,6 +1210,15 @@ export const openApiDocument = {
             "title": "Child Profile Id",
             "type": "string"
           },
+          "coverage": {
+            "default": "COMPLETE",
+            "enum": [
+              "COMPLETE",
+              "PARTIAL"
+            ],
+            "title": "Coverage",
+            "type": "string"
+          },
           "duration_seconds": {
             "title": "Duration Seconds",
             "type": "integer"
@@ -1231,6 +1240,11 @@ export const openApiDocument = {
           "timezone": {
             "title": "Timezone",
             "type": "string"
+          },
+          "unattributed_seconds": {
+            "default": 0,
+            "title": "Unattributed Seconds",
+            "type": "integer"
           }
         },
         "required": [
@@ -3238,6 +3252,22 @@ export const openApiDocument = {
               "format": "uuid",
               "title": "Request Id",
               "type": "string"
+            }
+          },
+          {
+            "in": "header",
+            "name": "Idempotency-Key",
+            "required": false,
+            "schema": {
+              "anyOf": [
+                {
+                  "type": "string"
+                },
+                {
+                  "type": "null"
+                }
+              ],
+              "title": "Idempotency-Key"
             }
           }
         ],

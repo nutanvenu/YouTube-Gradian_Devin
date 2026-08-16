@@ -1,8 +1,10 @@
 import json
+import runpy
 from datetime import UTC, datetime, timedelta
+from pathlib import Path
 
 import pytest
-from sqlalchemy import select
+from sqlalchemy import select, text
 
 from app.devices.models import Device
 from app.events.models import UsageAggregate
@@ -56,11 +58,13 @@ async def test_daily_report_splits_duration_at_dst_boundary(client, parent_a, pa
             "period_end": "2024-03-11",
             "timezone": "America/New_York",
             "duration_seconds": 7200,
-            "event_count": 1,
-            "by_app": {"com.example.reader": 7200},
-            "by_category": {"EDUCATION": 7200},
-        }
-    ]
+                "event_count": 1,
+                "by_app": {"com.example.reader": 7200},
+                "by_category": {"EDUCATION": 7200},
+                "unattributed_seconds": 0,
+                "coverage": "COMPLETE",
+            }
+        ]
 
 
 @pytest.mark.asyncio
@@ -210,6 +214,67 @@ async def test_delayed_lower_snapshot_and_timezone_boundary_cannot_reduce_or_mov
 
 
 @pytest.mark.asyncio
+async def test_0020_migration_sql_keeps_max_duration_on_latest_legacy_snapshot(
+    paired_device, database_session
+):
+    migration = runpy.run_path(
+        str(
+            Path(__file__).parents[1]
+            / "alembic"
+            / "versions"
+            / "0020_usage_daily_snapshots.py"
+        )
+    )
+    device = await database_session.get(Device, paired_device.device_id)
+    assert device is not None
+    first = datetime(2026, 8, 16, 9, tzinfo=UTC)
+    later = first + timedelta(minutes=5)
+    try:
+        # The production migration runs before this index exists. Roll it back
+        # with the test transaction after executing the migration's real SQL.
+        await database_session.execute(text("DROP INDEX uq_usage_aggregates_daily_snapshot"))
+        database_session.add_all(
+            [
+                UsageAggregate(
+                    device_id=device.id,
+                    event_type="APP_USAGE",
+                    occurred_at=first,
+                    timezone="UTC",
+                    app_ref="com.example.reader",
+                    duration_seconds=420,
+                ),
+                UsageAggregate(
+                    device_id=device.id,
+                    event_type="APP_USAGE",
+                    occurred_at=later,
+                    timezone="UTC",
+                    app_ref="com.example.reader",
+                    duration_seconds=300,
+                ),
+            ]
+        )
+        await database_session.flush()
+        await database_session.execute(text(migration["BACKFILL_USAGE_SNAPSHOTS_SQL"]))
+        await database_session.execute(text(migration["DEDUPLICATE_USAGE_SNAPSHOTS_SQL"]))
+        await database_session.execute(
+            text(migration["DELETE_DUPLICATE_USAGE_SNAPSHOTS_SQL"])
+        )
+        rows = list(
+            (
+                await database_session.scalars(
+                    select(UsageAggregate).where(UsageAggregate.device_id == device.id)
+                )
+            ).all()
+        )
+        matching = [row for row in rows if row.app_ref == "com.example.reader"]
+        assert len(matching) == 1
+        assert matching[0].occurred_at == later
+        assert matching[0].duration_seconds == 420
+    finally:
+        await database_session.rollback()
+
+
+@pytest.mark.asyncio
 async def test_parent_total_uses_app_snapshots_without_counting_category_and_device_rollups(
     client, parent_a, paired_device
 ):
@@ -257,6 +322,62 @@ async def test_parent_total_uses_app_snapshots_without_counting_category_and_dev
     assert response.json()[0]["duration_seconds"] == 420
     assert response.json()[0]["by_app"] == {"com.example.reader": 420}
     assert response.json()[0]["by_category"] == {"EDUCATION": 420}
+
+
+@pytest.mark.asyncio
+async def test_parent_usage_keeps_device_rollup_residual_as_explicit_partial_coverage(
+    client, parent_a, paired_device
+):
+    occurred_at = datetime.now(UTC).replace(second=0, microsecond=0)
+    await ingest(
+        client,
+        paired_device,
+        [
+            {
+                "event_type": "APP_USAGE",
+                "occurred_at": occurred_at.isoformat().replace("+00:00", "Z"),
+                "timezone": "UTC",
+                "app_ref": "com.example.reader",
+                "category": "EDUCATION",
+                "duration_seconds": 300,
+            },
+            {
+                "event_type": "DEVICE_USAGE",
+                "occurred_at": occurred_at.isoformat().replace("+00:00", "Z"),
+                "timezone": "UTC",
+                "duration_seconds": 420,
+            },
+        ],
+    )
+    headers = {"Authorization": f"Bearer {parent_a.token}"}
+    report = await client.get(
+        f"/v1/families/{parent_a.family_id}/usage/reports",
+        params={
+            "child_id": parent_a.child_id,
+            "start": occurred_at.date().isoformat(),
+            "end": (occurred_at.date() + timedelta(days=1)).isoformat(),
+            "timezone": "UTC",
+        },
+        headers=headers,
+    )
+    activity = await client.get(
+        f"/v1/families/{parent_a.family_id}/activity/usage", headers=headers
+    )
+
+    assert report.status_code == activity.status_code == 200
+    bucket = report.json()[0]
+    assert bucket["duration_seconds"] == 420
+    assert bucket["by_app"] == {"com.example.reader": 300, "Unknown": 120}
+    assert bucket["by_category"] == {"EDUCATION": 300, "UNATTRIBUTED": 120}
+    assert bucket["unattributed_seconds"] == 120
+    assert bucket["coverage"] == "PARTIAL"
+    assert {
+        (point["app_ref"], point["category"], point["duration_seconds"])
+        for point in activity.json()
+    } == {
+        ("com.example.reader", "EDUCATION", 300),
+        (None, "UNATTRIBUTED", 120),
+    }
 
 
 @pytest.mark.asyncio

@@ -1,5 +1,5 @@
 import { createContext, PropsWithChildren, useContext, useEffect, useMemo, useState } from "react";
-import { api, Parent, sessionStorage, subscribeToParentSessionExpiry, Tokens } from "@/api/client";
+import { api, ApiError, Parent, sessionStorage, subscribeToParentSessionExpiry, Tokens } from "@/api/client";
 
 type SessionContextValue = {
   parent: Parent | null;
@@ -42,9 +42,10 @@ export function SessionProvider({ children }: PropsWithChildren) {
         return currentParent;
       })
       .then(setParent)
-      .catch(async () => {
+      .catch(async (error: unknown) => {
         await sessionStorage.clearParentSession();
         setParent(null);
+        setSessionError(error instanceof ApiError && error.code === "SESSION_EXPIRED" ? "SESSION_EXPIRED" : null);
       })
       .finally(() => setLoading(false));
   }, []);

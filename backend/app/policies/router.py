@@ -11,6 +11,7 @@ from ..api.handler_support import (
     HTTPException,
     Parent,
     PolicyMutationIn,
+    acquire_idempotency_lock,
     broadcaster,
     configured_trusted_public_keys,
     create_next_bundle,
@@ -81,8 +82,15 @@ async def mutate_policy(
     )
     if child is None:
         raise HTTPException(status.HTTP_404_NOT_FOUND, "Child not found")
-    digest = payload_hash(body.model_dump(mode="json"))
+    digest = payload_hash(
+        {
+            "family_id": str(family_id),
+            "child_id": str(child_id),
+            "body": body.model_dump(mode="json"),
+        }
+    )
     if idempotency_key is not None:
+        await acquire_idempotency_lock(session, "policy_mutation", idempotency_key)
         replay = await replay_or_conflict(session, "policy_mutation", idempotency_key, digest)
         if replay is not None:
             return replay.response_body

@@ -99,6 +99,8 @@ export type UsageReport = {
   event_count: number;
   by_app: Record<string, number>;
   by_category: Record<string, number>;
+  unattributed_seconds: number;
+  coverage: "COMPLETE" | "PARTIAL";
 };
 export type DeviceEvent = {
   event_type: string;
@@ -253,6 +255,13 @@ export class GuardianApiClient {
       const status = (error as { status?: number }).status;
       if (status === 401 && retry && accessToken && !deviceAuthenticated) {
         try {
+          // A different request may already have refreshed the session while
+          // this request was in flight. Reuse that token before attempting a
+          // second refresh; the retry remains bounded to one attempt.
+          const currentAccessToken = await sessionStorage.getAccessToken();
+          if (currentAccessToken && currentAccessToken !== accessToken) {
+            return await this.request<T>(path, init, false);
+          }
           await this.refreshParentSession();
           return await this.request<T>(path, init, false);
         } catch {

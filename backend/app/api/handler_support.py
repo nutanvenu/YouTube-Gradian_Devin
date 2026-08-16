@@ -39,7 +39,12 @@ from ..core.errors import (
     internal_error_handler,
     validation_error_handler,
 )
-from ..core.idempotency import payload_hash, replay_or_conflict, save_result
+from ..core.idempotency import (
+    acquire_idempotency_lock,
+    payload_hash,
+    replay_or_conflict,
+    save_result,
+)
 from ..core.notifier import LoggingNotifier
 from ..core.rate_limit import InProcessRateLimiter
 from ..devices.models import Device, DeviceCredential
@@ -197,6 +202,7 @@ __all__ = [
     'asynccontextmanager',
     'asyncio',
     'auth_rate_limiter',
+    'acquire_idempotency_lock',
     'base64',
     'broadcaster',
     'LoggingPushSender',
