@@ -30,6 +30,8 @@ def _utc_midnight(day: date, timezone: ZoneInfo) -> datetime:
 
 
 def _target_key(row: UsageAggregate) -> str:
+    if row.snapshot_key:
+        return row.snapshot_key
     if row.app_ref:
         return f"APP:{row.app_ref}"
     if row.category:
@@ -62,6 +64,40 @@ def latest_usage_snapshots(
     return sorted(latest.values(), key=lambda item: item[0].occurred_at)
 
 
+def resolved_usage_snapshots(
+    rows: Iterable[tuple[UsageAggregate, UUID]],
+    *,
+    timezone: ZoneInfo | None = None,
+) -> list[tuple[UsageAggregate, UUID]]:
+    """Choose one roll-up level per device/day to avoid counting the same usage.
+
+    Device collectors may send app, category, and device cumulative summaries for
+    the same day. App values are most specific, then category values, then the
+    device total. We keep lower-resolution values only when that is all Android
+    exposed; we never add the three representations together.
+    """
+    latest = latest_usage_snapshots(rows, timezone=timezone)
+    by_device_day: dict[
+        tuple[UUID, UUID, date], list[tuple[UsageAggregate, UUID]]
+    ] = defaultdict(list)
+    for row, child_id in latest:
+        row_timezone = timezone
+        if row_timezone is None:
+            try:
+                row_timezone = ZoneInfo(row.timezone)
+            except Exception:
+                row_timezone = ZoneInfo("UTC")
+        key = (child_id, row.device_id, row.occurred_at.astimezone(row_timezone).date())
+        by_device_day[key].append((row, child_id))
+
+    selected: list[tuple[UsageAggregate, UUID]] = []
+    for candidates in by_device_day.values():
+        app_rows = [item for item in candidates if item[0].app_ref]
+        category_rows = [item for item in candidates if item[0].category and not item[0].app_ref]
+        selected.extend(app_rows or category_rows or candidates)
+    return sorted(selected, key=lambda item: item[0].occurred_at)
+
+
 async def usage_report(
     session: AsyncSession,
     *,
@@ -88,7 +124,7 @@ async def usage_report(
     )
     if child_id is not None:
         query = query.where(ChildProfile.id == child_id)
-    rows = latest_usage_snapshots(
+    rows = resolved_usage_snapshots(
         (await session.execute(query)).tuples().all(),
         timezone=report_timezone,
     )

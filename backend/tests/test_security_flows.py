@@ -33,6 +33,28 @@ async def test_refresh_rotation_and_reuse_revokes_family(client, parent_a: Paren
 
 
 @pytest.mark.asyncio
+async def test_concurrent_refreshes_cannot_issue_two_successor_tokens(client) -> None:
+    """The same refresh credential has exactly one successful rotation."""
+    import asyncio
+
+    signup = await client.post(
+        "/v1/auth/signup",
+        json={
+            "email": f"refresh-race-{uuid4()}@example.com",
+            "password": "correct horse battery staple",
+        },
+    )
+    refresh = signup.json()["refresh_token"]
+
+    first, second = await asyncio.gather(
+        client.post("/v1/auth/refresh", json={"refresh_token": refresh}),
+        client.post("/v1/auth/refresh", json={"refresh_token": refresh}),
+    )
+
+    assert sorted((first.status_code, second.status_code)) == [200, 401]
+
+
+@pytest.mark.asyncio
 async def test_logout_revokes_refresh_token(client) -> None:
     signup = await client.post(
         "/v1/auth/signup",

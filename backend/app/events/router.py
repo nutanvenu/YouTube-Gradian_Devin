@@ -34,7 +34,7 @@ from ..api.handler_support import (
     select,
     usage_report,
 )
-from .reports import latest_usage_snapshots
+from .reports import resolved_usage_snapshots
 
 router = APIRouter()
 
@@ -110,7 +110,7 @@ async def family_usage(
     await family_for_parent(session, parent, family_id)
     usage_end = datetime.now(UTC)
     usage_start = usage_end - timedelta(days=7)
-    rows = latest_usage_snapshots(
+    rows = resolved_usage_snapshots(
         (
             await session.execute(
                 select(UsageAggregate, Device.child_profile_id)

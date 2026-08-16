@@ -11,6 +11,17 @@ const mockDefaultRefetch = jest.fn(() => Promise.resolve());
 const mockGuardianSubscriptionRemove = jest.fn();
 const mockGetCapabilities = jest.fn();
 const mockGetProtectionStatus = jest.fn();
+const mockApplyPolicyBundle = jest.fn<Promise<{ applied: boolean }>, [unknown]>();
+const mockStartProtection = jest.fn<Promise<void>, []>();
+const mockGetReputationStatus = jest.fn(() => Promise.resolve({ version: 0 }));
+const mockAcknowledgePolicy = jest.fn<Promise<void>, [number]>();
+const mockHeartbeat = jest.fn<Promise<void>, [unknown]>();
+const mockIngestEvents = jest.fn<Promise<void>, [unknown[], string?]>();
+const mockIngestInventory = jest.fn<Promise<void>, [unknown[]]>();
+const mockReputation = jest.fn<
+  Promise<{ bundle: null; deltas: never[] }>,
+  [number?]
+>();
 let mockGuardianEventListener: ((event: unknown) => void) | undefined;
 let mockGuardianCapabilities: Record<string, { level: string }> = {};
 let mockGuardianProtectionStatus = { active: false, health: "UNKNOWN" };
@@ -60,7 +71,12 @@ jest.mock("@/api/client", () => ({
       mockReviewApp(...args);
       return Promise.resolve();
     },
-    ingestInventory: () => Promise.resolve(),
+    policy: () => Promise.resolve({}),
+    acknowledgePolicy: (policyVersion: number) => mockAcknowledgePolicy(policyVersion),
+    heartbeat: (body: unknown) => mockHeartbeat(body),
+    ingestEvents: (events: unknown[], correlationId?: string) => mockIngestEvents(events, correlationId),
+    ingestInventory: (apps: unknown[]) => mockIngestInventory(apps),
+    reputation: (version?: number) => mockReputation(version),
   },
 }));
 
@@ -89,6 +105,10 @@ jest.mock("../modules/guardian-protection/src", () => ({
       mockGetProtectionStatus();
       return Promise.resolve(mockGuardianProtectionStatus);
     },
+    applyPolicyBundle: (bundle: unknown) => mockApplyPolicyBundle(bundle),
+    startProtection: () => mockStartProtection(),
+    getReputationStatus: () => mockGetReputationStatus(),
+    applyReputationBundle: jest.fn(() => Promise.resolve({ applied: true })),
     getUsageSummary: () => Promise.resolve({ byTarget: {} }),
     openUsageAccessSettings: jest.fn(),
     openAccessibilitySettings: jest.fn(),
@@ -118,7 +138,7 @@ jest.mock("@tanstack/react-query", () => ({
 
 jest.mock("@/state/network", () => ({ useNetworkStatus: () => ({ isOffline: mockOffline }) }));
 
-import RulesScreen from "@/app/parent/rules";
+import RulesScreen, { stableObservedApps } from "@/app/parent/rules";
 import RequestsScreen from "@/app/parent/requests";
 import HealthScreen from "@/app/parent/health";
 import ActivityScreen, { aggregateTodayUsage } from "@/app/parent/activity";
@@ -144,6 +164,22 @@ beforeEach(() => {
   mockGuardianSubscriptionRemove.mockReset();
   mockGetCapabilities.mockReset();
   mockGetProtectionStatus.mockReset();
+  mockApplyPolicyBundle.mockReset();
+  mockApplyPolicyBundle.mockResolvedValue({ applied: true });
+  mockStartProtection.mockReset();
+  mockStartProtection.mockResolvedValue(undefined);
+  mockGetReputationStatus.mockReset();
+  mockGetReputationStatus.mockResolvedValue({ version: 0 });
+  mockAcknowledgePolicy.mockReset();
+  mockAcknowledgePolicy.mockResolvedValue(undefined);
+  mockHeartbeat.mockReset();
+  mockHeartbeat.mockResolvedValue(undefined);
+  mockIngestEvents.mockReset();
+  mockIngestEvents.mockResolvedValue(undefined);
+  mockIngestInventory.mockReset();
+  mockIngestInventory.mockResolvedValue(undefined);
+  mockReputation.mockReset();
+  mockReputation.mockResolvedValue({ bundle: null, deltas: [] });
   mockGuardianEventListener = undefined;
   mockGuardianCapabilities = {};
   mockGuardianProtectionStatus = { active: false, health: "UNKNOWN" };
@@ -198,6 +234,42 @@ test("Rules keeps a newly observed app in review until the parent marks it revie
   fireEvent.press(screen.getByLabelText("Mark app reviewed"));
   await waitFor(() => expect(mockReviewApp).toHaveBeenCalledWith("family-1", "child-1", "com.example.new"));
   expect(refetch).toHaveBeenCalled();
+});
+
+test("Rules keep app-specific drafts on the selected package when inventory reorders and reputation is unavailable", async () => {
+  setQuery(["children", "family-1"], {
+    data: [{
+      id: "child-1",
+      name: "Alex",
+      policy_document: { app_rules: [], domain_rules: [], base_policy: {} },
+    }],
+  });
+  setQuery(["child-inventory", "family-1", "child-1"], {
+    data: [
+      { platform_app_id: "com.example.beta", display_name: "Beta", category: null, reviewed: true },
+      { platform_app_id: "com.example.alpha", display_name: "Alpha", category: null, reviewed: true },
+    ],
+  });
+  setQuery(["reputation", "family-1", "child-1"], { isError: true });
+  setQuery(["health", "family-1"], { data: [] });
+  const screen = render(<RulesScreen />);
+  expect(stableObservedApps([
+    { platform_app_id: "z", display_name: "Beta", category: null, reviewed: true },
+    { platform_app_id: "a", display_name: "Alpha", category: null, reviewed: true },
+  ]).map((app) => app.platform_app_id)).toEqual(["a", "z"]);
+  expect(screen.getByText("Reputation updates are unavailable. Existing parent rules remain usable and active.")).toBeTruthy();
+
+  fireEvent.changeText(screen.getByLabelText("Daily limit for Alpha (minutes)"), "45");
+  fireEvent.press(screen.getAllByLabelText("Edit controls")[0]);
+  expect(screen.getByLabelText("Daily limit for Beta (minutes)").props.value).toBe("30");
+  fireEvent.press(screen.getByLabelText("Edit controls"));
+  expect(screen.getByLabelText("Daily limit for Alpha (minutes)").props.value).toBe("45");
+  fireEvent.press(screen.getByLabelText("Limit to 45 minutes"));
+  await waitFor(() => expect(mockMutatePolicy).toHaveBeenCalledWith({
+    operation: "APP_DAILY_MINUTES",
+    target: "com.example.alpha",
+    value: 45,
+  }));
 });
 
 test("Requests renders retry and terminal approval states", async () => {
@@ -656,6 +728,28 @@ test("Child home refreshes protection when the native tunnel status changes", as
   });
   expect(mockGetCapabilities).toHaveBeenCalledTimes(capabilityCalls + 1);
   expect(mockGetProtectionStatus).toHaveBeenCalledTimes(protectionCalls + 1);
+  screen.unmount();
+});
+
+test("Child protection acknowledgement, heartbeat, usage, and inventory continue when reputation sync fails", async () => {
+  mockGuardianCapabilities = {
+    vpn_filtering: { level: "FULL" },
+    web_filtering: { level: "LIMITED" },
+    app_blocking: { level: "FULL" },
+    communication_risk_signals: { level: "FULL" },
+  };
+  mockGuardianProtectionStatus = { active: true, health: "HEALTHY" };
+  setQuery(["device-policy"], { data: { policy_version: 9, bundle: {} } });
+  mockReputation.mockRejectedValueOnce(new Error("reputation offline"));
+
+  const screen = render(<ChildHomeScreen />);
+  await waitFor(() => {
+    expect(mockAcknowledgePolicy).toHaveBeenCalledWith(9);
+    expect(mockHeartbeat).toHaveBeenCalled();
+    expect(mockIngestInventory).toHaveBeenCalled();
+    expect(screen.getByText("Reputation updates are temporarily unavailable. Protection and parent rules remain active.")).toBeTruthy();
+  });
+  expect(mockStartProtection).toHaveBeenCalled();
   screen.unmount();
 });
 

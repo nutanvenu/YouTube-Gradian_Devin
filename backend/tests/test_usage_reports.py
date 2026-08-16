@@ -2,6 +2,7 @@ import json
 from datetime import UTC, datetime, timedelta
 
 import pytest
+from sqlalchemy import select
 
 from app.devices.models import Device
 from app.events.models import UsageAggregate
@@ -118,6 +119,144 @@ async def test_reports_and_activity_use_latest_cumulative_snapshot_per_target(
     assert activity.status_code == 200, activity.text
     assert activity.json()[0]["duration_seconds"] == 1018
     assert len(activity.json()) == 1
+
+
+@pytest.mark.asyncio
+async def test_repeated_daily_snapshot_uploads_are_upserted_without_raw_or_parent_inflation(
+    client, parent_a, paired_device, database_session
+):
+    """A relaunch resends the current cumulative value; it is not a new usage event."""
+    first = datetime(2026, 8, 16, 9, tzinfo=UTC)
+    latest = first + timedelta(minutes=5)
+    for occurred_at, duration_seconds in ((first, 300), (latest, 420), (latest, 420)):
+        await ingest(
+            client,
+            paired_device,
+            [
+                {
+                    "event_type": "APP_USAGE",
+                    "occurred_at": occurred_at.isoformat().replace("+00:00", "Z"),
+                    "timezone": "UTC",
+                    "app_ref": "com.example.reader",
+                    "category": "EDUCATION",
+                    "duration_seconds": duration_seconds,
+                }
+            ],
+        )
+
+    rows = list(
+        (
+            await database_session.scalars(
+                select(UsageAggregate).where(
+                    UsageAggregate.device_id == paired_device.device_id
+                )
+            )
+        ).all()
+    )
+    assert [(row.snapshot_day, row.snapshot_key, row.duration_seconds) for row in rows] == [
+        (first.date(), "APP:com.example.reader", 420)
+    ]
+
+    response = await client.get(
+        f"/v1/families/{parent_a.family_id}/usage/reports",
+        params={
+            "child_id": parent_a.child_id,
+            "start": first.date().isoformat(),
+            "end": (first.date() + timedelta(days=1)).isoformat(),
+            "timezone": "UTC",
+        },
+        headers={"Authorization": f"Bearer {parent_a.token}"},
+    )
+    assert response.status_code == 200, response.text
+    assert response.json()[0]["duration_seconds"] == 420
+
+
+@pytest.mark.asyncio
+async def test_delayed_lower_snapshot_and_timezone_boundary_cannot_reduce_or_move_daily_usage(
+    client, parent_a, paired_device, database_session
+):
+    # 03:00Z is still the prior calendar day in Los Angeles. A later retry
+    # reporting a lower cumulative total must retain the known daily maximum.
+    first = datetime(2026, 8, 17, 3, tzinfo=UTC)
+    await ingest(
+        client,
+        paired_device,
+        [{
+            "event_type": "APP_USAGE",
+            "occurred_at": first.isoformat().replace("+00:00", "Z"),
+            "timezone": "America/Los_Angeles",
+            "app_ref": "com.example.reader",
+            "duration_seconds": 420,
+        }],
+    )
+    await ingest(
+        client,
+        paired_device,
+        [{
+            "event_type": "APP_USAGE",
+            "occurred_at": (first + timedelta(minutes=5)).isoformat().replace("+00:00", "Z"),
+            "timezone": "America/Los_Angeles",
+            "app_ref": "com.example.reader",
+            "duration_seconds": 300,
+        }],
+    )
+
+    row = await database_session.scalar(
+        select(UsageAggregate).where(UsageAggregate.device_id == paired_device.device_id)
+    )
+    assert row is not None
+    assert row.snapshot_day.isoformat() == "2026-08-16"
+    assert row.duration_seconds == 420
+
+
+@pytest.mark.asyncio
+async def test_parent_total_uses_app_snapshots_without_counting_category_and_device_rollups(
+    client, parent_a, paired_device
+):
+    occurred_at = datetime(2026, 8, 16, 12, tzinfo=UTC)
+    await ingest(
+        client,
+        paired_device,
+        [
+            {
+                "event_type": "APP_USAGE",
+                "occurred_at": occurred_at.isoformat().replace("+00:00", "Z"),
+                "timezone": "UTC",
+                "app_ref": "com.example.reader",
+                "category": "EDUCATION",
+                "duration_seconds": 420,
+            },
+            {
+                "event_type": "CATEGORY_USAGE",
+                "occurred_at": occurred_at.isoformat().replace("+00:00", "Z"),
+                "timezone": "UTC",
+                "category": "EDUCATION",
+                "duration_seconds": 420,
+            },
+            {
+                "event_type": "DEVICE_USAGE",
+                "occurred_at": occurred_at.isoformat().replace("+00:00", "Z"),
+                "timezone": "UTC",
+                "duration_seconds": 420,
+            },
+        ],
+    )
+
+    response = await client.get(
+        f"/v1/families/{parent_a.family_id}/usage/reports",
+        params={
+            "child_id": parent_a.child_id,
+            "start": occurred_at.date().isoformat(),
+            "end": (occurred_at.date() + timedelta(days=1)).isoformat(),
+            "timezone": "UTC",
+        },
+        headers={"Authorization": f"Bearer {parent_a.token}"},
+    )
+
+    assert response.status_code == 200, response.text
+    assert response.json()[0]["duration_seconds"] == 420
+    assert response.json()[0]["by_app"] == {"com.example.reader": 420}
+    assert response.json()[0]["by_category"] == {"EDUCATION": 420}
 
 
 @pytest.mark.asyncio

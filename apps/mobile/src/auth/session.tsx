@@ -1,10 +1,11 @@
 import { createContext, PropsWithChildren, useContext, useEffect, useMemo, useState } from "react";
-import { api, Parent, sessionStorage, Tokens } from "@/api/client";
+import { api, Parent, sessionStorage, subscribeToParentSessionExpiry, Tokens } from "@/api/client";
 
 type SessionContextValue = {
   parent: Parent | null;
   loading: boolean;
   familyId: string | null;
+  sessionError: "SESSION_EXPIRED" | null;
   signIn: (tokens: Tokens) => Promise<void>;
   setFamilyId: (familyId: string) => Promise<void>;
   signOut: () => Promise<void>;
@@ -15,6 +16,16 @@ export function SessionProvider({ children }: PropsWithChildren) {
   const [parent, setParent] = useState<Parent | null>(null);
   const [loading, setLoading] = useState(true);
   const [familyId, setFamilyIdState] = useState<string | null>(null);
+  const [sessionError, setSessionError] = useState<"SESSION_EXPIRED" | null>(null);
+  useEffect(
+    () => subscribeToParentSessionExpiry(() => {
+      // The API client has already removed parent credentials.  Do not touch
+      // the paired child device credentials: child protection continues.
+      setParent(null);
+      setSessionError("SESSION_EXPIRED");
+    }),
+    [],
+  );
   useEffect(() => {
     Promise.all([sessionStorage.getAccessToken(), sessionStorage.getFamilyId()])
       .then(async ([token, storedFamilyId]) => {
@@ -31,17 +42,25 @@ export function SessionProvider({ children }: PropsWithChildren) {
         return currentParent;
       })
       .then(setParent)
-      .catch(() => sessionStorage.clear())
+      .catch(async () => {
+        await sessionStorage.clearParentSession();
+        setParent(null);
+      })
       .finally(() => setLoading(false));
   }, []);
   const value = useMemo(() => ({
     parent,
     loading,
     familyId,
-    signIn: async (tokens: Tokens) => { await sessionStorage.setTokens(tokens); setParent(await api.me()); },
+    sessionError,
+    signIn: async (tokens: Tokens) => {
+      await sessionStorage.setTokens(tokens);
+      setParent(await api.me());
+      setSessionError(null);
+    },
     setFamilyId: async (nextFamilyId: string) => { await sessionStorage.setFamilyId(nextFamilyId); setFamilyIdState(nextFamilyId); },
-    signOut: async () => { await sessionStorage.clear(); setParent(null); },
-  }), [familyId, loading, parent]);
+    signOut: async () => { await sessionStorage.clearParentSession(); setParent(null); setSessionError(null); },
+  }), [familyId, loading, parent, sessionError]);
   return <SessionContext.Provider value={value}>{children}</SessionContext.Provider>;
 }
 export function useSession() {

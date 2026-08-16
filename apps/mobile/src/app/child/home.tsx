@@ -46,6 +46,7 @@ export default function ChildHomeRoute() {
   const [blockedEventCount, setBlockedEventCount] = useState(0);
   const [appBlockedMessage, setAppBlockedMessage] = useState<string | null>(null);
   const [timeMessage, setTimeMessage] = useState<string | null>(null);
+  const [reputationMessage, setReputationMessage] = useState<string | null>(null);
   const [acknowledgedVersion, setAcknowledgedVersion] = useState<number | null>(null);
   const usageUploaded = useRef(false);
   const inventoryUploaded = useRef(false);
@@ -207,6 +208,31 @@ export default function ChildHomeRoute() {
   useEffect(() => {
     if (!policy.data?.bundle || revoked) return;
     let cancelled = false;
+    const uploadUsage = async () => {
+      if (usageUploaded.current) return;
+      const usage = await GuardianProtection.getUsageSummary({
+        start: new Date(Date.now() - 24 * 60 * 60 * 1000).toISOString(),
+        end: new Date().toISOString(),
+      });
+      const occurredAt = new Date().toISOString();
+      const events = appUsageEvents(usage.byTarget, occurredAt);
+      if (events.length) await api.ingestEvents(events);
+      // A failed upload remains eligible after a relaunch/foreground sync.
+      usageUploaded.current = true;
+    };
+    const uploadInventory = async () => {
+      if (inventoryUploaded.current) return;
+      const observedApps = await GuardianProtection.getObservedApps();
+      await api.ingestInventory(
+        observedApps.map((app) => ({
+          platform_app_id: app.platformAppId,
+          display_name: app.displayName,
+          category: app.category,
+          observed_at: app.observedAt,
+        })),
+      );
+      inventoryUploaded.current = true;
+    };
     const syncProtection = async () => {
       const result = await GuardianProtection.applyPolicyBundle(policy.data.bundle);
       if (cancelled) return;
@@ -224,7 +250,6 @@ export default function ChildHomeRoute() {
         setProtectionMessage("Communication safety permission is required.");
       }
       await GuardianProtection.startProtection();
-      await syncReputation();
       await api.acknowledgePolicy(policy.data.policy_version);
       const protectionStatus = await GuardianProtection.getProtectionStatus();
       const currentCapabilities = await GuardianProtection.getCapabilities();
@@ -234,28 +259,21 @@ export default function ChildHomeRoute() {
       });
       setAcknowledgedVersion(policy.data.policy_version);
       setProtectionMessage("Web protection is active for DNS and known blocked destinations. Other traffic may bypass Guardian.");
-      if (!usageUploaded.current) {
-        usageUploaded.current = true;
-        const usage = await GuardianProtection.getUsageSummary({
-          start: new Date(Date.now() - 24 * 60 * 60 * 1000).toISOString(),
-          end: new Date().toISOString(),
+      // Reputation is advisory and independently retryable. A transient
+      // reputation outage must never suppress policy acknowledgement,
+      // heartbeat, app inventory, or usage reporting.
+      void syncReputation()
+        .then(() => {
+          if (!cancelled) setReputationMessage(null);
+        })
+        .catch(() => {
+          if (!cancelled) {
+            setReputationMessage(
+              "Reputation updates are temporarily unavailable. Protection and parent rules remain active.",
+            );
+          }
         });
-        const occurredAt = new Date().toISOString();
-        const events = appUsageEvents(usage.byTarget, occurredAt);
-        if (events.length) await api.ingestEvents(events);
-      }
-      if (!inventoryUploaded.current) {
-        const observedApps = await GuardianProtection.getObservedApps();
-        await api.ingestInventory(
-          observedApps.map((app) => ({
-            platform_app_id: app.platformAppId,
-            display_name: app.displayName,
-            category: app.category,
-            observed_at: app.observedAt,
-          })),
-        );
-        inventoryUploaded.current = true;
-      }
+      await Promise.allSettled([uploadUsage(), uploadInventory()]);
       if (__DEV__ && Platform.OS === "android") {
         const metrics = await GuardianProtection.getPerformanceMetrics();
         console.info("GUARDIAN_PERFORMANCE_METRICS_AFTER_SYNC", JSON.stringify(metrics));
@@ -311,6 +329,7 @@ export default function ChildHomeRoute() {
               />
             ) : null}
             <Text>{protectionMessage}</Text>
+            {reputationMessage ? <Text accessibilityRole="alert">{reputationMessage}</Text> : null}
             {appBlockingAvailable === false ? (
               <>
                 <Text>App limits are not being enforced right now. Re-enable Accessibility to restore app blocking.</Text>

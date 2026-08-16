@@ -152,6 +152,16 @@ export class ApiError extends Error {
   }
 }
 
+type ParentSessionExpiryListener = () => void;
+let parentSessionExpiryListener: ParentSessionExpiryListener | null = null;
+
+export function subscribeToParentSessionExpiry(listener: ParentSessionExpiryListener) {
+  parentSessionExpiryListener = listener;
+  return () => {
+    if (parentSessionExpiryListener === listener) parentSessionExpiryListener = null;
+  };
+}
+
 export const sessionStorage = {
   getAccessToken: () => SecureStore.getItemAsync(ACCESS_TOKEN_KEY),
   getRefreshToken: () => SecureStore.getItemAsync(REFRESH_TOKEN_KEY),
@@ -159,12 +169,21 @@ export const sessionStorage = {
     await SecureStore.setItemAsync(ACCESS_TOKEN_KEY, tokens.access_token);
     await SecureStore.setItemAsync(REFRESH_TOKEN_KEY, tokens.refresh_token);
   },
-  clear: async () => {
+  // Parent auth and the child device credential are independent.  A parent
+  // session expiry must never silently unpair the child or stop protection.
+  clearParentSession: async () => {
     await SecureStore.deleteItemAsync(ACCESS_TOKEN_KEY);
     await SecureStore.deleteItemAsync(REFRESH_TOKEN_KEY);
+  },
+  clearDeviceIdentity: async () => {
     await SecureStore.deleteItemAsync(DEVICE_TOKEN_KEY);
     await SecureStore.deleteItemAsync(DEVICE_PRIVATE_KEY_KEY);
     await SecureStore.deleteItemAsync(FAMILY_ID_KEY);
+  },
+  // Retained for explicit account deletion/unpair flows only.
+  clear: async () => {
+    await sessionStorage.clearParentSession();
+    await sessionStorage.clearDeviceIdentity();
   },
   getDeviceToken: () => SecureStore.getItemAsync(DEVICE_TOKEN_KEY),
   setDeviceToken: (token: string) => SecureStore.setItemAsync(DEVICE_TOKEN_KEY, token),
@@ -175,9 +194,31 @@ export const sessionStorage = {
 
 export class GuardianApiClient {
   private readonly generated: GeneratedGuardianClient;
+  private refreshInFlight: Promise<Tokens> | null = null;
 
   constructor(private readonly baseUrl = API_URL) {
     this.generated = new GeneratedGuardianClient(baseUrl);
+  }
+
+  private async refreshParentSession(): Promise<Tokens> {
+    if (!this.refreshInFlight) {
+      this.refreshInFlight = (async () => {
+        const refreshToken = await sessionStorage.getRefreshToken();
+        if (!refreshToken) throw new Error("No refresh token is available.");
+        const refreshed = await fetch(`${this.baseUrl}/v1/auth/refresh`, {
+          method: "POST",
+          headers: { "Content-Type": "application/json" },
+          body: JSON.stringify({ refresh_token: refreshToken }),
+        });
+        if (!refreshed.ok) throw new Error("Refresh token is invalid.");
+        const tokens = (await refreshed.json()) as Tokens;
+        await sessionStorage.setTokens(tokens);
+        return tokens;
+      })().finally(() => {
+        this.refreshInFlight = null;
+      });
+    }
+    return this.refreshInFlight;
   }
 
   private async request<T>(path: string, init: RequestInit = {}, retry = true): Promise<T> {
@@ -211,13 +252,18 @@ export class GuardianApiClient {
     } catch (error) {
       const status = (error as { status?: number }).status;
       if (status === 401 && retry && accessToken && !deviceAuthenticated) {
-        const refreshToken = await sessionStorage.getRefreshToken();
-        if (refreshToken) {
-          const refreshed = await fetch(`${this.baseUrl}/v1/auth/refresh`, { method: "POST", headers: { "Content-Type": "application/json" }, body: JSON.stringify({ refresh_token: refreshToken }) });
-          if (refreshed.ok) {
-            await sessionStorage.setTokens((await refreshed.json()) as Tokens);
-            return this.request<T>(path, init, false);
-          }
+        try {
+          await this.refreshParentSession();
+          return await this.request<T>(path, init, false);
+        } catch {
+          await sessionStorage.clearParentSession();
+          parentSessionExpiryListener?.();
+          throw new ApiError(
+            "Your parent session has expired. Sign in again.",
+            401,
+            "SESSION_EXPIRED",
+            requestId,
+          );
         }
       }
       if (error instanceof Error) {
@@ -337,6 +383,7 @@ export class GuardianApiClient {
   decideRequest(familyId: string, requestId: string, decision: "approve" | "deny", reason: string) {
     return this.request<AccessRequest>(`/v1/families/${familyId}/requests/${requestId}/${decision}`, {
       method: "POST",
+      headers: { "Idempotency-Key": `request-decision:${requestId}:${decision}` },
       body: JSON.stringify({ reason }),
     });
   }

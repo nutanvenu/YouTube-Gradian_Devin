@@ -224,6 +224,34 @@ async def create_initial_bundle(
     return bundle
 
 
+async def current_bundle_for_update(
+    session: AsyncSession,
+    child_profile_id: UUID,
+) -> PolicyBundle | None:
+    """Read the current policy only after acquiring its document-wide mutex.
+
+    A bundle lock on its own is insufficient: callers used to copy the current
+    JSON before ``create_next_bundle`` acquired the document lock. Two callers
+    could therefore publish monotonic versions while one silently discarded the
+    other's field changes. Every policy read-modify-sign-write path uses this
+    helper before it reads the document.
+    """
+    document = await session.scalar(
+        select(PolicyDocument)
+        .where(PolicyDocument.child_profile_id == child_profile_id)
+        .with_for_update()
+    )
+    if document is None:
+        return None
+    bundle = await session.scalar(
+        select(PolicyBundle).where(
+            PolicyBundle.child_profile_id == child_profile_id,
+            PolicyBundle.is_current.is_(True),
+        )
+    )
+    return bundle if isinstance(bundle, PolicyBundle) else None
+
+
 async def create_next_bundle(
     session: AsyncSession,
     child_profile_id: UUID,

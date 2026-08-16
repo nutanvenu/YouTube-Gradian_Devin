@@ -12,13 +12,13 @@ from ..api.handler_support import (
     Header,
     HTTPException,
     Parent,
-    PolicyBundle,
     RequestDecisionIn,
     RequestOut,
     RequestRow,
     RequestState,
     broadcaster,
     create_next_bundle,
+    current_bundle_for_update,
     current_parent,
     datetime,
     deepcopy,
@@ -71,6 +71,10 @@ async def decide_request(
         raise HTTPException(status.HTTP_404_NOT_FOUND, "Request not found")
     if is_expired(row.expires_at):
         row.state = RequestState.EXPIRED.value
+    # A delivery retry or two guardians tapping the same decision is a replay,
+    # not a second policy mutation. The row lock makes this check atomic.
+    if row.state == target.value:
+        return RequestOut.model_validate(row)
     transition(row.state, target)
     previous = row.state
     row.state = target.value
@@ -78,12 +82,7 @@ async def decide_request(
     row.decided_by_parent_id = parent.id
     row.decided_at = datetime.now(UTC)
     if target is RequestState.APPROVED:
-        current = await session.scalar(
-            select(PolicyBundle).where(
-                PolicyBundle.child_profile_id == row.child_profile_id,
-                PolicyBundle.is_current.is_(True),
-            )
-        )
+        current = await current_bundle_for_update(session, row.child_profile_id)
         if current is None:
             raise HTTPException(status.HTTP_409_CONFLICT, "Policy is unavailable")
         policy = deepcopy(current.new_value)
@@ -93,22 +92,31 @@ async def decide_request(
         expires_at = datetime.now(UTC) + timedelta(hours=1)
         if row.request_type == "MORE_TIME":
             starts_at = datetime.now(UTC).isoformat().replace("+00:00", "Z")
-            overrides.append(
-                build_more_time_override(
-                    policy,
-                    row.subject,
-                    15,
-                    f"request-{row.id}",
-                    starts_at,
-                    expires_at.isoformat().replace("+00:00", "Z"),
-                )
+            override = build_more_time_override(
+                policy,
+                row.subject,
+                15,
+                f"request-{row.id}",
+                starts_at,
+                expires_at.isoformat().replace("+00:00", "Z"),
             )
+            if override is None:
+                raise HTTPException(
+                    status.HTTP_422_UNPROCESSABLE_ENTITY,
+                    "More-time approval requires an exact app, domain, or explicit device target",
+                )
+            overrides.append(override)
         else:
+            if not row.subject:
+                raise HTTPException(
+                    status.HTTP_422_UNPROCESSABLE_ENTITY,
+                    "Approval requires an exact request subject",
+                )
             overrides.append(
                 {
                     "rule_id": f"request-{row.id}",
                     "target_kind": "APP" if row.request_type == "UNBLOCK_APP" else "DOMAIN",
-                    "target_ref": row.subject or row.request_type,
+                    "target_ref": row.subject,
                     "action": "ALLOW",
                     "starts_at": datetime.now(UTC).isoformat().replace("+00:00", "Z"),
                     "expires_at": expires_at.isoformat().replace("+00:00", "Z"),

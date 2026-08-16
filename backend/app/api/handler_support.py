@@ -61,6 +61,7 @@ from ..policies.service import (
     age_band_for_dob,
     create_initial_bundle,
     create_next_bundle,
+    current_bundle_for_update,
     default_policy,
     validate_timezone,
 )
@@ -207,6 +208,7 @@ __all__ = [
     'consume_one_time_token',
     'create_initial_bundle',
     'create_next_bundle',
+    'current_bundle_for_update',
     'current_device',
     'current_parent',
     'datetime',

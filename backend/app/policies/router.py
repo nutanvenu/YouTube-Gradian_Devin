@@ -10,11 +10,11 @@ from ..api.handler_support import (
     Header,
     HTTPException,
     Parent,
-    PolicyBundle,
     PolicyMutationIn,
     broadcaster,
     configured_trusted_public_keys,
     create_next_bundle,
+    current_bundle_for_update,
     current_parent,
     datetime,
     deepcopy,
@@ -86,11 +86,7 @@ async def mutate_policy(
         replay = await replay_or_conflict(session, "policy_mutation", idempotency_key, digest)
         if replay is not None:
             return replay.response_body
-    current = await session.scalar(
-        select(PolicyBundle).where(
-            PolicyBundle.child_profile_id == child_id, PolicyBundle.is_current.is_(True)
-        )
-    )
+    current = await current_bundle_for_update(session, child_id)
     if current is None:
         raise HTTPException(status.HTTP_409_CONFLICT, "Policy is unavailable")
     policy = deepcopy(current.new_value)

@@ -1,5 +1,9 @@
 # ruff: noqa: E501
+from datetime import date
+from zoneinfo import ZoneInfo
+
 from fastapi import APIRouter
+from sqlalchemy import and_, func, or_
 from sqlalchemy.dialects.postgresql import insert
 
 from ..api.handler_support import (
@@ -48,6 +52,87 @@ from ..api.handler_support import (
 )
 
 router = APIRouter()
+
+
+def usage_snapshot_identity(
+    *,
+    occurred_at: datetime,
+    timezone: str,
+    app_ref: str | None,
+    category: str | None,
+) -> tuple[date, str]:
+    """Return the source-local daily key for a cumulative usage snapshot."""
+    try:
+        snapshot_day = occurred_at.astimezone(ZoneInfo(timezone)).date()
+    except Exception:
+        snapshot_day = occurred_at.astimezone(UTC).date()
+    if app_ref:
+        return snapshot_day, f"APP:{app_ref}"
+    if category:
+        return snapshot_day, f"CATEGORY:{category}"
+    return snapshot_day, "DEVICE"
+
+
+async def upsert_usage_snapshot(
+    session: AsyncSession,
+    *,
+    device_id: UUID,
+    event_type: str,
+    occurred_at: datetime,
+    timezone: str,
+    app_ref: str | None,
+    category: str | None,
+    duration_seconds: int,
+) -> None:
+    """Persist exactly one latest cumulative usage value per device/target/day."""
+    snapshot_day, snapshot_key = usage_snapshot_identity(
+        occurred_at=occurred_at,
+        timezone=timezone,
+        app_ref=app_ref,
+        category=category,
+    )
+    statement = insert(UsageAggregate).values(
+        device_id=device_id,
+        event_type=event_type,
+        occurred_at=occurred_at,
+        app_ref=app_ref,
+        category=category,
+        timezone=timezone,
+        duration_seconds=duration_seconds,
+        snapshot_day=snapshot_day,
+        snapshot_key=snapshot_key,
+    )
+    excluded = statement.excluded
+    await session.execute(
+        statement.on_conflict_do_update(
+            index_elements=[
+                UsageAggregate.device_id,
+                UsageAggregate.snapshot_day,
+                UsageAggregate.snapshot_key,
+            ],
+            index_where=and_(
+                UsageAggregate.snapshot_day.is_not(None),
+                UsageAggregate.snapshot_key.is_not(None),
+            ),
+            set_={
+                "event_type": excluded.event_type,
+                "occurred_at": excluded.occurred_at,
+                "app_ref": excluded.app_ref,
+                "category": excluded.category,
+                "timezone": excluded.timezone,
+                # UsageStats sends a cumulative daily counter. A delayed,
+                # lower sample (including a relaunch retry) must not reduce a
+                # parent's already observed total.
+                "duration_seconds": func.greatest(
+                    UsageAggregate.duration_seconds, excluded.duration_seconds
+                ),
+            },
+            where=or_(
+                excluded.occurred_at > UsageAggregate.occurred_at,
+                excluded.occurred_at == UsageAggregate.occurred_at,
+            ),
+        )
+    )
 
 
 async def fetch_policy(
@@ -147,16 +232,15 @@ async def ingest_events(
             session.add(row)
             safety_rows.append(row)
         else:
-            session.add(
-                UsageAggregate(
-                    device_id=device.id,
-                    event_type=event.event_type,
-                    occurred_at=event.occurred_at,
-                    app_ref=event.app_ref,
-                    category=event.category,
-                    timezone=event.timezone or device_timezone or "UTC",
-                    duration_seconds=event.duration_seconds,
-                )
+            await upsert_usage_snapshot(
+                session,
+                device_id=device.id,
+                event_type=event.event_type,
+                occurred_at=event.occurred_at,
+                app_ref=event.app_ref,
+                category=event.category,
+                timezone=event.timezone or device_timezone or "UTC",
+                duration_seconds=event.duration_seconds,
             )
     device.last_seen_at = datetime.now(UTC)
     await session.flush()
