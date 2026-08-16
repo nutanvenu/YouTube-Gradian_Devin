@@ -328,7 +328,10 @@ class MinimizedEvent(BaseModel):
 
     @model_validator(mode="after")
     def require_content_risk_verdict(self) -> "MinimizedEvent":
-        if self.event_type.upper() != "SAFETY_CONTENT_RISK":
+        normalized_event_type = self.event_type.upper()
+        if normalized_event_type.startswith("SAFETY") and self.reason_code is not None:
+            self.reason_code = validate_content_reason_code(self.reason_code)
+        if normalized_event_type != "SAFETY_CONTENT_RISK":
             return self
         if not self.app_ref:
             raise ValueError("SAFETY_CONTENT_RISK requires app_ref")
@@ -344,7 +347,6 @@ class MinimizedEvent(BaseModel):
             raise ValueError("SAFETY_CONTENT_RISK requires a keyed fingerprint")
         if self.reason_code is None:
             raise ValueError("SAFETY_CONTENT_RISK requires a canonical reason code")
-        self.reason_code = validate_content_reason_code(self.reason_code)
         return self
 
 

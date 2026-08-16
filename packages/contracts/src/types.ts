@@ -147,6 +147,10 @@ export type ContentRiskVerdict = {
   action: ContentAction;
 };
 
+export type CompositeContentRiskReasonCode =
+  | ContentRiskReasonCode
+  | `${ContentRiskReasonCode}+${ContentRiskReasonCode}`;
+
 /** The only evidence allowed over the device-to-backend review boundary. */
 export type ContentReviewEvidence = {
   app_ref: string;
@@ -154,7 +158,7 @@ export type ContentReviewEvidence = {
   category: ContentRiskCategory;
   severity: ContentRiskSeverity;
   confidence: number;
-  reason_code: ContentRiskReasonCode | `${ContentRiskReasonCode}+${string}`;
+  reason_code: CompositeContentRiskReasonCode;
   public_content_ref?: PublicContentReference;
 };
 

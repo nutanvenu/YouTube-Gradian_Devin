@@ -564,3 +564,25 @@ async def test_content_risk_events_require_the_full_minimized_verdict_and_safe_d
         },
     )
     assert legacy.status_code == 202, legacy.text
+
+    legacy_raw_body = json.dumps(
+        {
+            "events": [
+                {
+                    "event_type": "SAFETY_RISK",
+                    "occurred_at": "2026-08-16T12:00:00Z",
+                    "reason_code": "RAW LEGACY SAFETY TEXT",
+                }
+            ]
+        },
+        separators=(",", ":"),
+    ).encode()
+    legacy_raw = await client.post(
+        path,
+        content=legacy_raw_body,
+        headers={
+            **paired_device.signed_headers(path, legacy_raw_body),
+            "Content-Type": "application/json",
+        },
+    )
+    assert legacy_raw.status_code == 422

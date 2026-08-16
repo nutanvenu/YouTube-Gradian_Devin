@@ -9,6 +9,21 @@ import org.junit.Test
 
 class ContentRiskContractsTest {
   @Test
+  fun `verdict retains signal provenance without raw content`() {
+    val verdict = ContentRiskVerdict(
+      signalSource = SignalSource.ACCESSIBILITY_TEXT,
+      category = ContentRiskCategory.SELF_HARM_SUICIDE,
+      severity = ContentRiskSeverity.HIGH,
+      confidence = 0.91,
+      reasonCodes = setOf("SELF_HARM_DIRECT"),
+      classifierVersion = "rules-v1",
+      capabilityLevel = ContentCapabilityLevel.BEST_EFFORT,
+      action = ContentAction.BLOCK_AND_REQUEST,
+    )
+    assertEquals(SignalSource.ACCESSIBILITY_TEXT, verdict.signalSource)
+  }
+
+  @Test
   fun `defaults are age adaptive while legacy policy falls back safely`() {
     assertEquals(ContentRiskSeverity.MEDIUM, ContentRiskPolicy.blockThreshold("YOUNG_CHILD", null))
     assertEquals(ContentRiskSeverity.MEDIUM, ContentRiskPolicy.blockThreshold("PRETEEN", null))

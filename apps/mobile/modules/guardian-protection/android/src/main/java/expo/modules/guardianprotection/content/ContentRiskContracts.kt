@@ -97,6 +97,7 @@ private fun isCanonicalReasonCode(value: String): Boolean =
  * so a later pipeline stage cannot accidentally persist or bridge it.
  */
 data class ContentRiskVerdict(
+  val signalSource: SignalSource,
   val category: ContentRiskCategory,
   val severity: ContentRiskSeverity,
   val confidence: Double,
