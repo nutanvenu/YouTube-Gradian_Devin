@@ -17,8 +17,11 @@ from ..api.handler_support import (
     Parent,
     age_band_for_dob,
     create_initial_bundle,
+    create_next_bundle,
+    current_bundle_for_update,
     current_parent,
     datetime,
+    deepcopy,
     default_policy,
     family_for_parent,
     get_session,
@@ -51,7 +54,8 @@ async def create_child(
     session.add(child)
     await session.flush()
     child.policy_document = default_policy(family_id, child.id, band, timezone)
-    await create_initial_bundle(session, child.id, parent.id, child.policy_document)
+    bundle = await create_initial_bundle(session, child.id, parent.id, child.policy_document)
+    child.policy_document = bundle.new_value
     await session.commit()
     await session.refresh(child)
     return child
@@ -101,15 +105,32 @@ async def update_child(
         child.age_band = age_band_for_dob(child.date_of_birth)
         policy_changed = True
     if policy_changed:
-        raw_version = child.policy_document.get("policy_version", 0)
-        current_version = raw_version if isinstance(raw_version, int) else 0
-        child.policy_document = default_policy(
-            family_id,
+        # Do not recreate a default document here: doing so silently erased
+        # parent app/domain/routine choices. Update the current signed policy
+        # under the document mutex and publish one new, verifiable version.
+        current = await current_bundle_for_update(session, child.id)
+        if current is None:
+            raise HTTPException(status.HTTP_409_CONFLICT, "Policy is unavailable")
+        policy = deepcopy(current.new_value)
+        policy["signature"] = ""
+        policy["age_band"] = child.age_band
+        base_policy = policy.get("base_policy")
+        if not isinstance(base_policy, dict):
+            raise HTTPException(status.HTTP_409_CONFLICT, "Policy is invalid")
+        base_policy["timezone"] = child.timezone
+        policy["base_policy"] = base_policy
+        bundle = await create_next_bundle(
+            session,
             child.id,
-            child.age_band,
-            child.timezone,
-            policy_version=current_version + 1,
+            parent.id,
+            policy,
+            {
+                "operation": "CHILD_PROFILE_UPDATE",
+                "age_band": child.age_band,
+                "timezone": child.timezone,
+            },
         )
+        child.policy_document = bundle.new_value
     await session.commit()
     await session.refresh(child)
     return child
@@ -150,7 +171,7 @@ async def list_inventory(
             await session.scalars(
                 select(ChildAppInventory)
                 .where(ChildAppInventory.child_profile_id == child.id)
-                .order_by(ChildAppInventory.display_name)
+                .order_by(ChildAppInventory.display_name, ChildAppInventory.platform_app_id)
             )
         ).all()
     )
@@ -161,6 +182,12 @@ async def list_inventory(
             category=row.category,
             observed_at=row.observed_at,
             reviewed=row.reviewed_at is not None,
+            version_name=row.version_name,
+            first_seen_at=row.first_seen_at,
+            last_seen_at=row.last_seen_at,
+            installation_state=row.installation_state,
+            capability_sources=row.capability_sources or [],
+            inventory_completeness=row.inventory_completeness,
         )
         for row in rows
     ]

@@ -16,7 +16,10 @@ import expo.modules.guardianprotection.vpn.UserInitiatedEnableIntent
 import expo.modules.guardianprotection.vpn.UserInitiatedEnableIntentAction
 import expo.modules.guardianprotection.vpn.ProtectionStatusChange
 import expo.modules.guardianprotection.vpn.ProtectionStatusEvents
-import expo.modules.guardianprotection.communication.CommunicationSafetyRuntime
+import expo.modules.guardianprotection.content.ContentSafetyConsentStore
+import expo.modules.guardianprotection.content.ContentSafetyServiceRuntime
+import expo.modules.guardianprotection.content.ContentApproval
+import expo.modules.guardianprotection.content.ContentBlockCoordinator
 import expo.modules.guardianprotection.observability.GuardianPerformanceMetrics
 import android.util.Log
 import android.os.SystemClock
@@ -69,12 +72,10 @@ class GuardianProtectionModule : Module() {
         }
         if (!startedFromRequest) GuardianVpnService.startWithPersistedPolicy(it)
       }
-      installCommunicationListener()
       reportCapabilityChanges(capabilities.getCapabilities())
     }
 
     AsyncFunction("getCapabilities") {
-      installCommunicationListener()
       reportCapabilityChanges(capabilities.getCapabilities())
     }
     AsyncFunction("getProtectionStatus") {
@@ -101,11 +102,36 @@ class GuardianProtectionModule : Module() {
     AsyncFunction("openAccessibilitySettings") {
       capabilities.openAccessibilitySettings()
     }
+    AsyncFunction("setAccessibilityContentConsent") { granted: Boolean ->
+      val context = requireNotNull(appContext.reactContext)
+      ContentSafetyConsentStore(context).setAccessibilityContentConsent(granted)
+      reportCapabilityChanges(capabilities.getCapabilities())
+      mapOf("granted" to granted)
+    }
+    AsyncFunction("setContentDeviceId") { deviceId: String ->
+      store.setContentDeviceId(deviceId)
+    }
+    AsyncFunction("applyContentApprovals") { approvals: List<Map<String, Any?>> ->
+      val parsed = approvals.map { approval ->
+        ContentApproval(
+          deviceId = approval["device_id"] as? String ?: throw IllegalArgumentException("Invalid approval device"),
+          appRef = approval["app_ref"] as? String ?: throw IllegalArgumentException("Invalid approval app"),
+          fingerprint = approval["fingerprint"] as? String ?: throw IllegalArgumentException("Invalid approval fingerprint"),
+          expiresAt = Instant.parse(approval["expires_at"] as? String ?: throw IllegalArgumentException("Invalid approval expiry")),
+        )
+      }
+      ContentBlockCoordinator.applyApprovals(requireNotNull(appContext.reactContext), parsed)
+    }
+    AsyncFunction("getPendingContentReviewRequests") {
+      store.pendingContentReviewRequests()
+    }
+    AsyncFunction("acknowledgeContentReviewRequest") { appRef: String, fingerprint: String ->
+      store.acknowledgeContentReviewRequest(appRef, fingerprint)
+    }
     AsyncFunction("openNotificationAccessSettings") {
       capabilities.openNotificationAccessSettings()
     }
     AsyncFunction("startProtection") {
-      installCommunicationListener()
       GuardianPolicyRuntime.install(policyManager)
       GuardianPolicyRuntime.installReputation(reputationManager)
       GuardianPolicyRuntime.addListener(eventListener)
@@ -121,8 +147,10 @@ class GuardianProtectionModule : Module() {
       GuardianPolicyRuntime.install(policyManager)
       val result = policyManager.apply(bundle)
       if (result["applied"] == true) {
-        val communication = bundle["communication_safety"] as? Map<*, *>
-        CommunicationSafetyRuntime.setEnabled(communication?.get("enabled") == true)
+        ContentSafetyServiceRuntime.refresh(
+          requireNotNull(appContext.reactContext),
+          BuildConfig.GUARDIAN_POLICY_TRUSTED_PUBLIC_KEYS,
+        )
         emit(mapOf(
           "type" to "POLICY_APPLIED",
           "version" to result["policyVersion"],
@@ -222,33 +250,24 @@ class GuardianProtectionModule : Module() {
     }
   }
 
-  private fun installCommunicationListener() {
-    CommunicationSafetyRuntime.setListener { signal, packageName ->
-      emit(mapOf(
-        "type" to "SAFETY_EVENT",
-        "category" to signal.category,
-        "severity" to signal.severity,
-        "confidence" to signal.confidence,
-        "reasonCode" to signal.reasonCode,
-        "appRef" to packageName,
-        "occurredAt" to Instant.now().toString(),
-      ))
-    }
-  }
-
   private fun emitProtectionStatusChanged(change: ProtectionStatusChange) {
     if (appContext.reactContext == null) return
     val currentCapabilities = capabilities.getCapabilities()
     reportCapabilityChanges(currentCapabilities)
-    val missing = currentCapabilities.filterValues { it["level"] == "UNAVAILABLE" }.keys
+    val nonFull = currentCapabilities.filterValues { it["level"] != "FULL" }.keys
+    val health = when {
+      !change.active -> "DISABLED"
+      nonFull.isEmpty() -> "HEALTHY"
+      else -> "DEGRADED"
+    }
     emit(mapOf(
       "type" to "PROTECTION_STATUS_CHANGED",
       "status" to mapOf(
         "active" to change.active,
-        "health" to if (change.active && missing.isEmpty()) "HEALTHY" else "DEGRADED",
+        "health" to health,
         "policyVersion" to policyManager.activeSnapshot()?.policyVersion,
         "observedAt" to Instant.now().toString(),
-        "details" to (change.details ?: missing.takeIf { it.isNotEmpty() }?.joinToString(",")),
+        "details" to (change.details ?: nonFull.takeIf { it.isNotEmpty() }?.joinToString(",")),
       ),
     ))
   }

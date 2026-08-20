@@ -1,7 +1,7 @@
 import { useLocalSearchParams, useRouter } from "expo-router";
 import { Alert, Image, Text } from "react-native";
 import { useMutation, useQuery, useQueryClient } from "@tanstack/react-query";
-import { api } from "@/api/client";
+import { api, sessionStorage } from "@/api/client";
 import { useSession } from "@/auth/session";
 import { useNetworkStatus } from "@/state/network";
 import { CardSurface, DataState, ListRow, PrimaryButton, ResponsiveColumns, ScreenScaffold, SectionSurface, ProtectionStatePill, SecondaryButton } from "@/design-system";
@@ -11,7 +11,7 @@ export default function ParentHomeRoute() {
   const { familyId } = useLocalSearchParams<{ familyId?: string }>();
   const router = useRouter();
   const queryClient = useQueryClient();
-  const { signOut, familyId: storedFamilyId } = useSession();
+  const { signOut, familyId: storedFamilyId, sessionError } = useSession();
   const activeFamilyId = familyId ?? storedFamilyId ?? undefined;
   const { isOffline } = useNetworkStatus();
   const children = useQuery({ queryKey: ["children", activeFamilyId], queryFn: () => api.children(activeFamilyId!), enabled: Boolean(activeFamilyId) });
@@ -37,7 +37,7 @@ export default function ParentHomeRoute() {
   const explainCapability = (capability: string, explanation: string, open: () => void) => {
     Alert.alert(
       `${capability} access`,
-      `${explanation}\n\nGuardian does not read passwords or message content through this capability.`,
+      `${explanation}\n\nGuardian never reads editable input or password fields. When an enabled safety capability exposes notification or active-window text, Guardian processes it briefly on-device and immediately discards the raw text.`,
       [
         { text: "Not now", style: "cancel" },
         { text: `Open ${capability} settings`, onPress: open },
@@ -55,6 +55,7 @@ export default function ParentHomeRoute() {
           style: "destructive",
           onPress: () => {
             void api.deleteAccount()
+              .then(() => sessionStorage.clear())
               .then(() => signOut())
               .then(() => router.replace("/role-selection"));
           },
@@ -65,6 +66,12 @@ export default function ParentHomeRoute() {
   const state = !activeFamilyId ? "empty" : children.isLoading || health.isLoading ? "loading" : isOffline ? "offline" : children.isError || health.isError ? "error" : children.data?.length ? "loaded" : "empty";
   return (
     <ScreenScaffold title="Parent home">
+      {sessionError === "SESSION_EXPIRED" ? (
+        <SectionSurface>
+          <Text accessibilityRole="alert">Your parent session expired. Sign in again to change Guardian rules.</Text>
+          <PrimaryButton label="Sign in again" onPress={() => router.replace("/parent/login")} />
+        </SectionSurface>
+      ) : null}
       {!activeFamilyId ? (
         <SectionSurface>
           <PrimaryButton label="Set up your family" onPress={() => router.push("/parent/setup")} />

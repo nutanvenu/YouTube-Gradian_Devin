@@ -43,12 +43,12 @@ class CommunicationRiskDetectorTest {
   }
 
   @Test
-  fun `runtime scopes communication apps and throttles duplicate notifications`() {
+  fun `runtime is app agnostic and throttles duplicate notifications`() {
     val emitted = mutableListOf<String>()
     CommunicationSafetyRuntime.setEnabled(true)
     CommunicationSafetyRuntime.setListener { _, packageName -> emitted.add(packageName) }
     CommunicationSafetyRuntime.processNotification(
-      "com.android.systemui",
+      "com.future.messenger",
       "Urgent",
       "Your login is suspended, click here and send your password",
       "msg",
@@ -56,7 +56,7 @@ class CommunicationRiskDetectorTest {
       1_000L,
     )
     CommunicationSafetyRuntime.processNotification(
-      "com.whatsapp",
+      "com.future.messenger",
       "Urgent",
       "Your login is suspended, click here and send your password",
       "msg",
@@ -64,14 +64,14 @@ class CommunicationRiskDetectorTest {
       2_000L,
     )
     CommunicationSafetyRuntime.processNotification(
-      "com.whatsapp",
+      "com.future.messenger",
       "Urgent",
       "Your login is suspended, click here and send your password",
       "msg",
       "chat",
       3_000L,
     )
-    assertEquals(listOf("com.whatsapp"), emitted)
+    assertEquals(listOf("com.future.messenger"), emitted)
     CommunicationSafetyRuntime.setListener(null)
     CommunicationSafetyRuntime.setEnabled(false)
   }

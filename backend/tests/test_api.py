@@ -36,3 +36,65 @@ async def test_signup_family_child_and_tenant_isolation(client) -> None:
     other_headers = {"Authorization": f"Bearer {other.json()['access_token']}"}
     denied = await client.get(f"/v1/families/{family_id}", headers=other_headers)
     assert denied.status_code == 404
+
+
+@pytest.mark.asyncio
+async def test_child_timezone_rejects_invalid_iana_names_and_accepts_valid_names(
+    client, parent_a
+) -> None:
+    headers = {"Authorization": f"Bearer {parent_a.token}"}
+    invalid_create = await client.post(
+        f"/v1/families/{parent_a.family_id}/children",
+        headers=headers,
+        json={
+            "name": "Invalid zone",
+            "date_of_birth": "2015-08-15",
+            "timezone": "Not/ARealZone",
+        },
+    )
+    assert invalid_create.status_code == 422
+
+    invalid_update = await client.patch(
+        f"/v1/families/{parent_a.family_id}/children/{parent_a.child_id}",
+        headers=headers,
+        json={"timezone": "Not/ARealZone"},
+    )
+    assert invalid_update.status_code == 422
+
+    valid_update = await client.patch(
+        f"/v1/families/{parent_a.family_id}/children/{parent_a.child_id}",
+        headers=headers,
+        json={"timezone": "America/New_York"},
+    )
+    assert valid_update.status_code == 200, valid_update.text
+    assert valid_update.json()["timezone"] == "America/New_York"
+
+
+@pytest.mark.asyncio
+async def test_child_age_or_timezone_update_publishes_a_signed_policy_without_erasing_rules(
+    client, parent_a
+) -> None:
+    headers = {"Authorization": f"Bearer {parent_a.token}"}
+    initial = await client.post(
+        f"/v1/families/{parent_a.family_id}/children/{parent_a.child_id}/policy/mutations",
+        headers=headers,
+        json={"operation": "APP_BLOCK", "target": "com.example.browser"},
+    )
+    assert initial.status_code == 200
+
+    updated = await client.patch(
+        f"/v1/families/{parent_a.family_id}/children/{parent_a.child_id}",
+        headers=headers,
+        json={"date_of_birth": "2011-08-15", "timezone": "America/Los_Angeles"},
+    )
+
+    assert updated.status_code == 200
+    policy = updated.json()["policy_document"]
+    assert updated.json()["age_band"] == "TEEN"
+    assert policy["policy_version"] == 3
+    assert policy["age_band"] == "TEEN"
+    assert policy["base_policy"]["timezone"] == "America/Los_Angeles"
+    assert policy["signature"]
+    assert len(policy["app_rules"]) == 1
+    assert policy["app_rules"][0]["app_ref"] == "com.example.browser"
+    assert policy["app_rules"][0]["action"] == "BLOCK"

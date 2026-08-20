@@ -15,7 +15,7 @@ export default function ParentHealthRoute() {
   const status = useQuery({ queryKey: ["guardian-status"], queryFn: () => GuardianProtection.getProtectionStatus(), refetchInterval: 5000 });
   const explain = (title: string, message: string, onConfirm: () => void) => Alert.alert(
     title,
-    `${message}\n\nGuardian does not read passwords or message content through this capability.`,
+    `${message}\n\nGuardian never reads editable input or password fields. When an enabled safety capability exposes notification or active-window text, Guardian processes it briefly on-device and immediately discards the raw text.`,
     [
       { text: "Not now", style: "cancel" },
       { text: "Open settings", onPress: onConfirm },
@@ -34,11 +34,12 @@ export default function ParentHealthRoute() {
         <SectionSurface>
           <Text>On-device capabilities</Text>
           {Object.entries(capabilities.data ?? {}).map(([key, value]) => <CardSurface key={key}><ListRow label={key} value={value.level} /><Text>{value.detail ?? "No degraded reason reported."}</Text></CardSurface>)}
-          <Text>Usage Access lets Guardian measure foreground time. Accessibility lets Guardian identify the foreground app and enforce limits. Communication safety is Android-only best effort with notification-listener consent; raw notification content is processed in memory and discarded. On iPhone/iPad: Not available on iPhone/iPad. Guardian cannot read passwords, messages, or screen content.</Text>
+          <Text>Usage Access lets Guardian measure foreground time. Accessibility lets Guardian identify the foreground app and enforce limits. Installed-app inventory is partial: Android only exposes launcher apps and apps Guardian actually observes through granted sources. Communication safety is Android-only best effort with notification-listener consent; raw notification content is processed in memory and discarded. On iPhone/iPad: Not available on iPhone/iPad. Guardian never reads editable input or password fields. Optional content-safety inspection runs only after separate consent on the paired child device and only briefly inspects exposed titles and headings.</Text>
           <PrimaryButton label="Open Usage Access" onPress={() => explain("Usage Access", "Guardian uses Usage Access to measure foreground app time and build reports.", () => void GuardianProtection.openUsageAccessSettings())} />
-          <PrimaryButton label="Open Accessibility" onPress={() => explain("Accessibility", "Guardian uses Accessibility to identify the foreground app and enforce app limits where Android allows.", () => void GuardianProtection.openAccessibilitySettings())} />
+          <PrimaryButton label="Open Accessibility for app limits" onPress={() => explain("Accessibility", "Guardian uses Accessibility to identify the foreground app and enforce app limits where Android allows.", () => void GuardianProtection.openAccessibilitySettings())} />
+          <Text>Content-safety inspection is separate and optional. The paired child device must show and accept its own disclosure before it is enabled.</Text>
           <PrimaryButton label="Restore Communication Safety permission" onPress={() => explain("Notification access", "Guardian checks supported communication-app notifications only when Communication Safety is enabled. Raw notification text is discarded.", () => void GuardianProtection.openNotificationAccessSettings())} />
-          <PrimaryButton label="Open VPN settings" onPress={() => explain("VPN web protection", "Guardian uses an Android VPN to inspect DNS destinations for policy enforcement; some traffic cannot be attributed.", () => void GuardianProtection.requestVpnPermission())} />
+          <PrimaryButton label="Open VPN settings" onPress={() => explain("VPN web protection", "Guardian uses an Android VPN to route DNS messages to a configured encrypted resolver for policy enforcement. It does not decrypt HTTPS or provide full traffic visibility.", () => void GuardianProtection.requestVpnPermission())} />
         </SectionSurface>
         <SectionSurface>
           <Text>Protection status</Text>

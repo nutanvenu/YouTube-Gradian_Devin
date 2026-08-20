@@ -37,6 +37,15 @@ class ChildAppInventory(TimestampMixin, Base):
     display_name: Mapped[str] = mapped_column(String(200))
     category: Mapped[str | None] = mapped_column(String(50))
     observed_at: Mapped[datetime] = mapped_column(DateTime(timezone=True))
+    # This remains an explicitly partial, source-tagged observation.  It is not
+    # an installed-package enumeration and deliberately contains no icon or
+    # content payload.
+    version_name: Mapped[str | None] = mapped_column(String(200))
+    first_seen_at: Mapped[datetime | None] = mapped_column(DateTime(timezone=True))
+    last_seen_at: Mapped[datetime | None] = mapped_column(DateTime(timezone=True))
+    installation_state: Mapped[str | None] = mapped_column(String(64))
+    capability_sources: Mapped[list[str] | None] = mapped_column(JSONB)
+    inventory_completeness: Mapped[str | None] = mapped_column(String(20))
     reviewed_at: Mapped[datetime | None] = mapped_column(DateTime(timezone=True))
     reviewed_by_parent_id: Mapped[UUID | None] = mapped_column(
         ForeignKey("parents.id", ondelete="SET NULL")

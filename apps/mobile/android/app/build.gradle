@@ -3,6 +3,64 @@ apply plugin: "org.jetbrains.kotlin.android"
 apply plugin: "com.facebook.react"
 
 def projectRoot = rootDir.getAbsoluteFile().getParentFile().getAbsolutePath()
+def releaseValue = { String name ->
+    return (System.getenv(name) ?: "").trim()
+}
+def releaseStoreFileValue = releaseValue("GUARDIAN_RELEASE_STORE_FILE")
+def releaseStorePassword = releaseValue("GUARDIAN_RELEASE_STORE_PASSWORD")
+def releaseKeyAlias = releaseValue("GUARDIAN_RELEASE_KEY_ALIAS")
+def releaseKeyPassword = releaseValue("GUARDIAN_RELEASE_KEY_PASSWORD")
+def releaseStoreType = releaseValue("GUARDIAN_RELEASE_STORE_TYPE") ?: "JKS"
+def releaseCertificateDigest = releaseValue("GUARDIAN_RELEASE_CERT_SHA256").replace(":", "").toLowerCase()
+def releaseVersionCodeValue = releaseValue("GUARDIAN_RELEASE_VERSION_CODE")
+
+def releaseAdmissionEnvironment = [
+    "EXPO_PUBLIC_API_URL",
+    "GUARDIAN_DOH_URL",
+    "GUARDIAN_POLICY_TRUSTED_PUBLIC_KEYS",
+    "GUARDIAN_RELEASE_STORE_FILE",
+    "GUARDIAN_RELEASE_STORE_PASSWORD",
+    "GUARDIAN_RELEASE_KEY_ALIAS",
+    "GUARDIAN_RELEASE_KEY_PASSWORD",
+    "GUARDIAN_RELEASE_STORE_TYPE",
+    "GUARDIAN_RELEASE_CERT_SHA256",
+    "GUARDIAN_POLICY_KEY_ID",
+    "GUARDIAN_RELEASE_VERSION_CODE",
+    "GUARDIAN_ENABLE_TEST_FIXTURES",
+].collectEntries { name -> [name, name == "GUARDIAN_RELEASE_STORE_FILE" && releaseStoreFileValue ? file(releaseStoreFileValue).absolutePath : releaseValue(name)] }
+
+configurations {
+    guardianBundletool {
+        canBeConsumed = false
+        canBeResolved = true
+    }
+}
+
+def verifyReleaseCertificate = {
+    if (!releaseStoreFileValue || !releaseStorePassword || !releaseKeyAlias || !releaseKeyPassword) {
+        throw new GradleException("Release signing keystore path, passwords, and alias must be configured.")
+    }
+    def signingStore = file(releaseStoreFileValue)
+    if (!signingStore.isFile()) throw new GradleException("Release signing keystore path must be an existing regular file.")
+    if (!(releaseCertificateDigest ==~ /^[a-f0-9]{64}$/)) throw new GradleException("GUARDIAN_RELEASE_CERT_SHA256 must be a SHA-256 certificate digest.")
+    try {
+        def keyStore = java.security.KeyStore.getInstance(releaseStoreType)
+        signingStore.withInputStream { keyStore.load(it, releaseStorePassword.toCharArray()) }
+        if (!keyStore.containsAlias(releaseKeyAlias)) throw new GradleException("Release signing alias is absent from the configured keystore.")
+        def certificate = keyStore.getCertificate(releaseKeyAlias)
+        if (!certificate) throw new GradleException("Release signing alias has no certificate.")
+        def subject = certificate instanceof java.security.cert.X509Certificate ? certificate.subjectX500Principal.name : ""
+        if (releaseKeyAlias.equalsIgnoreCase("androiddebugkey") || subject.toLowerCase().contains("cn=android debug")) {
+            throw new GradleException("Release builds must not use an Android debug certificate.")
+        }
+        def actualDigest = java.security.MessageDigest.getInstance("SHA-256").digest(certificate.encoded).collect { String.format("%02x", it & 0xff) }.join()
+        if (actualDigest != releaseCertificateDigest) throw new GradleException("Release signing certificate does not match GUARDIAN_RELEASE_CERT_SHA256.")
+    } catch (GradleException exception) {
+        throw exception
+    } catch (Exception exception) {
+        throw new GradleException("Release signing keystore could not be verified.", exception)
+    }
+}
 
 /**
  * This is the configuration block to customize your React Native Android app.
@@ -85,13 +143,14 @@ android {
     ndkVersion rootProject.ext.ndkVersion
 
     buildToolsVersion rootProject.ext.buildToolsVersion
-    compileSdk rootProject.ext.compileSdkVersion
+    // Expo SDK 57's versioned compatibility table requires compile/target SDK 36.
+    compileSdk 36
 
     namespace 'com.guardian.family'
     defaultConfig {
         applicationId 'com.guardian.family'
         minSdkVersion rootProject.ext.minSdkVersion
-        targetSdkVersion rootProject.ext.targetSdkVersion
+        targetSdkVersion 36
         versionCode 1
         versionName "1.0.0"
 
@@ -104,15 +163,20 @@ android {
             keyAlias 'androiddebugkey'
             keyPassword 'android'
         }
+        release {
+            if (releaseStoreFileValue) storeFile file(releaseStoreFileValue)
+            if (releaseStorePassword) storePassword releaseStorePassword
+            if (releaseKeyAlias) keyAlias releaseKeyAlias
+            if (releaseKeyPassword) keyPassword releaseKeyPassword
+            storeType releaseStoreType
+        }
     }
     buildTypes {
         debug {
             signingConfig signingConfigs.debug
         }
         release {
-            // Caution! In production, you need to generate your own keystore file.
-            // see https://reactnative.dev/docs/signed-apk-android.
-            signingConfig signingConfigs.debug
+            signingConfig signingConfigs.release
             def enableShrinkResources = findProperty('android.enableShrinkResourcesInReleaseBuilds') ?: 'false'
             shrinkResources enableShrinkResources.toBoolean()
             minifyEnabled enableMinifyInReleaseBuilds
@@ -130,6 +194,66 @@ android {
     androidResources {
         ignoreAssetsPattern '!.svn:!.git:!.ds_store:!*.scc:!CVS:!thumbs.db:!picasa.ini:!*~'
     }
+}
+
+androidComponents {
+    onVariants(selector().withBuildType("release")) { variant ->
+        if (releaseVersionCodeValue ==~ /^[1-9]\d*$/) {
+            variant.outputs.forEach { output -> output.versionCode.set(releaseVersionCodeValue.toInteger()) }
+        }
+    }
+}
+
+tasks.register("verifyGuardianReleaseAdmission", Exec) {
+    group = "verification"
+    description = "Fails release builds without validated signing, public policy authority, endpoints, version code, and fixture mode."
+    workingDir projectRoot
+    commandLine "node", new File(projectRoot, "scripts/release-admission.mjs").absolutePath
+    environment releaseAdmissionEnvironment
+    doFirst { verifyReleaseCertificate() }
+}
+
+def configureReleaseArtifactVerification = { String taskName, String kind, String outputDirectory, String outputPattern ->
+tasks.register(taskName, Exec) {
+    group = "verification"
+    description = "Verifies the merged manifest, fixture absence, signer, and version of the signed release ${kind.toUpperCase()}."
+    workingDir projectRoot
+    environment releaseAdmissionEnvironment
+    doFirst {
+        def manifests = fileTree(buildDir).matching {
+            include "intermediates/merged_manifest/release/**/AndroidManifest.xml"
+            include "intermediates/merged_manifests/release/**/AndroidManifest.xml"
+        }.files
+        if (manifests.size() != 1) throw new GradleException("Expected exactly one merged release AndroidManifest.xml.")
+        def artifacts = fileTree(outputDirectory).matching { include outputPattern }.files
+        if (artifacts.size() != 1) throw new GradleException("Expected exactly one signed release ${kind.toUpperCase()}.")
+        def aapt = new File(android.sdkDirectory, "build-tools/${android.buildToolsVersion}/aapt")
+        def apksigner = new File(android.sdkDirectory, "build-tools/${android.buildToolsVersion}/apksigner")
+        def javaBin = new File(System.getProperty("java.home"), "bin")
+        def javaExecutable = new File(javaBin, "java")
+        def keytool = new File(javaBin, "keytool")
+        def jarsigner = new File(javaBin, "jarsigner")
+        def bundletoolClasspath = kind == "aab" ? configurations.guardianBundletool.asPath : ""
+        if (kind == "apk" && (!aapt.isFile() || !apksigner.isFile())) throw new GradleException("Android aapt and apksigner are required for APK policy verification.")
+        if (kind == "aab" && (!javaExecutable.isFile() || !keytool.isFile() || !jarsigner.isFile() || !bundletoolClasspath)) throw new GradleException("Bundletool and JDK signing tools are required for AAB policy verification.")
+        commandLine "node", new File(projectRoot, "scripts/verify-release-artifact.mjs").absolutePath,
+            "--merged-manifest", manifests.first().absolutePath, "--artifact", artifacts.first().absolutePath, "--kind", kind,
+            "--aapt", aapt.absolutePath, "--apksigner", apksigner.absolutePath,
+            "--keytool", keytool.absolutePath, "--jarsigner", jarsigner.absolutePath,
+            "--java", javaExecutable.absolutePath, "--bundletool-classpath", bundletoolClasspath
+    }
+}
+}
+
+configureReleaseArtifactVerification("verifyGuardianReleaseApkArtifact", "apk", "$buildDir/outputs/apk/release", "**/*.apk")
+configureReleaseArtifactVerification("verifyGuardianReleaseAabArtifact", "aab", "$buildDir/outputs/bundle/release", "**/*.aab")
+
+tasks.configureEach { task ->
+    if (task.name != "verifyGuardianReleaseAdmission" && (task.name ==~ /(?i).*(assemble|bundle|package|sign).*release.*/)) {
+        task.dependsOn("verifyGuardianReleaseAdmission")
+    }
+    if (task.name in ["assembleRelease", "packageRelease"]) task.finalizedBy("verifyGuardianReleaseApkArtifact")
+    if (task.name == "bundleRelease") task.finalizedBy("verifyGuardianReleaseAabArtifact")
 }
 
 // Apply static values from `gradle.properties` to the `android.packagingOptions`
@@ -153,6 +277,7 @@ android {
 }
 
 dependencies {
+    guardianBundletool "com.android.tools.build:bundletool:1.18.1"
     // The version of react-native is set by the React Native Gradle Plugin
     implementation("com.facebook.react:react-android")
 

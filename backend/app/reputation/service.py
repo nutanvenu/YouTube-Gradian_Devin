@@ -1,5 +1,5 @@
 from datetime import UTC, datetime, timedelta
-from typing import Final, Protocol
+from typing import Final, Literal, Protocol, cast
 
 from sqlalchemy import select
 from sqlalchemy.ext.asyncio import AsyncSession
@@ -10,34 +10,27 @@ from .schemas import ReputationEntryOut
 
 REPUTATION_TTL: Final = timedelta(days=30)
 MAX_DELTA_CHAIN: Final = 32
+ReputationVerdict = Literal["KNOWN_SAFE", "KNOWN_RISK", "UNKNOWN"]
 
 
 class ReputationClassifier(Protocol):
-    async def classify(self, identifier: str) -> tuple[str, str, str]:
+    async def classify(self, identifier: str) -> tuple[ReputationVerdict, str, str]:
         """Return verdict, source, and deterministic rationale."""
 
 
-class CuratedSeedClassifier:
-    _SEEDS = {
-        "example.com": (
-            "KNOWN_SAFE",
-            "guardian-curated-seed",
-            "Reserved documentation domain is explicitly listed as safe.",
-        ),
-    }
+class NoCuratedVerdictClassifier:
+    """Production-safe placeholder until a reviewed reputation provider is supplied."""
 
-    async def classify(self, identifier: str) -> tuple[str, str, str]:
-        return self._SEEDS.get(
-            identifier,
-            (
-                "UNKNOWN",
-                "guardian-curated-seed",
-                "No curated verdict is available; no score or heuristic was fabricated.",
-            ),
+    async def classify(self, identifier: str) -> tuple[ReputationVerdict, str, str]:
+        del identifier
+        return (
+            "UNKNOWN",
+            "guardian-no-curated-verdict",
+            "No curated verdict is available; no score or heuristic was fabricated.",
         )
 
 
-classifier: ReputationClassifier = CuratedSeedClassifier()
+classifier: ReputationClassifier = NoCuratedVerdictClassifier()
 
 
 def normalize_domain_identifier(identifier: str) -> str:
@@ -101,39 +94,7 @@ async def _ensure_state(session: AsyncSession) -> ReputationState:
     return state
 
 
-async def ensure_seed_bundle(session: AsyncSession) -> ReputationState:
-    state = await _ensure_state(session)
-    if state.current_version:
-        return state
-    now = _now()
-    seed_verdict, source, rationale = await classifier.classify("example.com")
-    entry = ReputationEntry(
-        target_kind="DOMAIN",
-        identifier="example.com",
-        verdict=seed_verdict,
-        source=source,
-        rationale=rationale,
-        expires_at=now + REPUTATION_TTL,
-        bundle_version=1,
-    )
-    session.add(entry)
-    await session.flush()
-    bundle = _signed_document("FULL", 1, None, [_entry_value(entry)])
-    session.add(
-        ReputationRevision(
-            bundle_version=1,
-            kind="FULL",
-            base_version=None,
-            bundle=bundle,
-        )
-    )
-    state.current_version = 1
-    await session.flush()
-    return state
-
-
 async def current_entries(session: AsyncSession) -> list[ReputationEntry]:
-    await ensure_seed_bundle(session)
     return list(
         (
             await session.scalars(
@@ -148,7 +109,7 @@ async def current_entries(session: AsyncSession) -> list[ReputationEntry]:
 async def sync_for_version(
     session: AsyncSession, version: int
 ) -> tuple[int, dict[str, object] | None, list[dict[str, object]]]:
-    state = await ensure_seed_bundle(session)
+    state = await _ensure_state(session)
     current = state.current_version
     if version < 0 or version > current:
         version = 0
@@ -192,9 +153,9 @@ async def sync_for_version(
 
 async def classify_and_store(
     session: AsyncSession, identifier: str
-) -> tuple[str, str]:
+) -> tuple[ReputationVerdict, str]:
     normalized = normalize_domain_identifier(identifier)
-    state = await ensure_seed_bundle(session)
+    state = await _ensure_state(session)
     existing = await session.scalar(
         select(ReputationEntry).where(
             ReputationEntry.target_kind == "DOMAIN",
@@ -202,7 +163,7 @@ async def classify_and_store(
         )
     )
     if existing is not None and existing.expires_at > _now():
-        return existing.verdict, "CACHED_SERVER_REPUTATION"
+        return cast(ReputationVerdict, existing.verdict), "CACHED_SERVER_REPUTATION"
     verdict, source, rationale = await classifier.classify(normalized)
     now = _now()
     next_version = state.current_version + 1

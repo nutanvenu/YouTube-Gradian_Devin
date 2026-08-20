@@ -3,6 +3,7 @@ package expo.modules.guardianprotection.policy
 import expo.modules.guardianprotection.storage.EncryptedPolicyStore
 import expo.modules.guardianprotection.observability.GuardianPerformanceMetrics
 import expo.modules.guardianprotection.vpn.GuardianVpnService
+import expo.modules.guardianprotection.content.ContentRiskPolicy
 import org.json.JSONObject
 import java.time.Instant
 
@@ -66,6 +67,17 @@ class PolicyManager(
   }
 
   private fun compile(bundle: Map<String, Any?>): CompiledPolicySnapshot {
+    val ageBand = bundle["age_band"] as String
+    val contentSafety = when (val raw = bundle["content_safety"]) {
+      null -> null
+      is Map<*, *> -> raw.cast()
+      else -> throw IllegalArgumentException("Invalid content_safety policy section")
+    }
+    val communicationSafety = when (val raw = bundle["communication_safety"]) {
+      null -> emptyMap()
+      is Map<*, *> -> raw.cast()
+      else -> throw IllegalArgumentException("Invalid communication_safety policy section")
+    }
     val appRules = (bundle["app_rules"] as? List<*>).orEmpty()
       .filterIsInstance<Map<*, *>>()
       .mapNotNull { rule -> (rule["app_ref"] as? String)?.let { it to rule.cast() } }
@@ -82,7 +94,9 @@ class PolicyManager(
       temporaryOverrides = (bundle["temporary_overrides"] as? List<*>)?.filterIsInstance<Map<*, *>>()?.map { it.cast() }.orEmpty(),
       routines = (bundle["routines"] as? List<*>)?.filterIsInstance<Map<*, *>>()?.map { it.cast() }.orEmpty(),
       basePolicy = (bundle["base_policy"] as? Map<*, *>)?.let { it.cast() } ?: emptyMap(),
+      communicationSafety = communicationSafety,
       expiresSoftAt = (bundle["expires_soft_at"] as? String)?.let { Instant.parse(it) },
+      contentBlockThreshold = ContentRiskPolicy.parseSignedThreshold(ageBand, contentSafety),
     )
   }
 
@@ -97,6 +111,17 @@ class PolicyManager(
       return "INVALID_POLICY_VERSION"
     }
     if (bundle["base_policy"] !is Map<*, *>) return "SCHEMA_INVALID"
+    val ageBand = bundle["age_band"] as? String ?: return "SCHEMA_INVALID"
+    if (bundle.containsKey("content_safety") && bundle["content_safety"] !is Map<*, *>) {
+      return "CONTENT_SAFETY_INVALID"
+    }
+    if (bundle.containsKey("communication_safety") && bundle["communication_safety"] !is Map<*, *>) {
+      return "COMMUNICATION_SAFETY_INVALID"
+    }
+    val contentSafety = (bundle["content_safety"] as? Map<*, *>)?.cast()
+    if (runCatching { ContentRiskPolicy.parseSignedThreshold(ageBand, contentSafety) }.isFailure) {
+      return "CONTENT_SAFETY_INVALID"
+    }
     if (listOf("app_rules", "domain_rules", "category_rules", "routines", "temporary_overrides").any {
         bundle[it] !is List<*>
       }) return "SCHEMA_INVALID"

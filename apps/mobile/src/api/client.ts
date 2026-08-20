@@ -4,6 +4,14 @@ import {
   GeneratedGuardianClient,
   type GuardianApiPath,
 } from "@guardian/api-client";
+import type {
+  CapabilityLevel,
+  ContentAction,
+  ContentApproval,
+  ContentReviewEvidence,
+  ContentRiskSeverity,
+  SignalSource,
+} from "@guardian/contracts";
 
 export type ApiErrorBody = { error?: { code?: string; message?: string } };
 export type Tokens = { access_token: string; refresh_token: string; token_type?: string };
@@ -35,6 +43,7 @@ export type PolicyMutationInput = {
     | "ROUTINE_DEACTIVATE"
     | "COMMUNICATION_SENSITIVITY"
     | "COMMUNICATION_ENABLED"
+    | "CONTENT_BLOCK_THRESHOLD"
     | "TEMPORARY_SCREEN_TIME"
     | "PAUSE_INTERNET"
     | "RESUME_INTERNET";
@@ -52,13 +61,26 @@ export type AccessRequest = {
   id: string;
   child_profile_id: string;
   device_id: string;
-  request_type: "MORE_TIME" | "UNBLOCK_APP" | "UNBLOCK_SITE";
+  request_type: "MORE_TIME" | "UNBLOCK_APP" | "UNBLOCK_SITE" | "CONTENT_REVIEW";
   subject: string | null;
   state: "PENDING" | "APPROVED" | "DENIED" | "EXPIRED" | "CANCELLED";
   reason: string | null;
   decision_reason: string | null;
   expires_at: string | null;
+  content_review?: ContentReviewEvidence | null;
 };
+export type ContentReviewRequestInput = {
+  request_type: "CONTENT_REVIEW";
+  content_review: ContentReviewEvidence;
+  subject?: never;
+  reason?: never;
+};
+export type StandardRequestInput = {
+  request_type: "MORE_TIME" | "UNBLOCK_APP" | "UNBLOCK_SITE";
+  subject?: string | null;
+  reason?: string | null;
+};
+export type DeviceRequestInput = StandardRequestInput | ContentReviewRequestInput;
 export type RequestPushPayload = {
   type: string;
   request_id: string;
@@ -99,6 +121,8 @@ export type UsageReport = {
   event_count: number;
   by_app: Record<string, number>;
   by_category: Record<string, number>;
+  unattributed_seconds: number;
+  coverage: "COMPLETE" | "PARTIAL";
 };
 export type DeviceEvent = {
   event_type: string;
@@ -106,9 +130,15 @@ export type DeviceEvent = {
   app_ref?: string | null;
   domain?: string | null;
   category?: string | null;
-  severity?: "LOW" | "MEDIUM" | "HIGH" | "CRITICAL" | null;
+  severity?: ContentRiskSeverity | null;
   confidence?: number | null;
   reason_code?: string | null;
+  signal_source?: SignalSource | null;
+  action?: ContentAction | null;
+  classifier_version?: string | null;
+  capability_level?: CapabilityLevel | null;
+  content_fingerprint?: string | null;
+  public_content_ref?: { provider: "YOUTUBE" | "INSTAGRAM" | "X" | "WEB"; content_id: string } | null;
   timezone?: string;
   duration_seconds?: number;
 };
@@ -118,6 +148,14 @@ export type ObservedApp = {
   category: string | null;
   observed_at: string;
   reviewed: boolean;
+  version_name: string | null;
+  first_seen_at: string | null;
+  last_seen_at: string | null;
+  installation_state: "INSTALLED" | "UNINSTALLED_OR_NOT_VISIBLE" | null;
+  capability_sources: Array<
+    "LAUNCHER" | "USAGE_STATS" | "NOTIFICATION" | "VPN_ATTRIBUTION" | "ACCESSIBILITY_FOREGROUND"
+  >;
+  inventory_completeness: "PARTIAL" | null;
 };
 export type ReputationEntry = {
   target_kind: "DOMAIN" | "APP";
@@ -132,7 +170,10 @@ export type ReputationEntry = {
 const configuredApiUrl = typeof process.env.EXPO_PUBLIC_API_URL === "string"
   ? process.env.EXPO_PUBLIC_API_URL.replace(/\/+$/, "")
   : undefined;
-const API_URL = configuredApiUrl ?? (__DEV__ ? "http://10.0.2.2:8000" : "https://api.guardian.example");
+const API_URL = configuredApiUrl ?? (__DEV__ ? "http://10.0.2.2:8000" : "");
+if (!API_URL && !__DEV__) {
+  throw new Error("Release builds require an explicitly configured HTTPS API URL.");
+}
 if (!__DEV__ && !API_URL.startsWith("https://")) {
   throw new Error("Release builds require an HTTPS API URL.");
 }
@@ -149,6 +190,16 @@ export class ApiError extends Error {
   }
 }
 
+type ParentSessionExpiryListener = () => void;
+let parentSessionExpiryListener: ParentSessionExpiryListener | null = null;
+
+export function subscribeToParentSessionExpiry(listener: ParentSessionExpiryListener) {
+  parentSessionExpiryListener = listener;
+  return () => {
+    if (parentSessionExpiryListener === listener) parentSessionExpiryListener = null;
+  };
+}
+
 export const sessionStorage = {
   getAccessToken: () => SecureStore.getItemAsync(ACCESS_TOKEN_KEY),
   getRefreshToken: () => SecureStore.getItemAsync(REFRESH_TOKEN_KEY),
@@ -156,12 +207,21 @@ export const sessionStorage = {
     await SecureStore.setItemAsync(ACCESS_TOKEN_KEY, tokens.access_token);
     await SecureStore.setItemAsync(REFRESH_TOKEN_KEY, tokens.refresh_token);
   },
-  clear: async () => {
+  // Parent auth and the child device credential are independent.  A parent
+  // session expiry must never silently unpair the child or stop protection.
+  clearParentSession: async () => {
     await SecureStore.deleteItemAsync(ACCESS_TOKEN_KEY);
     await SecureStore.deleteItemAsync(REFRESH_TOKEN_KEY);
+  },
+  clearDeviceIdentity: async () => {
     await SecureStore.deleteItemAsync(DEVICE_TOKEN_KEY);
     await SecureStore.deleteItemAsync(DEVICE_PRIVATE_KEY_KEY);
     await SecureStore.deleteItemAsync(FAMILY_ID_KEY);
+  },
+  // Retained for explicit account deletion/unpair flows only.
+  clear: async () => {
+    await sessionStorage.clearParentSession();
+    await sessionStorage.clearDeviceIdentity();
   },
   getDeviceToken: () => SecureStore.getItemAsync(DEVICE_TOKEN_KEY),
   setDeviceToken: (token: string) => SecureStore.setItemAsync(DEVICE_TOKEN_KEY, token),
@@ -172,9 +232,31 @@ export const sessionStorage = {
 
 export class GuardianApiClient {
   private readonly generated: GeneratedGuardianClient;
+  private refreshInFlight: Promise<Tokens> | null = null;
 
   constructor(private readonly baseUrl = API_URL) {
     this.generated = new GeneratedGuardianClient(baseUrl);
+  }
+
+  private async refreshParentSession(): Promise<Tokens> {
+    if (!this.refreshInFlight) {
+      this.refreshInFlight = (async () => {
+        const refreshToken = await sessionStorage.getRefreshToken();
+        if (!refreshToken) throw new Error("No refresh token is available.");
+        const refreshed = await fetch(`${this.baseUrl}/v1/auth/refresh`, {
+          method: "POST",
+          headers: { "Content-Type": "application/json" },
+          body: JSON.stringify({ refresh_token: refreshToken }),
+        });
+        if (!refreshed.ok) throw new Error("Refresh token is invalid.");
+        const tokens = (await refreshed.json()) as Tokens;
+        await sessionStorage.setTokens(tokens);
+        return tokens;
+      })().finally(() => {
+        this.refreshInFlight = null;
+      });
+    }
+    return this.refreshInFlight;
   }
 
   private async request<T>(path: string, init: RequestInit = {}, retry = true): Promise<T> {
@@ -208,13 +290,25 @@ export class GuardianApiClient {
     } catch (error) {
       const status = (error as { status?: number }).status;
       if (status === 401 && retry && accessToken && !deviceAuthenticated) {
-        const refreshToken = await sessionStorage.getRefreshToken();
-        if (refreshToken) {
-          const refreshed = await fetch(`${this.baseUrl}/v1/auth/refresh`, { method: "POST", headers: { "Content-Type": "application/json" }, body: JSON.stringify({ refresh_token: refreshToken }) });
-          if (refreshed.ok) {
-            await sessionStorage.setTokens((await refreshed.json()) as Tokens);
-            return this.request<T>(path, init, false);
+        try {
+          // A different request may already have refreshed the session while
+          // this request was in flight. Reuse that token before attempting a
+          // second refresh; the retry remains bounded to one attempt.
+          const currentAccessToken = await sessionStorage.getAccessToken();
+          if (currentAccessToken && currentAccessToken !== accessToken) {
+            return await this.request<T>(path, init, false);
           }
+          await this.refreshParentSession();
+          return await this.request<T>(path, init, false);
+        } catch {
+          await sessionStorage.clearParentSession();
+          parentSessionExpiryListener?.();
+          throw new ApiError(
+            "Your parent session has expired. Sign in again.",
+            401,
+            "SESSION_EXPIRED",
+            requestId,
+          );
         }
       }
       if (error instanceof Error) {
@@ -308,6 +402,14 @@ export class GuardianApiClient {
     display_name: string;
     category?: string | null;
     observed_at: string;
+    version_name?: string | null;
+    first_seen_at?: string;
+    last_seen_at?: string;
+    installation_state?: "INSTALLED" | "UNINSTALLED_OR_NOT_VISIBLE";
+    capability_sources?: Array<
+      "LAUNCHER" | "USAGE_STATS" | "NOTIFICATION" | "VPN_ATTRIBUTION" | "ACCESSIBILITY_FOREGROUND"
+    >;
+    inventory_completeness?: "PARTIAL";
   }>) {
     return this.request<undefined>("/v1/devices/me/inventory", {
       method: "POST",
@@ -321,7 +423,7 @@ export class GuardianApiClient {
       body: JSON.stringify(input),
     });
   }
-  createRequest(input: Omit<AccessRequest, "id" | "child_profile_id" | "device_id" | "state" | "decision_reason" | "expires_at">, idempotencyKey?: string) {
+  createRequest(input: DeviceRequestInput, idempotencyKey?: string) {
     return this.request<AccessRequest>("/v1/devices/me/requests", {
       method: "POST",
       headers: idempotencyKey ? { "Idempotency-Key": idempotencyKey } : undefined,
@@ -331,9 +433,13 @@ export class GuardianApiClient {
   requests(familyId: string) {
     return this.request<AccessRequest[]>(`/v1/families/${familyId}/requests`);
   }
+  contentApprovals() {
+    return this.request<ContentApproval[]>("/v1/devices/me/content-approvals");
+  }
   decideRequest(familyId: string, requestId: string, decision: "approve" | "deny", reason: string) {
     return this.request<AccessRequest>(`/v1/families/${familyId}/requests/${requestId}/${decision}`, {
       method: "POST",
+      headers: { "Idempotency-Key": `request-decision:${requestId}:${decision}` },
       body: JSON.stringify({ reason }),
     });
   }

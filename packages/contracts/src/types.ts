@@ -1,4 +1,5 @@
 import hardCategories from "../hard-categories.json" with { type: "json" };
+import contentRiskContract from "../content-risk-contract.json" with { type: "json" };
 
 export const AGE_BANDS = ["YOUNG_CHILD", "PRETEEN", "TEEN", "OLDER_TEEN"] as const;
 export type AgeBand = (typeof AGE_BANDS)[number];
@@ -38,14 +39,140 @@ export const HARD_CATEGORIES = hardCategories as unknown as readonly [
   ...Category[]
 ];
 
-export const CAPABILITY_LEVELS = [
+export const CAPABILITY_LEVELS = contentRiskContract.capability_levels as unknown as readonly [
   "FULL",
   "LIMITED",
   "BEST_EFFORT",
   "UNAVAILABLE",
   "REGION_LIMITED"
-] as const;
+];
 export type CapabilityLevel = (typeof CAPABILITY_LEVELS)[number];
+
+export const CONTENT_RISK_SIGNAL_SOURCES = contentRiskContract.signal_sources as unknown as readonly [
+  "NOTIFICATION",
+  "ACCESSIBILITY_TEXT",
+  "NETWORK_DESTINATION",
+  "USAGE",
+  "MEDIA_METADATA"
+];
+export type SignalSource = (typeof CONTENT_RISK_SIGNAL_SOURCES)[number];
+
+// Content actions are deliberately distinct from policy engine actions: a
+// classifier can warn or ask a parent without granting a policy exception.
+export const CONTENT_RISK_ACTIONS = contentRiskContract.actions as unknown as readonly [
+  "ALLOW",
+  "WARN",
+  "BLOCK_AND_REQUEST"
+];
+export type ContentAction = (typeof CONTENT_RISK_ACTIONS)[number];
+
+export const CONTENT_RISK_SEVERITIES = contentRiskContract.severities as unknown as readonly [
+  "LOW",
+  "MEDIUM",
+  "HIGH",
+  "CRITICAL"
+];
+export type ContentRiskSeverity = (typeof CONTENT_RISK_SEVERITIES)[number];
+
+export const CONTENT_RISK_CATEGORIES = contentRiskContract.categories as unknown as readonly [
+  "ADULT_NUDITY",
+  "SEXUAL_CONTENT",
+  "GROOMING_RISK",
+  "BULLYING_HARASSMENT",
+  "HATE_EXTREMISM",
+  "SELF_HARM_SUICIDE",
+  "GRAPHIC_VIOLENCE",
+  "VIOLENCE",
+  "DRUGS",
+  "ALCOHOL_TOBACCO",
+  "GAMBLING",
+  "WEAPONS",
+  "DANGEROUS_CHALLENGE",
+  "ANONYMOUS_CHAT",
+  "SCAM_FRAUD",
+  "MALWARE_PHISHING",
+  "STRONG_LANGUAGE",
+  "AGE_INAPPROPRIATE",
+  "PARENT_CUSTOM_RULE",
+  "UNKNOWN"
+];
+export type ContentRiskCategory = (typeof CONTENT_RISK_CATEGORIES)[number];
+
+export const CONTENT_RISK_REASON_CODES = contentRiskContract.reason_codes as unknown as readonly [
+  "ADULT_NUDITY",
+  "AGE_INAPPROPRIATE",
+  "ALCOHOL_TOBACCO_PROMOTION",
+  "ANONYMOUS_CHAT",
+  "BULLYING_TARGETED",
+  "CONTEXT_NEGATED",
+  "DANGEROUS_CHALLENGE",
+  "DRUG_REFERENCE",
+  "GAMBLING_PROMOTION",
+  "GRAPHIC_VIOLENCE",
+  "GROOMING_PATTERN",
+  "HATE_EXTREMISM",
+  "MALWARE_PHISHING",
+  "PARENT_CUSTOM_RULE",
+  "SCAM_FRAUD",
+  "SELF_HARM_DIRECT",
+  "SELF_HARM_INTENT",
+  "SEXUAL_CONTENT_EXPLICIT",
+  "STRONG_LANGUAGE",
+  "VIOLENCE",
+  "WEAPONS_INSTRUCTION"
+];
+export type ContentRiskReasonCode = (typeof CONTENT_RISK_REASON_CODES)[number];
+
+export const CONTENT_RISK_CATEGORY_ALIASES = contentRiskContract.category_aliases as Readonly<
+  Record<string, ContentRiskCategory>
+>;
+export const CONTENT_BLOCK_THRESHOLDS = contentRiskContract.content_block_thresholds as Readonly<
+  Record<AgeBand, ContentRiskSeverity>
+>;
+
+export type PublicContentReference = {
+  provider: "YOUTUBE" | "INSTAGRAM" | "X" | "WEB";
+  content_id: string;
+};
+
+/** A local-only verdict: it contains no extracted title, message, or URL query. */
+export type ContentRiskVerdict = {
+  signalSource: SignalSource;
+  category: ContentRiskCategory;
+  severity: ContentRiskSeverity;
+  confidence: number;
+  reasonCodes: readonly ContentRiskReasonCode[];
+  classifierVersion: string;
+  capabilityLevel: CapabilityLevel;
+  action: ContentAction;
+};
+
+export type CompositeContentRiskReasonCode =
+  | ContentRiskReasonCode
+  | `${ContentRiskReasonCode}+${ContentRiskReasonCode}`;
+
+/** The only evidence allowed over the device-to-backend review boundary. */
+export type ContentReviewEvidence = {
+  app_ref: string;
+  fingerprint: string;
+  category: ContentRiskCategory;
+  severity: ContentRiskSeverity;
+  confidence: number;
+  reason_code: CompositeContentRiskReasonCode;
+  public_content_ref?: PublicContentReference;
+};
+
+export type ContentReviewRequest = {
+  request_type: "CONTENT_REVIEW";
+  content_review: ContentReviewEvidence;
+};
+
+export type ContentApproval = {
+  device_id: string;
+  app_ref: string;
+  fingerprint: string;
+  expires_at: string;
+};
 
 export interface CapabilityStatus {
   level: CapabilityLevel;
@@ -174,6 +301,15 @@ export interface ObservedApp {
   iconUri?: string | null;
   newlyObserved?: boolean;
   observedAt: string;
+  /** Lifecycle metadata is source-tagged and explicitly partial, never a full package inventory. */
+  versionName?: string | null;
+  firstSeenAt?: string;
+  lastSeenAt?: string;
+  installationState?: "INSTALLED" | "UNINSTALLED_OR_NOT_VISIBLE";
+  capabilitySources?: Array<
+    "LAUNCHER" | "USAGE_STATS" | "NOTIFICATION" | "VPN_ATTRIBUTION" | "ACCESSIBILITY_FOREGROUND"
+  >;
+  inventoryCompleteness?: "PARTIAL";
 }
 
 export type PermissionResult =
@@ -215,6 +351,11 @@ export interface GuardianProtectionNative {
   requestVpnPermission(): Promise<PermissionResult>;
   openUsageAccessSettings(): Promise<void>;
   openAccessibilitySettings(): Promise<void>;
+  setAccessibilityContentConsent(granted: boolean): Promise<PermissionResult>;
+  setContentDeviceId(deviceId: string): Promise<void>;
+  applyContentApprovals(approvals: ContentApproval[]): Promise<void>;
+  getPendingContentReviewRequests(): Promise<ContentReviewRequest[]>;
+  acknowledgeContentReviewRequest(appRef: string, fingerprint: string): Promise<void>;
   openNotificationAccessSettings(): Promise<void>;
   startProtection(): Promise<void>;
   stopProtection(): Promise<void>;

@@ -1,7 +1,7 @@
-from datetime import datetime
+from datetime import date, datetime
 from uuid import UUID, uuid4
 
-from sqlalchemy import DateTime, ForeignKey, Index, Integer, String
+from sqlalchemy import Date, DateTime, ForeignKey, Index, Integer, String, text
 from sqlalchemy.dialects.postgresql import JSONB
 from sqlalchemy.dialects.postgresql import UUID as PGUUID
 from sqlalchemy.orm import Mapped, mapped_column
@@ -24,6 +24,12 @@ class SafetyEvent(TimestampMixin, Base):
     severity: Mapped[str | None] = mapped_column(String(20))
     confidence: Mapped[float | None] = mapped_column()
     reason_code: Mapped[str | None] = mapped_column(String(100))
+    signal_source: Mapped[str | None] = mapped_column(String(30))
+    action: Mapped[str | None] = mapped_column(String(30))
+    classifier_version: Mapped[str | None] = mapped_column(String(64))
+    capability_level: Mapped[str | None] = mapped_column(String(30))
+    content_fingerprint: Mapped[str | None] = mapped_column(String(64))
+    public_content_ref: Mapped[dict[str, object] | None] = mapped_column(JSONB)
 
 
 class WebEvent(TimestampMixin, Base):
@@ -42,6 +48,16 @@ class WebEvent(TimestampMixin, Base):
 
 class UsageAggregate(TimestampMixin, Base):
     __tablename__ = "usage_aggregates"
+    __table_args__ = (
+        Index(
+            "uq_usage_aggregates_daily_snapshot",
+            "device_id",
+            "snapshot_day",
+            "snapshot_key",
+            unique=True,
+            postgresql_where=text("snapshot_day IS NOT NULL AND snapshot_key IS NOT NULL"),
+        ),
+    )
 
     id: Mapped[UUID] = mapped_column(PGUUID(as_uuid=True), primary_key=True, default=uuid4)
     device_id: Mapped[UUID] = mapped_column(
@@ -53,6 +69,10 @@ class UsageAggregate(TimestampMixin, Base):
     category: Mapped[str | None] = mapped_column(String(50))
     timezone: Mapped[str] = mapped_column(String(64), default="UTC")
     duration_seconds: Mapped[int] = mapped_column(Integer, default=0)
+    # New uploads are current cumulative values, not an event stream.  Older rows
+    # remain readable during the additive migration, so these columns are nullable.
+    snapshot_day: Mapped[date | None] = mapped_column(Date)
+    snapshot_key: Mapped[str | None] = mapped_column(String(255))
 
 
 class ProtectionHealthEvent(TimestampMixin, Base):

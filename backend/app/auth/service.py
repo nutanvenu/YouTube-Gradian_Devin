@@ -75,7 +75,12 @@ async def parent_from_access(session: AsyncSession, token: str) -> Parent:
 
 async def rotate_refresh(session: AsyncSession, raw: str) -> tuple[str, str]:
     row = await session.scalar(
-        select(RefreshToken).where(RefreshToken.token_hash == _hash_token(raw))
+        # Rotation is a single-use state transition.  Lock before reading the
+        # revocation flag so concurrent refresh calls cannot each mint a child
+        # token from the same credential on PostgreSQL.
+        select(RefreshToken)
+        .where(RefreshToken.token_hash == _hash_token(raw))
+        .with_for_update()
     )
     if row is None or row.revoked_at is not None or row.expires_at <= datetime.now(UTC):
         if row is not None and row.revoked_at is not None:

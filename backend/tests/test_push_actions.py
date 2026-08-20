@@ -31,7 +31,9 @@ async def test_request_push_actions_are_real_idempotent_and_authorized(
     )
     assert registered.status_code == 204
 
-    payload = {"request_type": "MORE_TIME", "subject": "Chrome", "reason": "Homework"}
+    # A blank MORE_TIME subject is an explicit device-wide request. A display
+    # label such as "Chrome" must never be widened to this device grant.
+    payload = {"request_type": "MORE_TIME", "subject": None, "reason": "Homework"}
     body = json.dumps(payload, separators=(",", ":")).encode()
     path = "/v1/devices/me/requests"
     response = await client.post(

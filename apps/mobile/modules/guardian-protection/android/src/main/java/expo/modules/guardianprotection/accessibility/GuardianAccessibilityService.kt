@@ -8,16 +8,27 @@ import android.os.Process
 import android.util.Log
 import expo.modules.guardianprotection.BuildConfig
 import android.view.accessibility.AccessibilityEvent
+import android.view.accessibility.AccessibilityNodeInfo
 import android.content.Intent
+import android.os.SystemClock
+import expo.modules.guardianprotection.content.AccessibilityContentGate
+import expo.modules.guardianprotection.content.ContentSafetyConsentStore
+import expo.modules.guardianprotection.content.ContentSafetyServiceRuntime
+import expo.modules.guardianprotection.content.ContentBlockCoordinator
+import expo.modules.guardianprotection.content.ContentSafetyObservationGate
+import expo.modules.guardianprotection.inventory.InventorySource
 import expo.modules.guardianprotection.inventory.PackageInventory
 import expo.modules.guardianprotection.policy.GuardianPolicyRuntime
 import expo.modules.guardianprotection.policy.PolicyManager
 import expo.modules.guardianprotection.storage.EncryptedPolicyStore
 import expo.modules.guardianprotection.usage.UsageCollector
+import java.util.ArrayDeque
+import java.util.concurrent.ConcurrentHashMap
 
 class GuardianAccessibilityService : AccessibilityService() {
   private lateinit var usage: UsageCollector
   private lateinit var inventory: PackageInventory
+  private lateinit var contentConsent: ContentSafetyConsentStore
   private val enforcement = BudgetEnforcementController()
   private val mainHandler = Handler(Looper.getMainLooper())
   private val budgetThread = HandlerThread(
@@ -28,6 +39,7 @@ class GuardianAccessibilityService : AccessibilityService() {
   @Volatile private var foregroundPackage: String? = null
   @Volatile private var foregroundCategory: String? = null
   @Volatile private var serviceDestroyed = false
+  private val lastContentInspectionAt = ConcurrentHashMap<String, Long>()
   private val budgetTicker = object : Runnable {
     override fun run() {
       val packageName = foregroundPackage ?: return
@@ -52,6 +64,7 @@ class GuardianAccessibilityService : AccessibilityService() {
     if (!budgetThread.isAlive) budgetThread.start()
     if (!::budgetHandler.isInitialized) budgetHandler = Handler(budgetThread.looper)
     running = true
+    instance = this
     val manager = PolicyManager(
       EncryptedPolicyStore(this),
       expo.modules.guardianprotection.BuildConfig.GUARDIAN_POLICY_TRUSTED_PUBLIC_KEYS,
@@ -59,22 +72,121 @@ class GuardianAccessibilityService : AccessibilityService() {
     GuardianPolicyRuntime.install(manager)
     usage = UsageCollector(this, EncryptedPolicyStore(this))
     inventory = PackageInventory(this)
+    contentConsent = ContentSafetyConsentStore(this)
+    ContentSafetyServiceRuntime.bootstrap(this, BuildConfig.GUARDIAN_POLICY_TRUSTED_PUBLIC_KEYS)
   }
 
   override fun onAccessibilityEvent(event: AccessibilityEvent?) {
     val packageName = event?.packageName?.toString() ?: return
-    if (event.eventType != AccessibilityEvent.TYPE_WINDOW_STATE_CHANGED &&
-      event.eventType != AccessibilityEvent.TYPE_WINDOWS_CHANGED
-    ) return
-    updateForeground(packageName)
+    val eventType = event.eventType
+    if (eventType !in setOf(
+        AccessibilityEvent.TYPE_WINDOW_STATE_CHANGED,
+        AccessibilityEvent.TYPE_WINDOWS_CHANGED,
+        AccessibilityEvent.TYPE_WINDOW_CONTENT_CHANGED,
+      )) return
     if (packageName == packageNameOfGuardian()) return
-    val category = foregroundCategory ?: inventory.categoryFor(packageName)
-    budgetHandler.post {
-      evaluateForeground(packageName, category)
+    if (eventType != AccessibilityEvent.TYPE_WINDOW_CONTENT_CHANGED) {
+      updateForeground(packageName)
+      ContentBlockCoordinator.reblockIfCurrentForeground(this, packageName)
+      val category = foregroundCategory ?: inventory.categoryFor(packageName)
+      budgetHandler.post {
+        evaluateForeground(packageName, category)
+      }
+    }
+    if (AccessibilityContentGate.shouldInspect(
+        contentConsent.hasAccessibilityContentConsent(),
+        ContentSafetyServiceRuntime.allowsAccessibilitySignals(
+          this,
+          BuildConfig.GUARDIAN_POLICY_TRUSTED_PUBLIC_KEYS,
+        ),
+        eventType,
+      )) {
+      inspectActiveWindow(packageName)
     }
   }
 
+  private fun inspectActiveWindow(packageName: String) {
+    val now = SystemClock.elapsedRealtime()
+    if (lastContentInspectionAt.put(packageName, now)?.let { now - it < CONTENT_DEBOUNCE_MS } == true) {
+      return
+    }
+    var extraction: AccessibilityTextExtraction? = collectActiveWindowText()
+    try {
+      val candidate = extraction?.text
+      if (ContentSafetyObservationGate.shouldProcess(candidate)) {
+        // The service runtime has no JS dependency and persists only its minimized output.
+        ContentSafetyServiceRuntime.processAccessibility(
+          this,
+          BuildConfig.GUARDIAN_POLICY_TRUSTED_PUBLIC_KEYS,
+          packageName,
+          requireNotNull(candidate),
+          requireNotNull(extraction).complete,
+        )
+      }
+    } finally {
+      extraction = null
+    }
+  }
+
+  private fun collectActiveWindowText(): AccessibilityTextExtraction {
+    val root = rootInActiveWindow ?: return AccessibilityTextExtraction(null, complete = false)
+    val deadline = SystemClock.elapsedRealtime() + CONTENT_TRAVERSAL_BUDGET_MS
+    val queue = ArrayDeque<AccessibilityNodeInfo>()
+    val text = StringBuilder(CONTENT_MAX_CHARS)
+    queue.addLast(root)
+    var visited = 0
+    var complete = true
+    try {
+      while (queue.isNotEmpty()) {
+        if (visited >= CONTENT_MAX_NODES || SystemClock.elapsedRealtime() >= deadline ||
+          text.length >= CONTENT_MAX_CHARS
+        ) {
+          complete = false
+          break
+        }
+        val node = queue.removeFirst()
+        try {
+          visited += 1
+          if (!node.isEditable && !node.isPassword) {
+            appendBounded(text, node.text)
+            appendBounded(text, node.contentDescription)
+          }
+          if (visited < CONTENT_MAX_NODES && SystemClock.elapsedRealtime() <= deadline) {
+            for (index in 0 until node.childCount) {
+              node.getChild(index)?.let(queue::addLast)
+            }
+          }
+        } finally {
+          node.recycle()
+        }
+      }
+    } finally {
+      if (queue.isNotEmpty()) complete = false
+      while (queue.isNotEmpty()) runCatching { queue.removeFirst().recycle() }
+    }
+    if (visited >= CONTENT_MAX_NODES || SystemClock.elapsedRealtime() >= deadline ||
+      text.length >= CONTENT_MAX_CHARS
+    ) complete = false
+    return AccessibilityTextExtraction(text.takeIf { it.isNotEmpty() }?.toString(), complete)
+  }
+
+  private data class AccessibilityTextExtraction(val text: String?, val complete: Boolean)
+
+  private fun appendBounded(destination: StringBuilder, value: CharSequence?) {
+    if (value == null || destination.length >= CONTENT_MAX_CHARS) return
+    if (destination.isNotEmpty()) destination.append(' ')
+    destination.append(value.take(CONTENT_MAX_CHARS - destination.length))
+  }
+
   private fun updateForeground(packageName: String) {
+    // Identifier and capability source only.  This deliberately runs before
+    // any optional content inspection and never persists Accessibility text.
+    if (packageName != packageNameOfGuardian()) {
+      inventory.recordObservedPackages(
+        setOf(packageName),
+        InventorySource.ACCESSIBILITY_FOREGROUND,
+      )
+    }
     val category = if (packageName == packageNameOfGuardian()) null else inventory.categoryFor(packageName)
     foregroundPackage = packageName
     foregroundCategory = category
@@ -125,6 +237,7 @@ class GuardianAccessibilityService : AccessibilityService() {
     stopBudgetTicker()
     if (budgetThread.isAlive) budgetThread.quitSafely()
     running = false
+    if (instance === this) instance = null
     super.onDestroy()
   }
 
@@ -138,8 +251,19 @@ class GuardianAccessibilityService : AccessibilityService() {
   companion object {
     private const val BUDGET_TICK_INTERVAL_MS = 3_000L
     private const val BLOCK_SURFACE_DELAY_MS = 300L
+    private const val CONTENT_DEBOUNCE_MS = 750L
+    private const val CONTENT_TRAVERSAL_BUDGET_MS = 20L
+    private const val CONTENT_MAX_NODES = 80
+    private const val CONTENT_MAX_CHARS = 1_200
     @Volatile private var running = false
+    @Volatile private var instance: GuardianAccessibilityService? = null
 
     fun isRunning(): Boolean = running
+
+    fun goBackFromContentBlock(): Boolean =
+      instance?.performGlobalAction(GLOBAL_ACTION_BACK) == true
+
+    fun goHomeFromContentBlock(): Boolean =
+      instance?.performGlobalAction(GLOBAL_ACTION_HOME) == true
   }
 }

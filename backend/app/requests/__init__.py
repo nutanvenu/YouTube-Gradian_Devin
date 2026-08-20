@@ -1,3 +1,3 @@
-from .models import Request, RequestState, RequestType
+from .models import ContentApproval, Request, RequestState, RequestType
 
-__all__ = ["Request", "RequestState", "RequestType"]
+__all__ = ["ContentApproval", "Request", "RequestState", "RequestType"]

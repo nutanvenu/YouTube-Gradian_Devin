@@ -22,6 +22,9 @@ _SCHEMA_PATH = (
 _HARD_CATEGORIES_PATH = (
     Path(__file__).resolve().parents[3] / "packages" / "contracts" / "hard-categories.json"
 )
+_CONTENT_RISK_CONTRACT_PATH = (
+    Path(__file__).resolve().parents[3] / "packages" / "contracts" / "content-risk-contract.json"
+)
 
 
 def _shared_hard_categories() -> tuple[str, ...]:
@@ -32,6 +35,9 @@ def _shared_hard_categories() -> tuple[str, ...]:
 
 
 HARD_CATEGORIES = _shared_hard_categories()
+CONTENT_BLOCK_THRESHOLDS = json.loads(_CONTENT_RISK_CONTRACT_PATH.read_text())[
+    "content_block_thresholds"
+]
 
 
 def _rule(rule_id: str, category: str, action: str, **values: object) -> dict[str, object]:
@@ -178,6 +184,11 @@ def default_policy(
         "category_rules": [],
         "routines": [_bedtime(band)],
         "temporary_overrides": [],
+        # This distinct content-interstitial threshold intentionally does not
+        # change the long-standing notification alert threshold below.
+        "content_safety": {
+            "content_block_threshold": CONTENT_BLOCK_THRESHOLDS[band],
+        },
         "communication_safety": {
             "enabled": False,
             "severity_threshold": "HIGH",
@@ -222,6 +233,34 @@ async def create_initial_bundle(
     session.add(bundle)
     await session.flush()
     return bundle
+
+
+async def current_bundle_for_update(
+    session: AsyncSession,
+    child_profile_id: UUID,
+) -> PolicyBundle | None:
+    """Read the current policy only after acquiring its document-wide mutex.
+
+    A bundle lock on its own is insufficient: callers used to copy the current
+    JSON before ``create_next_bundle`` acquired the document lock. Two callers
+    could therefore publish monotonic versions while one silently discarded the
+    other's field changes. Every policy read-modify-sign-write path uses this
+    helper before it reads the document.
+    """
+    document = await session.scalar(
+        select(PolicyDocument)
+        .where(PolicyDocument.child_profile_id == child_profile_id)
+        .with_for_update()
+    )
+    if document is None:
+        return None
+    bundle = await session.scalar(
+        select(PolicyBundle).where(
+            PolicyBundle.child_profile_id == child_profile_id,
+            PolicyBundle.is_current.is_(True),
+        )
+    )
+    return bundle if isinstance(bundle, PolicyBundle) else None
 
 
 async def create_next_bundle(

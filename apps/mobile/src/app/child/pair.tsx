@@ -6,6 +6,7 @@ import * as ed25519 from "@noble/ed25519";
 import * as Crypto from "expo-crypto";
 import { api, ApiError, sessionStorage } from "@/api/client";
 import { PrimaryButton, ScreenScaffold, SectionSurface, TextField } from "@/design-system";
+import { GuardianProtection } from "../../../modules/guardian-protection/src";
 
 function toBase64(bytes: Uint8Array): string {
   const alphabet = "ABCDEFGHIJKLMNOPQRSTUVWXYZabcdefghijklmnopqrstuvwxyz0123456789+/";
@@ -48,6 +49,7 @@ export default function ChildPairRoute() {
       await sessionStorage.setDevicePrivateKey(toBase64(privateKey));
       await sessionStorage.setDeviceToken(credentials.device_token);
       await sessionStorage.setFamilyId(credentials.family_id);
+      await GuardianProtection.setContentDeviceId(credentials.device_id);
       router.replace("/child/home");
     } catch (error) { setMessage(error instanceof ApiError ? error.message : `Pairing failed: ${error instanceof Error ? error.message : "check the code and try again."}`); }
   };

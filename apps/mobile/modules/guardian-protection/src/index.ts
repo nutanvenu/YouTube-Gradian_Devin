@@ -2,6 +2,8 @@ import { requireNativeModule } from "expo-modules-core";
 import type {
   ApplyResult,
   CapabilityRecord,
+  ContentApproval,
+  ContentReviewRequest,
   GuardianNativeEvent,
   GuardianProtectionNative,
   ReputationApplyResult,
@@ -28,6 +30,13 @@ export const GuardianProtection: GuardianProtectionNative = {
   requestVpnPermission: () => native.requestVpnPermission(),
   openUsageAccessSettings: () => native.openUsageAccessSettings(),
   openAccessibilitySettings: () => native.openAccessibilitySettings(),
+  setAccessibilityContentConsent: (granted: boolean): Promise<PermissionResult> =>
+    native.setAccessibilityContentConsent(granted),
+  setContentDeviceId: (deviceId: string): Promise<void> => native.setContentDeviceId(deviceId),
+  applyContentApprovals: (approvals: ContentApproval[]) => native.applyContentApprovals(approvals),
+  getPendingContentReviewRequests: (): Promise<ContentReviewRequest[]> => native.getPendingContentReviewRequests(),
+  acknowledgeContentReviewRequest: (appRef: string, fingerprint: string): Promise<void> =>
+    native.acknowledgeContentReviewRequest(appRef, fingerprint),
   openNotificationAccessSettings: () => native.openNotificationAccessSettings(),
   startProtection: () => native.startProtection(),
   stopProtection: () => native.stopProtection(),

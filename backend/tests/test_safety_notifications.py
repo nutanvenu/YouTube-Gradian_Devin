@@ -37,7 +37,7 @@ async def test_safety_event_routes_structured_alert_and_deduplicates(
                 "category": "CONTACT",
                 "severity": "HIGH",
                 "confidence": 0.91,
-                "reason_code": "RULE_CONTACT_CONTEXT",
+                "reason_code": "ANONYMOUS_CHAT",
             },
             {
                 "event_type": "SAFETY_RISK",
@@ -65,7 +65,7 @@ async def test_safety_event_routes_structured_alert_and_deduplicates(
     assert {row.status for row in rows} == {"QUEUED", "SUPPRESSED_DEDUPE"}
     safety_events = list((await database_session.scalars(select(SafetyEvent))).all())
     assert {event.confidence for event in safety_events} == {0.91, None}
-    assert {event.reason_code for event in safety_events} == {"RULE_CONTACT_CONTEXT", None}
+    assert {event.reason_code for event in safety_events} == {"ANONYMOUS_CHAT", None}
 
 
 @pytest.mark.asyncio

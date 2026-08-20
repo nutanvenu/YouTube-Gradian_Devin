@@ -33,7 +33,6 @@ object CommunicationSafetyRuntime {
     nowMillis: Long = System.currentTimeMillis(),
   ) {
     if (!enabled) return
-    if (!CommunicationRiskDetector.isCommunicationPackage(packageName)) return
     val keyContext = CommunicationNotificationContext(packageName, notificationCategory, channelId)
     val signal = CommunicationRiskDetector.classify(title, text, keyContext) ?: return
     val key = "$packageName|${signal.category}|${signal.reasonCode}"

@@ -78,7 +78,7 @@ async def test_account_deletion_removes_family_and_child_data(
                     "category": "HARASSMENT",
                     "severity": "HIGH",
                     "confidence": 0.8,
-                    "reason_code": "TEST",
+                    "reason_code": "BULLYING_TARGETED",
                 },
             ]
         },

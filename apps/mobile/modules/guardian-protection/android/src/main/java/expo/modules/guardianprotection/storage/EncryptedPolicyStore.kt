@@ -7,10 +7,17 @@ import android.util.Base64
 import java.util.concurrent.atomic.AtomicBoolean
 import org.json.JSONObject
 import java.security.KeyStore
+import java.security.SecureRandom
 import javax.crypto.Cipher
 import javax.crypto.KeyGenerator
 import javax.crypto.spec.GCMParameterSpec
 import expo.modules.guardianprotection.usage.deviceTotalSeconds
+import expo.modules.guardianprotection.content.ContentApproval
+import expo.modules.guardianprotection.content.ContentBlockReference
+import expo.modules.guardianprotection.content.ContentRiskCategory
+import expo.modules.guardianprotection.content.ContentRiskSeverity
+import org.json.JSONArray
+import java.time.Instant
 
 class EncryptedPolicyStore(
   context: Context,
@@ -97,12 +104,203 @@ class EncryptedPolicyStore(
     }
   }
 
+  /** Device-local HMAC material; the raw observed text is never stored with it. */
+  @Synchronized
+  fun contentFingerprintKey(): ByteArray {
+    read("content-fingerprint-key")?.let { encoded ->
+      return Base64.decode(encoded, Base64.NO_WRAP)
+    }
+    return ByteArray(32).also { key ->
+      SecureRandom().nextBytes(key)
+      write("content-fingerprint-key", Base64.encodeToString(key, Base64.NO_WRAP))
+    }
+  }
+
+  /** Pairing records the server device reference once; it is never synthesized locally. */
+  @Synchronized
+  fun setContentDeviceId(deviceId: String) {
+    require(DEVICE_ID_PATTERN.matches(deviceId)) { "Invalid device reference" }
+    write("content-device-id", deviceId)
+  }
+
+  fun contentDeviceId(): String? = read("content-device-id")?.takeIf(DEVICE_ID_PATTERN::matches)
+
+  /** Bounded encrypted queue used while the JS runtime is absent. Values are pre-minimized. */
+  @Synchronized
+  fun appendContentRiskEvent(event: Map<String, Any>): Boolean {
+    require(event.keys == CONTENT_RISK_EVENT_FIELDS) { "Unexpected content event field" }
+    val queue = read("content-risk-events")?.let { encoded -> JSONArray(encoded) } ?: JSONArray()
+    val duplicate = (0 until queue.length()).any { index ->
+      val prior = queue.optJSONObject(index) ?: return@any false
+      prior.optString("app_ref") == event["app_ref"] &&
+        prior.optString("signal_source") == event["signal_source"] &&
+        prior.optString("fingerprint") == event["fingerprint"]
+    }
+    if (duplicate) return false
+    while (queue.length() >= MAX_CONTENT_RISK_EVENTS) queue.remove(0)
+    queue.put(JSONObject(event))
+    write("content-risk-events", queue.toString())
+    return true
+  }
+
+  @Synchronized
+  fun activeContentBlock(): ContentBlockReference? = read("active-content-block")?.let { encoded ->
+    runCatching {
+      val item = JSONObject(encoded)
+      ContentBlockReference(
+        appRef = item.getString("app_ref"),
+        fingerprint = item.getString("fingerprint"),
+        category = ContentRiskCategory.valueOf(item.getString("category")),
+        severity = ContentRiskSeverity.valueOf(item.getString("severity")),
+        confidence = item.getDouble("confidence"),
+        reasonCode = item.getString("reason_code"),
+        occurredAtMillis = item.getLong("occurred_at_millis"),
+      )
+    }.getOrElse {
+      corruptState.set(true)
+      null
+    }
+  }
+
+  @Synchronized
+  fun saveActiveContentBlock(reference: ContentBlockReference) {
+    write("active-content-block", JSONObject().apply {
+      put("app_ref", reference.appRef)
+      put("fingerprint", reference.fingerprint)
+      put("category", reference.category.name)
+      put("severity", reference.severity.name)
+      put("confidence", reference.confidence)
+      put("reason_code", reference.reasonCode)
+      put("occurred_at_millis", reference.occurredAtMillis)
+    }.toString())
+  }
+
+  @Synchronized
+  fun clearActiveContentBlock(appRef: String? = null, fingerprint: String? = null) {
+    val active = activeContentBlock()
+    if (appRef != null && (active?.appRef != appRef || active?.fingerprint != fingerprint)) return
+    preferences.edit().remove("active-content-block").commit()
+  }
+
+  /** Deduped `CONTENT_REVIEW` outbox. It contains only backend-contract evidence. */
+  @Synchronized
+  fun enqueueContentReview(reference: ContentBlockReference): Boolean {
+    val queue = read("content-review-outbox")?.let { encoded -> JSONArray(encoded) } ?: JSONArray()
+    if ((0 until queue.length()).any { index ->
+        val prior = queue.optJSONObject(index) ?: return@any false
+        prior.optString("app_ref") == reference.appRef && prior.optString("fingerprint") == reference.fingerprint
+      }) return false
+    while (queue.length() >= MAX_CONTENT_RISK_EVENTS) queue.remove(0)
+    queue.put(JSONObject().apply {
+      put("request_type", "CONTENT_REVIEW")
+      put("app_ref", reference.appRef)
+      put("fingerprint", reference.fingerprint)
+      put("category", reference.category.name)
+      put("severity", reference.severity.name)
+      put("confidence", reference.confidence)
+      put("reason_code", reference.reasonCode)
+      put("occurred_at_millis", reference.occurredAtMillis)
+    })
+    write("content-review-outbox", queue.toString())
+    return true
+  }
+
+  /** Transport seam: returns the strict backend request shape and never source text. */
+  @Synchronized
+  fun pendingContentReviewRequests(): List<Map<String, Any>> =
+    read("content-review-outbox")?.let { encoded ->
+      runCatching {
+        val queue = JSONArray(encoded)
+        (0 until queue.length()).mapNotNull { index ->
+          val item = queue.optJSONObject(index) ?: return@mapNotNull null
+          runCatching {
+            val evidence = mapOf<String, Any>(
+              "app_ref" to item.getString("app_ref"),
+              "fingerprint" to item.getString("fingerprint"),
+              "category" to item.getString("category"),
+              "severity" to item.getString("severity"),
+              "confidence" to item.getDouble("confidence"),
+              "reason_code" to item.getString("reason_code"),
+            )
+            ContentBlockReference(
+              evidence.getValue("app_ref") as String,
+              evidence.getValue("fingerprint") as String,
+              ContentRiskCategory.valueOf(evidence.getValue("category") as String),
+              ContentRiskSeverity.valueOf(evidence.getValue("severity") as String),
+              evidence.getValue("confidence") as Double,
+              evidence.getValue("reason_code") as String,
+              item.getLong("occurred_at_millis"),
+            )
+            mapOf("request_type" to "CONTENT_REVIEW", "content_review" to evidence)
+          }.getOrNull()
+        }
+      }.getOrElse {
+        corruptState.set(true)
+        emptyList()
+      }
+    } ?: emptyList()
+
+  @Synchronized
+  fun acknowledgeContentReviewRequest(appRef: String, fingerprint: String) {
+    val queue = read("content-review-outbox")?.let { encoded -> JSONArray(encoded) } ?: return
+    val remaining = JSONArray()
+    (0 until queue.length()).forEach { index ->
+      val item = queue.optJSONObject(index) ?: return@forEach
+      if (item.optString("app_ref") != appRef || item.optString("fingerprint") != fingerprint) remaining.put(item)
+    }
+    write("content-review-outbox", remaining.toString())
+  }
+
+  @Synchronized
+  fun replaceContentApprovals(approvals: Iterable<ContentApproval>, now: Instant = Instant.now()) {
+    val deviceId = contentDeviceId() ?: return
+    val valid = approvals.filter {
+      it.deviceId == deviceId && it.expiresAt.isAfter(now) && !it.expiresAt.isAfter(now.plusSeconds(900))
+    }.toList()
+    val json = JSONArray().apply {
+      valid.forEach { approval -> put(JSONObject().apply {
+        put("device_id", approval.deviceId)
+        put("app_ref", approval.appRef)
+        put("fingerprint", approval.fingerprint)
+        put("expires_at", approval.expiresAt.toString())
+      }) }
+    }
+    write("content-approvals", json.toString())
+  }
+
+  @Synchronized
+  fun contentApprovals(now: Instant = Instant.now()): List<ContentApproval> =
+    read("content-approvals")?.let { encoded ->
+      runCatching {
+        val queue = JSONArray(encoded)
+        (0 until queue.length()).mapNotNull { index ->
+          val item = queue.optJSONObject(index) ?: return@mapNotNull null
+          runCatching {
+            ContentApproval(
+              item.getString("device_id"),
+              item.getString("app_ref"),
+              item.getString("fingerprint"),
+              Instant.parse(item.getString("expires_at")),
+            )
+          }.getOrNull()?.takeIf { it.expiresAt.isAfter(now) }
+        }
+      }.getOrElse {
+        corruptState.set(true)
+        emptyList()
+      }
+    } ?: emptyList()
+  }
+
   private fun read(key: String): String? {
     val encoded = preferences.getString(key, null) ?: return null
     return runCatching { decrypt(encoded) }.getOrElse {
       corruptState.set(true)
       null
     }
+  }
+
+  private fun write(key: String, value: String) {
+    preferences.edit().putString(key, encrypt(value)).commit()
   }
 
   private fun usageCounters(): MutableMap<String, CounterState> {
@@ -146,4 +344,22 @@ class EncryptedPolicyStore(
     val totalSeconds: Long = 0,
     val lastElapsedRealtime: Long = 0,
   )
+
+  private companion object {
+    const val MAX_CONTENT_RISK_EVENTS = 50
+    val DEVICE_ID_PATTERN = Regex("^[A-Za-z0-9-]{1,128}$")
+    val CONTENT_RISK_EVENT_FIELDS = setOf(
+      "signal_source",
+      "app_ref",
+      "fingerprint",
+      "category",
+      "severity",
+      "confidence",
+      "reason_code",
+      "classifier_version",
+      "capability_level",
+      "action",
+      "occurred_at_millis",
+    )
+  }
 }

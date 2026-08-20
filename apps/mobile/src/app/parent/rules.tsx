@@ -19,6 +19,7 @@ type PolicyRecord = Record<string, unknown>;
 type AppRule = { app_ref?: string; action?: string; daily_minutes?: number; schedule?: { days?: number[]; start?: string; end?: string } };
 type DomainRule = { domain?: string; action?: string };
 type Routine = { routine_id: string; name: string; kind: "MANUAL" | "SCHEDULED"; blocked_categories?: string[]; blocked_apps?: string[]; window?: { days?: number[]; start?: string; end?: string } };
+type InventoryApp = { platform_app_id: string; display_name: string; category: string | null; reviewed: boolean };
 
 function record(value: unknown): PolicyRecord {
   return value && typeof value === "object" ? value as PolicyRecord : {};
@@ -28,14 +29,25 @@ function list<T>(value: unknown): T[] {
   return Array.isArray(value) ? value as T[] : [];
 }
 
+// Inventory arrives from independent package/usage/notification sources. Keep
+// controls keyed by package ID and sort only a copied view so refreshes cannot
+// move an in-progress edit to a neighbouring app.
+export function stableObservedApps(apps: InventoryApp[]): InventoryApp[] {
+  return [...apps].sort((left, right) => (
+    left.display_name.localeCompare(right.display_name, undefined, { sensitivity: "base" })
+    || left.platform_app_id.localeCompare(right.platform_app_id)
+  ));
+}
+
 export default function ParentRulesRoute() {
   const { familyId, childId } = useLocalSearchParams<{ familyId: string; childId: string }>();
   const router = useRouter();
   const queryClient = useQueryClient();
   const [domain, setDomain] = useState("");
-  const [minutes, setMinutes] = useState("30");
-  const [scheduleStart, setScheduleStart] = useState("09:00");
-  const [scheduleEnd, setScheduleEnd] = useState("17:00");
+  const [categoryMinutes, setCategoryMinutes] = useState("30");
+  const [selectedAppId, setSelectedAppId] = useState<string | null>(null);
+  const [appLimitDrafts, setAppLimitDrafts] = useState<Record<string, string>>({});
+  const [appScheduleDrafts, setAppScheduleDrafts] = useState<Record<string, { start: string; end: string }>>({});
   const [message, setMessage] = useState<string | null>(null);
   const { isOffline } = useNetworkStatus();
   const children = useQuery({
@@ -76,12 +88,25 @@ export default function ParentRulesRoute() {
   const domainRules = list<DomainRule>(policy.domain_rules);
   const basePolicy = record(policy.base_policy);
   const communicationPolicy = record(policy.communication_safety);
+  const contentSafetyPolicy = record(policy.content_safety);
   const routines = list<Routine>(policy.routines);
   const acknowledged = health.data?.some((item) => item.child_profile_id === childId && item.policy_version_applied === pendingVersion);
   const syncState = pendingVersion === null || acknowledged ? "Rules active on device." : `Pending sync · device has not acknowledged version ${pendingVersion}.`;
-  const apps = useMemo(() => inventory.data ?? [], [inventory.data]);
+  const apps = useMemo(() => stableObservedApps((inventory.data ?? []) as InventoryApp[]), [inventory.data]);
+  const selectedApp: InventoryApp | undefined = apps.find(
+    (app) => app.platform_app_id === selectedAppId,
+  ) ?? apps.at(0);
+  const selectedRule = appRules.find((candidate) => candidate.app_ref === selectedApp?.platform_app_id);
+  const selectedAppLimit = selectedApp
+    ? appLimitDrafts[selectedApp.platform_app_id] ?? String(selectedRule?.daily_minutes ?? 30)
+    : "30";
+  const selectedSchedule = selectedApp
+    ? appScheduleDrafts[selectedApp.platform_app_id]
+      ?? { start: selectedRule?.schedule?.start ?? "09:00", end: selectedRule?.schedule?.end ?? "17:00" }
+    : { start: "09:00", end: "17:00" };
 
   const save = (input: PolicyMutationInput) => {
+    if (mutate.isPending) return;
     setMessage(null);
     mutate.mutate(input);
   };
@@ -94,7 +119,7 @@ export default function ParentRulesRoute() {
 
   return (
     <ScreenScaffold title="Rules">
-      <DataState state={children.isLoading || inventory.isLoading || reputation.isLoading ? "loading" : children.isError || inventory.isError || reputation.isError ? "error" : isOffline ? "offline" : children.isStale || inventory.isStale || reputation.isStale ? "stale" : "loaded"} onRetry={() => { void children.refetch(); void inventory.refetch(); void reputation.refetch(); }}>
+      <DataState state={children.isLoading || inventory.isLoading ? "loading" : children.isError || inventory.isError ? "error" : isOffline ? "offline" : children.isStale || inventory.isStale ? "stale" : "loaded"} onRetry={() => { void children.refetch(); void inventory.refetch(); void reputation.refetch(); }}>
         <SectionSurface>
           <Text>{child?.name ?? "Child"} · {syncState}</Text>
           <Text>Changes are not active until this device acknowledges the new policy version.</Text>
@@ -134,29 +159,72 @@ export default function ParentRulesRoute() {
           </Text>
         </SectionSurface>
         <SectionSurface>
+          <Text>Content Safety</Text>
+          <Text>
+            Block content at: {typeof contentSafetyPolicy.content_block_threshold === "string"
+              ? contentSafetyPolicy.content_block_threshold
+              : "age-based default"}
+          </Text>
+          <Text>
+            This controls local content blocking and Ask Parent. It does not change notification alert sensitivity.
+          </Text>
+          {(["LOW", "MEDIUM", "HIGH", "CRITICAL"] as const).map((threshold) => (
+            <SecondaryButton
+              key={threshold}
+              label={`Use ${threshold} content block threshold`}
+              onPress={() => save({
+                operation: "CONTENT_BLOCK_THRESHOLD",
+                target: "content_safety",
+                value: threshold,
+              })}
+            />
+          ))}
+        </SectionSurface>
+        <SectionSurface>
           <Text>App controls</Text>
+          <Text>Apps are alphabetized for a stable list. Select one app to edit its own limit and schedule.</Text>
           {apps.map((app) => {
             const rule = appRules.find((candidate) => candidate.app_ref === app.platform_app_id);
+            const isSelected = selectedApp?.platform_app_id === app.platform_app_id;
             return (
               <CardSurface key={app.platform_app_id}>
-                <ListRow label={app.display_name} value={`${rule?.action ?? "No rule"}${!app.reviewed ? " · New app" : ""}`} />
+                <ListRow label={app.display_name} value={`${rule?.action ?? "No rule"}${!app.reviewed ? " · New app" : ""}`} onPress={() => setSelectedAppId(app.platform_app_id)} />
                 {!app.reviewed ? (
                   <>
                     <Text>This app was newly observed on the child device. Review it before treating it as trusted.</Text>
                     <SecondaryButton label="Mark app reviewed" onPress={() => { void reviewApp(app.platform_app_id); }} />
                   </>
                 ) : null}
-                <SecondaryButton label="Allow" onPress={() => save({ operation: "APP_ALLOW", target: app.platform_app_id })} />
-                <SecondaryButton label="Block" onPress={() => save({ operation: "APP_BLOCK", target: app.platform_app_id })} />
-                <SecondaryButton label={`Limit to ${minutes || "30"} minutes`} onPress={() => save({ operation: "APP_DAILY_MINUTES", target: app.platform_app_id, value: Number(minutes) || 30 })} />
-                <TextField label="Schedule start (HH:MM)" value={scheduleStart} onChangeText={setScheduleStart} />
-                <TextField label="Schedule end (HH:MM)" value={scheduleEnd} onChangeText={setScheduleEnd} />
-                <SecondaryButton label="Save weekday schedule" onPress={() => save({ operation: "APP_SCHEDULE", target: app.platform_app_id, value: { days: [1, 2, 3, 4, 5], start: scheduleStart, end: scheduleEnd } })} />
-                <SecondaryButton label="Unlimited" onPress={() => save({ operation: "APP_UNLIMITED", target: app.platform_app_id })} />
+                <SecondaryButton label={isSelected ? "Editing controls" : "Edit controls"} onPress={() => setSelectedAppId(app.platform_app_id)} />
               </CardSurface>
             );
           })}
-          <TextField label="Daily limit minutes" value={minutes} onChangeText={setMinutes} keyboardType="numeric" />
+          {selectedApp ? (
+            <CardSurface>
+              <Text>Controls for {selectedApp.display_name}</Text>
+              <TextField
+                label={`Daily limit for ${selectedApp.display_name} (minutes)`}
+                value={selectedAppLimit}
+                onChangeText={(value) => setAppLimitDrafts((drafts) => ({ ...drafts, [selectedApp.platform_app_id]: value }))}
+                keyboardType="numeric"
+              />
+              <PrimaryButton label="Allow" disabled={mutate.isPending} onPress={() => save({ operation: "APP_ALLOW", target: selectedApp.platform_app_id })} />
+              <PrimaryButton label="Block" disabled={mutate.isPending} onPress={() => save({ operation: "APP_BLOCK", target: selectedApp.platform_app_id })} />
+              <SecondaryButton label={`Limit to ${selectedAppLimit || "30"} minutes`} disabled={mutate.isPending} onPress={() => save({ operation: "APP_DAILY_MINUTES", target: selectedApp.platform_app_id, value: Number(selectedAppLimit) || 30 })} />
+              <TextField
+                label={`Schedule start for ${selectedApp.display_name} (HH:MM)`}
+                value={selectedSchedule.start}
+                onChangeText={(start) => setAppScheduleDrafts((drafts) => ({ ...drafts, [selectedApp.platform_app_id]: { ...selectedSchedule, start } }))}
+              />
+              <TextField
+                label={`Schedule end for ${selectedApp.display_name} (HH:MM)`}
+                value={selectedSchedule.end}
+                onChangeText={(end) => setAppScheduleDrafts((drafts) => ({ ...drafts, [selectedApp.platform_app_id]: { ...selectedSchedule, end } }))}
+              />
+              <SecondaryButton label="Save weekday schedule" disabled={mutate.isPending} onPress={() => save({ operation: "APP_SCHEDULE", target: selectedApp.platform_app_id, value: { days: [1, 2, 3, 4, 5], start: selectedSchedule.start, end: selectedSchedule.end } })} />
+              <SecondaryButton label="Unlimited" disabled={mutate.isPending} onPress={() => save({ operation: "APP_UNLIMITED", target: selectedApp.platform_app_id })} />
+            </CardSurface>
+          ) : <Text>No observed apps yet. Guardian will add apps when Android exposes them.</Text>}
         </SectionSurface>
         <SectionSurface>
           <Text>Website controls</Text>
@@ -168,6 +236,7 @@ export default function ParentRulesRoute() {
           <SecondaryButton label="Block unknown websites" onPress={() => save({ operation: "UNKNOWN_DOMAIN_POLICY", target: "unknown", value: "BLOCK" })} />
           <SecondaryButton label="Allow unknown websites with notice" onPress={() => save({ operation: "UNKNOWN_DOMAIN_POLICY", target: "unknown", value: "ALLOW_AND_NOTIFY" })} />
           <Text>Reputation bundle: {reputation.data ? `version ${reputation.data.current_version}` : "Still classifying"}</Text>
+          {reputation.isError ? <Text accessibilityRole="alert">Reputation updates are unavailable. Existing parent rules remain usable and active.</Text> : null}
           {(reputation.data?.entries ?? []).map((entry) => (
             <ListRow
               key={`${entry.target_kind}:${entry.identifier}`}
@@ -182,10 +251,11 @@ export default function ParentRulesRoute() {
         </SectionSurface>
         <SectionSurface>
           <Text>Category budgets</Text>
+          <TextField label="Category daily limit minutes" value={categoryMinutes} onChangeText={setCategoryMinutes} keyboardType="numeric" />
           {["SOCIAL_MEDIA", "STREAMING_VIDEO", "GAMES", "MESSAGING"].map((category) => (
             <CardSurface key={category}>
-              <ListRow label={category} value="Set a daily budget from the app limit field." />
-              <SecondaryButton label={`Limit ${category}`} onPress={() => save({ operation: "CATEGORY_DAILY_MINUTES", target: category, value: Number(minutes) || 30 })} />
+              <ListRow label={category} value="Set this category's daily budget." />
+              <SecondaryButton label={`Limit ${category}`} onPress={() => save({ operation: "CATEGORY_DAILY_MINUTES", target: category, value: Number(categoryMinutes) || 30 })} />
             </CardSurface>
           ))}
           <Text>Web strictness is applied through category rules and unknown-content policy.</Text>

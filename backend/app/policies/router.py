@@ -10,11 +10,12 @@ from ..api.handler_support import (
     Header,
     HTTPException,
     Parent,
-    PolicyBundle,
     PolicyMutationIn,
+    acquire_idempotency_lock,
     broadcaster,
     configured_trusted_public_keys,
     create_next_bundle,
+    current_bundle_for_update,
     current_parent,
     datetime,
     deepcopy,
@@ -81,16 +82,19 @@ async def mutate_policy(
     )
     if child is None:
         raise HTTPException(status.HTTP_404_NOT_FOUND, "Child not found")
-    digest = payload_hash(body.model_dump(mode="json"))
+    digest = payload_hash(
+        {
+            "family_id": str(family_id),
+            "child_id": str(child_id),
+            "body": body.model_dump(mode="json"),
+        }
+    )
     if idempotency_key is not None:
+        await acquire_idempotency_lock(session, "policy_mutation", idempotency_key)
         replay = await replay_or_conflict(session, "policy_mutation", idempotency_key, digest)
         if replay is not None:
             return replay.response_body
-    current = await session.scalar(
-        select(PolicyBundle).where(
-            PolicyBundle.child_profile_id == child_id, PolicyBundle.is_current.is_(True)
-        )
-    )
+    current = await current_bundle_for_update(session, child_id)
     if current is None:
         raise HTTPException(status.HTTP_409_CONFLICT, "Policy is unavailable")
     policy = deepcopy(current.new_value)
@@ -208,6 +212,12 @@ async def mutate_policy(
         communication = policy_mapping(policy, "communication_safety")
         communication["severity_threshold"] = body.value
         policy["communication_safety"] = communication
+    elif operation == "CONTENT_BLOCK_THRESHOLD":
+        # This independent, signed setting controls classifier enforcement.
+        # It deliberately does not reinterpret the notification alert threshold.
+        content_safety = policy_mapping(policy, "content_safety")
+        content_safety["content_block_threshold"] = body.value
+        policy["content_safety"] = content_safety
     elif operation == "TEMPORARY_EXCEPTION":
         if body.expires_at is None or body.expires_at <= datetime.now(UTC):
             raise HTTPException(status.HTTP_422_UNPROCESSABLE_ENTITY, "Future expiry required")

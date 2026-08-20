@@ -96,6 +96,9 @@ export default function ParentActivityRoute() {
                 <CardSurface key={`${bucket.child_profile_id}-${bucket.period_start}`}>
                   <ListRow label={bucket.period_start} value={formatUsageMinutes(bucket.duration_seconds)} />
                   <Text>{Object.entries(bucket.by_category).map(([category, seconds]) => `${category}: ${formatUsageMinutes(seconds)}`).join(" · ")}</Text>
+                  {bucket.coverage === "PARTIAL" ? (
+                    <Text>Partial coverage · {formatUsageMinutes(bucket.unattributed_seconds)} could not be attributed to an app or category.</Text>
+                  ) : null}
                 </CardSurface>
               ))
               : <Text>Unknown · no persisted usage is available for this report.</Text>}
