@@ -10,6 +10,8 @@ def test_container_runs_unprivileged_single_worker_and_has_a_healthcheck() -> No
 
     assert "USER guardian" in dockerfile
     assert "HEALTHCHECK" in dockerfile
+    assert "COPY packages/policy-schema /app/packages/policy-schema" in dockerfile
+    assert "COPY packages/contracts /app/packages/contracts" in dockerfile
     assert "alembic upgrade head" in entrypoint
     assert "--workers 1" in entrypoint
     assert "--no-access-log" in entrypoint
