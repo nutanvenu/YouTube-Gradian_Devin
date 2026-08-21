@@ -367,9 +367,19 @@ test("AAB manifest inspection uses bundletool's supported base-module command", 
   );
 });
 
-test("artifact archive policy rejects fixture names and fixture bytes", () => {
+test("artifact archive policy rejects fixtures but permits its required fail-closed guard symbol", () => {
   assert.ok(fixtureMarkerErrors(["assets/fixture-policy.json"], []).length > 0);
   assert.ok(fixtureMarkerErrors(["classes.dex"], [Buffer.from("fixture payload")]).length > 0);
+  assert.deepEqual(
+    fixtureMarkerErrors(["classes.dex"], [Buffer.from("GUARDIAN_NON_RELEASE_FIXTURES_ENABLED")]),
+    [],
+  );
+  assert.ok(
+    fixtureMarkerErrors(
+      ["classes.dex"],
+      [Buffer.from("GUARDIAN_NON_RELEASE_FIXTURES_ENABLED real fixture payload")],
+    ).length > 0,
+  );
   assert.deepEqual(fixtureMarkerErrors(["assets/policy.json"], [Buffer.from("production payload")]), []);
 });
 

@@ -16,6 +16,7 @@ const REQUIRED_METADATA = {
   "com.guardian.family.VPN_DECLARATION": undefined,
 };
 const FIXTURE_MARKER = /fixture/i;
+const REQUIRED_NON_RELEASE_FIXTURE_GUARD = "GUARDIAN_NON_RELEASE_FIXTURES_ENABLED";
 
 function applicationTag(xml) { return xml.match(/<application\b[^>]*>/)?.[0] ?? ""; }
 function metadataTag(xml, name) {
@@ -59,7 +60,12 @@ export function verifyArtifactManifestTree(tree) {
 export function fixtureMarkerErrors(entries, contents) {
   const errors = [];
   for (const entry of entries) if (FIXTURE_MARKER.test(entry)) errors.push(`Release archive contains fixture entry ${entry}.`);
-  for (const content of contents) if (FIXTURE_MARKER.test(Buffer.from(content).toString("utf8"))) errors.push("Release archive contains fixture bytes.");
+  for (const content of contents) {
+    const inspected = Buffer.from(content)
+      .toString("utf8")
+      .replaceAll(REQUIRED_NON_RELEASE_FIXTURE_GUARD, "");
+    if (FIXTURE_MARKER.test(inspected)) errors.push("Release archive contains fixture bytes.");
+  }
   return errors;
 }
 
