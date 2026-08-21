@@ -49,8 +49,8 @@ env:
   GUARDIAN_JWT_SECRET: acceptance-only-secret-with-at-least-32-bytes
 
 jobs:
-  android-acceptance:
-    name: Host, backend, Kotlin, and debug APK
+  android-public-checks:
+    name: Fork-safe host, backend, Kotlin, and debug APK checks
     runs-on: ubuntu-latest
     services:
       postgres:
@@ -123,7 +123,7 @@ jobs:
         run: |
           pnpm install --frozen-lockfile
           uv sync --directory backend --locked --extra dev
-      - name: Dependency audit is a non-final release gate
+      - name: Dependency audits are non-final release gates
         shell: bash
         run: |
           set -euo pipefail
@@ -131,12 +131,17 @@ jobs:
           mkdir -p "$evidence"
           set +e
           pnpm audit --prod --audit-level=high --json > "$evidence/dependency-audit.json"
-          audit_status=$?
+          node_audit_status=$?
+          requirements="$RUNNER_TEMP/guardian-backend-requirements.txt"
+          uv export --directory backend --locked --no-hashes --format requirements-txt > "$requirements"
+          uvx --from pip-audit==2.9.0 pip-audit --requirement "$requirements" \
+            > "$evidence/backend-dependency-audit.txt"
+          backend_audit_status=$?
           set -e
-          printf '%s\n' "$audit_status" > "$evidence/dependency-audit.exit-code"
-          if [ "$audit_status" -ne 0 ]; then
-            echo "NON-FINAL RELEASE BLOCKER: production dependency audit failed; inspect dependency-audit.json." >> "$GITHUB_STEP_SUMMARY"
-            exit "$audit_status"
+          printf 'pnpm=%s\nbackend=%s\n' "$node_audit_status" "$backend_audit_status" > "$evidence/dependency-audit.exit-codes"
+          if [ "$node_audit_status" -ne 0 ] || [ "$backend_audit_status" -ne 0 ]; then
+            echo "NON-FINAL RELEASE BLOCKER: dependency audit failed; inspect the audit evidence." >> "$GITHUB_STEP_SUMMARY"
+            exit 1
           fi
       - name: Scan tracked sources for committed private secrets
         shell: bash
@@ -158,50 +163,20 @@ jobs:
           pnpm --filter guardian-mobile typecheck
           pnpm --filter guardian-mobile exec jest --runInBand
           pnpm --filter guardian-mobile test:release-admission
-      - name: Generate ephemeral policy seed after locked checks
+      - name: Backend and OpenAPI checks without a policy seed
         shell: bash
         run: |
           set -euo pipefail
-          uv run --directory backend python - <<'PY' >> "$GITHUB_ENV"
-          import base64, hashlib, json, os, secrets
-          from pathlib import Path
-          from cryptography.hazmat.primitives import serialization
-          from cryptography.hazmat.primitives.asymmetric.ed25519 import Ed25519PrivateKey
-
-          key_id = "guardian-ci-2026"
-          seed_path = Path(os.environ["RUNNER_TEMP"]) / "guardian-policy-seed"
-          seed_path.write_bytes(base64.b64encode(secrets.token_bytes(32)))
-          os.chmod(seed_path, 0o600)
-          public = Ed25519PrivateKey.from_private_bytes(base64.b64decode(seed_path.read_bytes())).public_key()
-          public_b64 = base64.b64encode(public.public_bytes(serialization.Encoding.Raw, serialization.PublicFormat.Raw)).decode("ascii")
-          trust_map = json.dumps({key_id: public_b64}, separators=(",", ":"))
-          evidence = Path("artifacts/android-acceptance")
-          trust_path = evidence / "policy-public-trust-map.json"
-          trust_path.write_text(trust_map + "\n", encoding="utf-8")
-          (evidence / "policy-key-id.txt").write_text(key_id + "\n", encoding="utf-8")
-          (evidence / "policy-public-trust-map.sha256").write_text(
-              f"{hashlib.sha256(trust_path.read_bytes()).hexdigest()}  {trust_path.name}\n", encoding="utf-8"
-          )
-          print(f"GUARDIAN_POLICY_KEY_ID={key_id}")
-          print(f"GUARDIAN_POLICY_TRUSTED_PUBLIC_KEYS={trust_map}")
-          PY
-          test "$(stat -c '%a' "$RUNNER_TEMP/guardian-policy-seed")" = 600
-      - name: Backend and OpenAPI checks with scoped policy seed
-        shell: bash
-        run: |
-          set -euo pipefail
-          seed="$RUNNER_TEMP/guardian-policy-seed"
-          GUARDIAN_POLICY_PRIVATE_KEY="$(< "$seed")" uv run --directory backend alembic upgrade head
-          GUARDIAN_POLICY_PRIVATE_KEY="$(< "$seed")" uv run --directory backend ruff check app tests
-          GUARDIAN_POLICY_PRIVATE_KEY="$(< "$seed")" uv run --directory backend mypy app
-          GUARDIAN_POLICY_PRIVATE_KEY="$(< "$seed")" uv run --directory backend pytest
-          rm -f "$seed"
+          uv run --directory backend alembic upgrade head
+          uv run --directory backend ruff check app tests
+          uv run --directory backend mypy app
+          uv run --directory backend pytest
           pnpm check:openapi
           git diff --exit-code -- packages/api-client/src/generated.ts
       - name: Kotlin policy unit tests and acceptance debug APK
         working-directory: apps/mobile/android
         run: ./gradlew :guardian-protection:testDebugUnitTest :app:assembleDebug --no-daemon --stacktrace
-      - name: Record APK, public trust, and security evidence
+      - name: Record public-build APK and security evidence
         shell: bash
         run: |
           set -euo pipefail
@@ -225,33 +200,70 @@ jobs:
           import re, sys
           components, current = [], None
           for line in open(sys.argv[1], encoding="utf-8"):
-              start = re.match(r"^\s*E: (activity|service|receiver|provider)\b", line)
-              if start:
-                  if current:
-                      components.append(current)
-                  current = {"name": None, "exported": None}
-              elif current and "android:name" in line:
-                  match = re.search(r'Raw: "([^"]+)"', line)
-                  if match:
-                      current["name"] = match.group(1)
-              elif current and "android:exported" in line:
-                  current["exported"] = "0xffffffff" in line or 'Raw: "true"' in line
+            start = re.match(r"^\s*E: (activity|service|receiver|provider)\b", line)
+            if start:
+                if current:
+                    components.append(current)
+                current = {"kind": start.group(1), "name": None, "exported": None}
+            elif current and "android:name" in line:
+                match = re.search(r'Raw: "([^"]+)"', line)
+                if match:
+                    current["name"] = match.group(1)
+            elif current and "android:exported" in line:
+                current["exported"] = "0xffffffff" in line or 'Raw: "true"' in line
           if current:
               components.append(current)
-          required = {"MainActivity": True, "GuardianBootReceiver": True, "GuardianAccessibilityService": True, "GuardianNotificationListenerService": True, "GuardianVpnService": False, "GuardianBlockActivity": False}
+          required = {
+              "MainActivity": True,
+              "GuardianBootReceiver": True,
+              "GuardianAccessibilityService": True,
+              "GuardianNotificationListenerService": True,
+              "GuardianVpnService": False,
+              "GuardianBlockActivity": False,
+          }
           for suffix, expected in required.items():
               matches = [item for item in components if (item["name"] or "").endswith(suffix)]
               if not matches or {item["exported"] for item in matches} != {expected}:
                   raise SystemExit(f"Unexpected exported state for {suffix}: {matches}")
+          allowed_exported = {
+              ("activity", "MainActivity"),
+              ("receiver", "GuardianBootReceiver"),
+              ("service", "GuardianAccessibilityService"),
+              ("service", "GuardianNotificationListenerService"),
+          }
+          unexpected = [
+              item
+              for item in components
+              if item["exported"]
+              and not any(
+                  item["kind"] == kind and (item["name"] or "").endswith(suffix)
+                  for kind, suffix in allowed_exported
+              )
+          ]
+          if unexpected:
+              raise SystemExit(f"Unexpected exported components: {unexpected}")
           print("Guardian exported-component allowlist verified")
           PY
-          public_key="$(python -c "import json; print(next(iter(json.load(open('artifacts/android-acceptance/policy-public-trust-map.json')).values())))")"
-          { while IFS= read -r dex; do unzip -p "$apk" "$dex" | strings | rg -F -- "$public_key"; done < <(unzip -Z1 "$apk" | rg '^classes[0-9]*\.dex$'); } | tee "$evidence/policy-public-key-in-apk.txt"
-          test -s "$evidence/policy-public-key-in-apk.txt"
           raw_sources=apps/mobile/modules/guardian-protection/android/src/main
           if rg -n -i -g '*.{kt,java}' '(Log\.[vdiwe]|println)\([^\n]*(rawContent|rawText|windowText)' "$raw_sources"; then exit 1; fi
           if rg -n -i -g '*.{kt,java}' '(putString|putStringSet)\([^\n]*(rawContent|rawText|windowText)' "$raw_sources"; then exit 1; fi
-          printf '%s\n' "No raw content logging or shared-preference persistence sink found." > "$evidence/raw-content-leakage-check.txt"
+          rg -n -g '*.{kt,java}' '(Log\.[vdiwe]|println|putString|putStringSet|SharedPreferences)' \
+            "$raw_sources/java/expo/modules/guardianprotection/accessibility" \
+            "$raw_sources/java/expo/modules/guardianprotection/communication" \
+            "$raw_sources/java/expo/modules/guardianprotection/content" \
+            > "$evidence/raw-content-sink-inventory.txt" || true
+          if grep -vF 'Log.d("GuardianBudget", "budget_tick")' "$evidence/raw-content-sink-inventory.txt" | grep -q .; then
+            cat "$evidence/raw-content-sink-inventory.txt"
+            echo "Unexpected raw-input sink in accessibility, communication, or content code." >&2
+            exit 1
+          fi
+          rg -F 'never persists Accessibility text' \
+            "$raw_sources/java/expo/modules/guardianprotection/accessibility/GuardianAccessibilityService.kt" \
+            > "$evidence/raw-content-accessibility-contract.txt"
+          rg -F 'Never log, bridge, or retain it.' \
+            "$raw_sources/java/expo/modules/guardianprotection/communication/GuardianNotificationListenerService.kt" \
+            > "$evidence/raw-content-notification-contract.txt"
+          printf '%s\n' "No raw content logging or persistence sink found; privacy-handler sink inventory and discard contracts retained." > "$evidence/raw-content-leakage-check.txt"
       - name: Upload security-blocker evidence
         if: failure()
         uses: actions/upload-artifact@ea165f8d65b6e75b540449e92b4886f43607fa02 # v4.6.2
@@ -260,17 +272,18 @@ jobs:
           path: artifacts/android-acceptance/
           if-no-files-found: warn
           retention-days: 14
-      - name: Upload non-final debug APK and evidence
+      - name: Upload fork-safe debug APK and evidence
         uses: actions/upload-artifact@ea165f8d65b6e75b540449e92b4886f43607fa02 # v4.6.2
         with:
-          name: guardian-acceptance-debug-apk
+          name: guardian-public-check-debug-apk
           path: artifacts/android-acceptance/
           if-no-files-found: error
           retention-days: 14
 
-  api35-emulator-smoke:
-    name: API 35 primary and child emulator acceptance
-    needs: android-acceptance
+  trusted-api35-acceptance:
+    name: Trusted API 35 primary and child acceptance
+    needs: android-public-checks
+    if: github.event_name == 'push' || github.event_name == 'workflow_dispatch'
     runs-on: ubuntu-latest
     services:
       postgres:
@@ -321,7 +334,7 @@ jobs:
           echo "$sdk_root/cmdline-tools/latest/bin" >> "$GITHUB_PATH"
           echo "$sdk_root/platform-tools" >> "$GITHUB_PATH"
           echo "$sdk_root/emulator" >> "$GITHUB_PATH"
-      - name: Install API 35 emulator SDK components
+      - name: Install trusted-build and API 35 emulator SDK components
         shell: bash
         run: |
           set -euo pipefail
@@ -338,38 +351,93 @@ jobs:
           y
           y
           EOF
-          "$sdkmanager" --sdk_root="$ANDROID_HOME" --install "platform-tools" "platforms;android-36" "build-tools;36.0.0" "emulator" "system-images;android-35;google_apis;x86_64"
-      - uses: actions/download-artifact@d3f86a106a0bac45b974a628896c90dbdf5c8093 # v4.3.0
-        with:
-          name: guardian-acceptance-debug-apk
-          path: artifacts/android-acceptance
+          "$sdkmanager" --sdk_root="$ANDROID_HOME" --install "platform-tools" "platforms;android-36" "build-tools;36.0.0" "ndk;27.1.12297006" "emulator" "system-images;android-35;google_apis;x86_64"
+          test "$(awk -F' = ' '/Pkg.Revision/{print $2}' "$ANDROID_HOME/ndk/27.1.12297006/source.properties")" = "27.1.12297006"
       - name: Install locked dependencies for instrumentation
         run: |
           pnpm install --frozen-lockfile
           uv sync --directory backend --locked --extra dev
-      - name: Start scoped ephemeral backend for child instrumentation
+      - name: Build map-matched APK and start matching backend
         shell: bash
         run: |
           set -euo pipefail
-          mkdir -p artifacts/emulator
-          uv run --directory backend python - <<'PY'
-          import base64, json, os, secrets
+          evidence=artifacts/trusted-acceptance
+          seed="$RUNNER_TEMP/guardian-policy-seed"
+          trust_map="$RUNNER_TEMP/guardian-policy-trust-map.json"
+          key_id=guardian-ci-2026
+          cleanup() {
+            rm -f "$seed" "$trust_map"
+          }
+          trap cleanup EXIT
+          mkdir -p "$evidence" artifacts/emulator
+          SEED_PATH="$seed" TRUST_MAP_PATH="$trust_map" EVIDENCE_PATH="$evidence" KEY_ID="$key_id" \
+            uv run --directory backend python - <<'PY'
+          import base64, hashlib, json, os, secrets
           from pathlib import Path
           from cryptography.hazmat.primitives import serialization
           from cryptography.hazmat.primitives.asymmetric.ed25519 import Ed25519PrivateKey
-          seed = Path(os.environ["RUNNER_TEMP"]) / "guardian-child-policy-seed"
-          seed.write_bytes(base64.b64encode(secrets.token_bytes(32)))
-          os.chmod(seed, 0o600)
-          public = Ed25519PrivateKey.from_private_bytes(base64.b64decode(seed.read_bytes())).public_key()
-          raw = public.public_bytes(serialization.Encoding.Raw, serialization.PublicFormat.Raw)
-          (Path(os.environ["RUNNER_TEMP"]) / "guardian-child-trust-map.json").write_text(json.dumps({"guardian-ci-2026-child": base64.b64encode(raw).decode("ascii")}))
+
+          seed_path = Path(os.environ["SEED_PATH"])
+          trust_path = Path(os.environ["TRUST_MAP_PATH"])
+          evidence = Path(os.environ["EVIDENCE_PATH"])
+          key_id = os.environ["KEY_ID"]
+          seed_path.write_bytes(base64.b64encode(secrets.token_bytes(32)))
+          os.chmod(seed_path, 0o600)
+          public = Ed25519PrivateKey.from_private_bytes(base64.b64decode(seed_path.read_bytes())).public_key()
+          public_b64 = base64.b64encode(public.public_bytes(serialization.Encoding.Raw, serialization.PublicFormat.Raw)).decode("ascii")
+          trust_map = json.dumps({key_id: public_b64}, separators=(",", ":"))
+          trust_path.write_text(trust_map, encoding="utf-8")
+          (evidence / "policy-public-trust-map.json").write_text(trust_map + "\n", encoding="utf-8")
+          (evidence / "policy-key-id.txt").write_text(key_id + "\n", encoding="utf-8")
+          (evidence / "policy-public-trust-map.sha256").write_text(
+              f"{hashlib.sha256(trust_map.encode()).hexdigest()}  policy-public-trust-map.json\n", encoding="utf-8"
+          )
           PY
-          test "$(stat -c '%a' "$RUNNER_TEMP/guardian-child-policy-seed")" = 600
-          GUARDIAN_POLICY_KEY_ID=guardian-ci-2026-child GUARDIAN_POLICY_TRUSTED_PUBLIC_KEYS="$(< "$RUNNER_TEMP/guardian-child-trust-map.json")" GUARDIAN_POLICY_PRIVATE_KEY="$(< "$RUNNER_TEMP/guardian-child-policy-seed")" uv run --directory backend alembic upgrade head
-          GUARDIAN_POLICY_KEY_ID=guardian-ci-2026-child GUARDIAN_POLICY_TRUSTED_PUBLIC_KEYS="$(< "$RUNNER_TEMP/guardian-child-trust-map.json")" GUARDIAN_POLICY_PRIVATE_KEY="$(< "$RUNNER_TEMP/guardian-child-policy-seed")" uv run --directory backend uvicorn app.main:app --host 0.0.0.0 --port 8000 > artifacts/emulator/backend.log 2>&1 &
+          test "$(stat -c '%a' "$seed")" = 600
+          export GUARDIAN_POLICY_KEY_ID="$key_id"
+          export GUARDIAN_POLICY_TRUSTED_PUBLIC_KEYS="$(< "$trust_map")"
+          GUARDIAN_POLICY_PRIVATE_KEY="$(< "$seed")" uv run --directory backend alembic upgrade head
+          (cd apps/mobile/android && ./gradlew :guardian-protection:testDebugUnitTest :app:assembleDebug --no-daemon --stacktrace)
+          apk=apps/mobile/android/app/build/outputs/apk/debug/app-debug.apk
+          aapt="$ANDROID_HOME/build-tools/36.0.0/aapt"
+          test -s "$apk"
+          cp "$apk" "$evidence/app-debug.apk"
+          sha256sum "$apk" | tee "$evidence/app-debug.apk.sha256"
+          "$aapt" dump badging "$apk" | tee "$evidence/app-debug.badging.txt"
+          "$aapt" dump permissions "$apk" | tee "$evidence/app-debug.permissions.txt"
+          "$aapt" dump xmltree "$apk" AndroidManifest.xml > "$evidence/app-debug.manifest.xmltree.txt"
+          "$ANDROID_HOME/build-tools/36.0.0/apksigner" verify --verbose --print-certs "$apk" | tee "$evidence/app-debug.apksigner.txt"
+          public_key="$(python -c "import json; print(next(iter(json.load(open('$trust_map')).values())))")"
+          matches="$evidence/policy-public-key-in-apk.txt"
+          : > "$matches"
+          found=0
+          while IFS= read -r dex; do
+            if unzip -p "$apk" "$dex" | strings | grep -F -- "$public_key" >> "$matches"; then
+              found=1
+            fi
+          done < <(unzip -Z1 "$apk" | sed -nE '/^classes[0-9]*\.dex$/p')
+          if [ "$found" -ne 1 ]; then
+            echo "Compiled APK does not contain the exact trusted public key." >&2
+            exit 1
+          fi
+          GUARDIAN_POLICY_PRIVATE_KEY="$(< "$seed")" \
+            uv run --directory backend uvicorn app.main:app --host 0.0.0.0 --port 8000 \
+            > artifacts/emulator/backend.log 2>&1 &
           echo "$!" > artifacts/emulator/backend.pid
-          timeout 60 bash -c 'until curl -fsS http://127.0.0.1:8000/health; do sleep 2; done' | tee artifacts/emulator/backend-health.txt
-          rm -f "$RUNNER_TEMP/guardian-child-policy-seed" "$RUNNER_TEMP/guardian-child-trust-map.json"
+          timeout 60 bash -c 'until curl -fsS http://127.0.0.1:8000/health; do sleep 2; done' \
+            | tee artifacts/emulator/backend-health.txt
+          curl -fsS http://127.0.0.1:8000/v1/policy/public-key \
+            > "$evidence/backend-policy-public-key.json"
+          KEY_ID="$key_id" TRUST_MAP_PATH="$trust_map" BACKEND_KEY_PATH="$evidence/backend-policy-public-key.json" \
+            python - <<'PY'
+          import json, os
+          expected = json.load(open(os.environ["TRUST_MAP_PATH"], encoding="utf-8"))
+          actual = json.load(open(os.environ["BACKEND_KEY_PATH"], encoding="utf-8"))
+          key_id = os.environ["KEY_ID"]
+          if actual.get("key_id") != key_id or actual.get("public_key") != expected.get(key_id) or actual.get("trusted_public_keys") != expected:
+              raise SystemExit("Backend policy key response does not exactly match the compiled APK trust map")
+          PY
+          rm -f "$seed"
       - name: Create exact primary and child API 35 AVDs
         shell: bash
         run: |
@@ -386,7 +454,7 @@ jobs:
           timeout 120 adb wait-for-device
           timeout 300 bash -c 'until adb shell getprop sys.boot_completed | tr -d "\r" | grep -qx 1; do sleep 2; done'
           adb shell getprop ro.build.fingerprint | tee artifacts/emulator/guardian-api35.boot.txt
-          adb install -r artifacts/android-acceptance/app-debug.apk | tee artifacts/emulator/guardian-api35.install.txt
+          adb install -r artifacts/trusted-acceptance/app-debug.apk | tee artifacts/emulator/guardian-api35.install.txt
           adb shell am start -W -n com.guardian.family/.MainActivity | tee artifacts/emulator/guardian-api35.launch.txt
           adb shell pidof com.guardian.family | tee artifacts/emulator/guardian-api35.pid.txt
           adb emu kill
@@ -399,7 +467,7 @@ jobs:
           timeout 120 adb wait-for-device
           timeout 300 bash -c 'until adb shell getprop sys.boot_completed | tr -d "\r" | grep -qx 1; do sleep 2; done'
           adb shell getprop ro.build.fingerprint | tee artifacts/emulator/guardian-api35-child.boot.txt
-          adb install -r artifacts/android-acceptance/app-debug.apk | tee artifacts/emulator/guardian-api35-child.install.txt
+          adb install -r artifacts/trusted-acceptance/app-debug.apk | tee artifacts/emulator/guardian-api35-child.install.txt
           adb shell am start -W -n com.guardian.family/.MainActivity | tee artifacts/emulator/guardian-api35-child.launch.txt
           adb shell pidof com.guardian.family | tee artifacts/emulator/guardian-api35-child.pid.txt
           (cd apps/mobile/android && ./gradlew :guardian-protection:connectedDebugAndroidTest --no-daemon --stacktrace) | tee artifacts/emulator/guardian-api35-child.connectedDebugAndroidTest.txt
@@ -415,6 +483,8 @@ jobs:
         uses: actions/upload-artifact@ea165f8d65b6e75b540449e92b4886f43607fa02 # v4.6.2
         with:
           name: guardian-api35-emulator-acceptance
-          path: artifacts/emulator/
+          path: |
+            artifacts/trusted-acceptance/
+            artifacts/emulator/
           if-no-files-found: warn
           retention-days: 14
