@@ -116,13 +116,18 @@
         "cloudwatch:DeleteAlarms",
         "cloudwatch:DescribeAlarms",
         "cloudwatch:PutMetricAlarm",
+        "logs:CreateLogDelivery",
         "logs:CreateLogGroup",
+        "logs:DeleteLogDelivery",
         "logs:DeleteLogGroup",
         "logs:DescribeLogGroups",
+        "logs:GetLogDelivery",
+        "logs:ListLogDeliveries",
         "logs:ListTagsForResource",
         "logs:PutRetentionPolicy",
         "logs:TagResource",
-        "logs:UntagResource"
+        "logs:UntagResource",
+        "logs:UpdateLogDelivery"
       ],
       "Resource": "*"
     },
