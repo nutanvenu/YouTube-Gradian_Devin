@@ -12,6 +12,11 @@ import java.time.Instant
 class PackageInventory(private val context: Context) {
   private val preferences = context.getSharedPreferences("guardian-inventory", Context.MODE_PRIVATE)
 
+  /** Inventory belongs to the paired child and must not cross a re-pair boundary. */
+  fun clear() {
+    preferences.edit().clear().commit()
+  }
+
   fun observedApps(): List<Map<String, Any?>> {
     val packageManager = context.packageManager
     recordObservedPackages(launcherPackages(), InventorySource.LAUNCHER)

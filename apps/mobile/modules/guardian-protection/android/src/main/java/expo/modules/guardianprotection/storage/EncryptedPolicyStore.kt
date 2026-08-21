@@ -19,20 +19,29 @@ import expo.modules.guardianprotection.content.ContentRiskSeverity
 import org.json.JSONArray
 import java.time.Instant
 
+interface PolicySnapshotStore {
+  fun active(): String?
+  fun previous(): String?
+  fun appliedVersion(): Long?
+  fun hasCorruptState(): Boolean
+  fun swap(active: String, version: Long)
+  fun clearChildIdentity()
+}
+
 class EncryptedPolicyStore(
   context: Context,
   preferenceName: String = "guardian-protection",
-) {
+) : PolicySnapshotStore {
   private val preferences = context.getSharedPreferences(preferenceName, Context.MODE_PRIVATE)
   private val alias = "guardian-protection-state"
   private val corruptState = AtomicBoolean(false)
 
-  fun active(): String? = read("active")
-  fun previous(): String? = read("previous")
-  fun appliedVersion(): Long? = preferences.getLong("applied-version", -1).takeIf { it >= 0 }
-  fun hasCorruptState(): Boolean = corruptState.get()
+  override fun active(): String? = read("active")
+  override fun previous(): String? = read("previous")
+  override fun appliedVersion(): Long? = preferences.getLong("applied-version", -1).takeIf { it >= 0 }
+  override fun hasCorruptState(): Boolean = corruptState.get()
 
-  fun swap(active: String, version: Long) {
+  override fun swap(active: String, version: Long) {
     val old = read("active")
     preferences.edit()
       .putString("previous", old?.let { encrypt(it) })
@@ -127,7 +136,7 @@ class EncryptedPolicyStore(
 
   /** An explicit re-pairing discards the prior child's credentials and signed local state. */
   @Synchronized
-  fun clearChildIdentity() {
+  override fun clearChildIdentity() {
     preferences.edit()
       .remove("active")
       .remove("previous")
@@ -141,6 +150,7 @@ class EncryptedPolicyStore(
       .remove("usage-counters")
       .remove("usage-snapshots")
       .commit()
+    corruptState.set(false)
   }
 
   /** Bounded encrypted queue used while the JS runtime is absent. Values are pre-minimized. */
