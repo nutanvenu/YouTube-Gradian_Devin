@@ -3,10 +3,9 @@ import json
 from datetime import UTC, datetime
 
 import pytest
+from conftest import PairedDevice
 from cryptography.hazmat.primitives.asymmetric.ed25519 import Ed25519PrivateKey
 from cryptography.hazmat.primitives.serialization import Encoding, PublicFormat
-
-from conftest import PairedDevice
 
 
 async def pair_child(client, parent, child_id: str) -> PairedDevice:
@@ -60,7 +59,9 @@ async def post_events(client, device: PairedDevice, event_type: str, app_ref: st
 
 
 @pytest.mark.asyncio
-async def test_parent_surfaces_filter_to_the_selected_child(client, parent_a, paired_device) -> None:
+async def test_parent_surfaces_filter_to_the_selected_child(
+    client, parent_a, paired_device
+) -> None:
     headers = {"Authorization": f"Bearer {parent_a.token}"}
     second_child = await client.post(
         f"/v1/families/{parent_a.family_id}/children",
