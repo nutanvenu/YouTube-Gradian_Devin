@@ -13,7 +13,6 @@ import {
   verifyArtifactManifestXml,
   fixtureMarkerErrors,
   verifyApkAbis,
-  verifyMergedManifest,
 } from "./verify-release-artifact.mjs";
 
 const validPublicKey = Buffer.alloc(32, 7).toString("base64");
@@ -189,16 +188,8 @@ test("Android release sources declare SDK 36, no debug signing, and fail-closed 
   assert.match(buildFile, /verifyGuardianReleaseAdmission/);
   assert.match(buildFile, /verifyGuardianReleaseApkArtifact/);
   assert.match(buildFile, /verifyGuardianReleaseAabArtifact/);
-  assert.match(
-    buildFile,
-    /def currentManifests = fileTree\(buildDir\)\.matching \{\s*include "intermediates\/merged_manifest\/release\/\*\*\/AndroidManifest\.xml"\s*\}\.files\s*def manifests = !currentManifests\.isEmpty\(\) \? currentManifests : fileTree\(buildDir\)\.matching \{\s*include "intermediates\/merged_manifests\/release\/\*\*\/AndroidManifest\.xml"/,
-    "release verification must select the current AGP manifest layout before its legacy compatibility copy",
-  );
-  assert.match(
-    buildFile,
-    /Expected exactly one logical merged release AndroidManifest\.xml\./,
-    "each accepted AGP layout must still contain exactly one logical release manifest",
-  );
+  assert.match(buildFile, /"--artifact", artifacts\.first\(\)\.absolutePath, "--kind", kind/);
+  assert.doesNotMatch(buildFile, /merged_manifest|merged_manifests|--merged-manifest/);
   assert.match(buildFile, /com\.android\.tools\.build:bundletool:1\.18\.1/);
   assert.doesNotMatch(buildFile, /apkanalyzer/);
   assert.match(buildFile, /GUARDIAN_RELEASE_VERSION_CODE/);
@@ -312,28 +303,35 @@ test("debug cleartext override is narrowly limited while release stays disabled"
   );
 });
 
-test("merged-manifest policy verifier rejects prohibited release policy", () => {
+test("effective artifact manifest policy rejects prohibited release policy", () => {
   const invalidManifest = `
     <manifest xmlns:android="http://schemas.android.com/apk/res/android">
       <uses-permission android:name="android.permission.ACCESS_FINE_LOCATION" />
       <application android:allowBackup="true" android:usesCleartextTraffic="true" />
     </manifest>`;
-  const errors = verifyMergedManifest(invalidManifest);
+  const errors = verifyArtifactManifestXml(invalidManifest, "artifact");
   assert.ok(errors.some((error) => error.includes("allowBackup")));
   assert.ok(errors.some((error) => error.includes("Cleartext")));
   assert.ok(errors.some((error) => error.includes("ACCESS_FINE_LOCATION")));
   assert.ok(errors.some((error) => error.includes("isMonitoringTool")));
 });
 
-test("APK manifest-tree policy verifier requires false backup and cleartext values", () => {
+test("APK manifest-tree policy verifier rejects changed shipping declarations", () => {
   const tree = `
     E: manifest
+      E: uses-permission
+        A: android:name(0x01010003)="android.permission.RECORD_AUDIO"
       E: application
         A: android:allowBackup(0x01010080)=(type 0x12)0xffffffff
-        A: android:usesCleartextTraffic(0x010104ec)=(type 0x12)0xffffffff`;
+        A: android:usesCleartextTraffic(0x010104ec)=(type 0x12)0xffffffff
+        A: android:name(0x01010003)="fixture release marker"`;
   const errors = verifyArtifactManifestTree(tree);
   assert.ok(errors.some((error) => error.includes("allowBackup")));
   assert.ok(errors.some((error) => error.includes("usesCleartextTraffic")));
+  assert.ok(errors.some((error) => error.includes("RECORD_AUDIO")));
+  assert.ok(errors.some((error) => error.includes("isMonitoringTool")));
+  assert.ok(errors.some((error) => error.includes("GuardianVpnService")));
+  assert.ok(errors.some((error) => error.includes("fixture")));
 });
 
 test("AAB effective-manifest policy verifier rejects changed release declarations", () => {

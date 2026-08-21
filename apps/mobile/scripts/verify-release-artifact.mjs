@@ -1,5 +1,5 @@
 import { createHash, X509Certificate } from "node:crypto";
-import { existsSync, readFileSync, statSync } from "node:fs";
+import { existsSync, statSync } from "node:fs";
 import { execFileSync } from "node:child_process";
 import { fileURLToPath } from "node:url";
 
@@ -41,9 +41,6 @@ export function verifyArtifactManifestXml(xml, artifactLabel) {
   return errors;
 }
 
-export function verifyMergedManifest(xml) {
-  return verifyArtifactManifestXml(xml, "merged");
-}
 
 export function verifyArtifactManifestTree(tree) {
   const errors = [];
@@ -138,13 +135,12 @@ function requiredFile(path, label) { if (!path || !existsSync(path) || !statSync
 function requiredValue(value, label) { if (!value) throw new Error(`${label} is required.`); return value; }
 
 function main() {
-  const mergedManifest = requiredFile(argument("--merged-manifest"), "Merged release manifest");
   const artifact = requiredFile(argument("--artifact"), "Release artifact");
   const kind = argument("--kind");
   const expectedVersion = process.env.GUARDIAN_RELEASE_VERSION_CODE;
   if (!/^[1-9]\d*$/.test(expectedVersion ?? "")) throw new Error("GUARDIAN_RELEASE_VERSION_CODE is required for final artifact verification.");
   if (statSync(artifact).size === 0) throw new Error(`Release ${kind} is empty.`);
-  const errors = [...verifyMergedManifest(readFileSync(mergedManifest, "utf8")), ...archiveFixtureErrors(artifact)];
+  const errors = [...archiveFixtureErrors(artifact)];
   if (kind === "apk") {
     const aapt = requiredFile(argument("--aapt"), "Android aapt");
     const apksigner = requiredFile(argument("--apksigner"), "Android apksigner");
