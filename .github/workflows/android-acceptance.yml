@@ -138,25 +138,71 @@ jobs:
         run: |
           pnpm install --frozen-lockfile
           uv sync --directory backend --locked --extra dev
-      - name: Dependency audits are non-final release gates
+      - name: Dependency audits record non-final release blockers
+        id: dependency_audit
         shell: bash
         run: |
           set -euo pipefail
           evidence=artifacts/android-acceptance
           mkdir -p "$evidence"
-          set +e
-          pnpm audit --prod --audit-level=high --json > "$evidence/dependency-audit.json"
-          node_audit_status=$?
           requirements="$RUNNER_TEMP/guardian-backend-requirements.txt"
           uv export --directory backend --locked --no-hashes --no-emit-project --format requirements-txt > "$requirements"
-          uvx --from pip-audit==2.9.0 pip-audit --requirement "$requirements" \
-            > "$evidence/backend-dependency-audit.txt"
+          set +e
+          pnpm audit --prod --audit-level=high --json > "$evidence/dependency-audit.json" 2> "$evidence/dependency-audit.stderr.txt"
+          node_audit_status=$?
+          uvx --from pip-audit==2.9.0 pip-audit --format json --requirement "$requirements" \
+            > "$evidence/backend-dependency-audit.json" 2> "$evidence/backend-dependency-audit.stderr.txt"
           backend_audit_status=$?
           set -e
           printf 'pnpm=%s\nbackend=%s\n' "$node_audit_status" "$backend_audit_status" > "$evidence/dependency-audit.exit-codes"
-          if [ "$node_audit_status" -ne 0 ] || [ "$backend_audit_status" -ne 0 ]; then
-            echo "NON-FINAL RELEASE BLOCKER: dependency audit failed; inspect the audit evidence." >> "$GITHUB_STEP_SUMMARY"
-            exit 1
+          findings="$(NODE_AUDIT_STATUS="$node_audit_status" BACKEND_AUDIT_STATUS="$backend_audit_status" node - "$evidence/dependency-audit.json" "$evidence/backend-dependency-audit.json" <<'NODE'
+          const fs = require('node:fs');
+          const [nodePath, backendPath] = process.argv.slice(2);
+          const readJson = (path, label) => {
+            try {
+              return JSON.parse(fs.readFileSync(path, 'utf8'));
+            } catch (error) {
+              throw new Error(`${label} audit did not produce valid JSON: ${error.message}`);
+            }
+          };
+          const nodeAudit = readJson(nodePath, 'pnpm');
+          if (!nodeAudit || Array.isArray(nodeAudit) || nodeAudit.error || !nodeAudit.metadata?.vulnerabilities) {
+            throw new Error('pnpm audit returned an infrastructure or audit-command error');
+          }
+          const nodeFindings = ['high', 'critical'].reduce(
+            (total, severity) => total + Number(nodeAudit.metadata.vulnerabilities[severity] || 0),
+            0,
+          );
+          const backendAudit = readJson(backendPath, 'pip-audit');
+          if (!Array.isArray(backendAudit)) {
+            throw new Error('pip-audit returned an infrastructure or audit-command error');
+          }
+          const backendFindings = backendAudit.reduce(
+            (total, dependency) => total + (Array.isArray(dependency.vulns) ? dependency.vulns.length : 0),
+            0,
+          );
+          const nodeStatus = Number(process.env.NODE_AUDIT_STATUS);
+          const backendStatus = Number(process.env.BACKEND_AUDIT_STATUS);
+          if (nodeStatus > 1 || backendStatus > 1 || (nodeStatus === 1 && nodeFindings === 0) || (backendStatus === 1 && backendFindings === 0)) {
+            throw new Error('dependency audit command failed without a validated vulnerability finding');
+          }
+          process.stdout.write(String(nodeFindings + backendFindings));
+          NODE
+          )"
+          printf 'release_admission=%s\nnode_high_or_critical_findings=%s\nbackend_findings=%s\n' \
+            "$([ "$findings" -gt 0 ] && echo BLOCKED || echo NOT_BLOCKED)" \
+            "$(node -e "const a=require(process.argv[1]); console.log((a.metadata.vulnerabilities.high || 0) + (a.metadata.vulnerabilities.critical || 0))" "$evidence/dependency-audit.json")" \
+            "$(node -e "const a=require(process.argv[1]); console.log(a.reduce((n, d) => n + (Array.isArray(d.vulns) ? d.vulns.length : 0), 0))" "$evidence/backend-dependency-audit.json")" \
+            > "$evidence/dependency-audit.release-status.txt"
+          if [ "$findings" -gt 0 ]; then
+            printf '%s\n' \
+              'NON-FINAL RELEASE BLOCKER: dependency audit findings require remediation before release.' \
+              'This debug APK and emulator acceptance evidence is not release-ready.' \
+              > "$evidence/dependency-audit.release-blocker.txt"
+            echo 'NON-FINAL RELEASE BLOCKER: dependency audit findings were recorded; debug/emulator acceptance continues as non-final evidence.' >> "$GITHUB_STEP_SUMMARY"
+            echo 'release_blocked=true' >> "$GITHUB_OUTPUT"
+          else
+            echo 'release_blocked=false' >> "$GITHUB_OUTPUT"
           fi
       - name: Scan tracked sources for committed private secrets
         shell: bash
@@ -288,7 +334,7 @@ jobs:
             > "$evidence/raw-content-notification-contract.txt"
           printf '%s\n' "No raw notification/accessibility text sink found; consent storage is explicitly boolean-only and discard contracts are retained." > "$evidence/raw-content-leakage-check.txt"
       - name: Upload security-blocker evidence
-        if: failure()
+        if: failure() || steps.dependency_audit.outputs.release_blocked == 'true'
         uses: actions/upload-artifact@ea165f8d65b6e75b540449e92b4886f43607fa02 # v4.6.2
         with:
           name: guardian-acceptance-security-blocker
