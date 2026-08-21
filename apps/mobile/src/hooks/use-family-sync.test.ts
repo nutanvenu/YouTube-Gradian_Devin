@@ -92,8 +92,9 @@ test("falls back to polling and reconnects after a WebSocket failure", async () 
   expect(mockInvalidateQueries).toHaveBeenCalled();
   const callsAfterDisconnect = mockInvalidateQueries.mock.calls.length;
 
-  act(() => jest.advanceTimersByTime(1_000));
-  await act(async () => { await Promise.resolve(); });
+  await act(async () => {
+    await jest.advanceTimersByTimeAsync(1_000);
+  });
   expect(MockWebSocket.instances).toHaveLength(2);
   act(() => MockWebSocket.instances[1].onopen?.());
   const callsAfterReconnect = mockInvalidateQueries.mock.calls.length;
@@ -115,8 +116,9 @@ test("refreshes a parent token before reconnecting after expiry", async () => {
   await act(async () => { await Promise.resolve(); });
 
   act(() => MockWebSocket.instances[0].onclose?.());
-  act(() => jest.advanceTimersByTime(1_000));
-  await act(async () => { await Promise.resolve(); });
+  await act(async () => {
+    await jest.advanceTimersByTimeAsync(1_000);
+  });
 
   expect(mockRealtimeToken).toHaveBeenCalledTimes(1);
   expect(MockWebSocket.instances[1].options).toEqual({
