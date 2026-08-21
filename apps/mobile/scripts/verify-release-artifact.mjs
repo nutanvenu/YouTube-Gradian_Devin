@@ -40,7 +40,29 @@ export function verifyArtifactManifestXml(xml, artifactLabel) {
   if (FIXTURE_MARKER.test(xml)) errors.push(`${prefix} must not contain fixture declarations.`);
   return errors;
 }
+function xmlTreeMetadataNodes(tree) {
+  const lines = tree.split("\n");
+  const nodes = [];
+  for (let index = 0; index < lines.length; index += 1) {
+    const start = lines[index].match(/^(\s*)E:\s+meta-data\b/);
+    if (!start) continue;
+    const indentation = start[1].length;
+    let end = index + 1;
+    while (end < lines.length) {
+      const nested = lines[end].match(/^(\s*)E:/);
+      if (nested && nested[1].length <= indentation) break;
+      end += 1;
+    }
+    nodes.push(lines.slice(index, end).join("\n"));
+  }
+  return nodes;
+}
 
+function xmlTreeNodeHasStringAttribute(node, attribute, value) {
+  return node.split("\n").some((line) =>
+    line.trimStart().startsWith(`A: android:${attribute}(`) && line.includes(`"${value}"`),
+  );
+}
 
 export function verifyArtifactManifestTree(tree) {
   const errors = [];
@@ -48,7 +70,18 @@ export function verifyArtifactManifestTree(tree) {
     const line = tree.split("\n").find((candidate) => candidate.includes(`android:${attribute}(`));
     if (!line || !/(?:\bfalse\b|0x0+\b)/.test(line) || /0xffffffff/.test(line)) errors.push(`Release APK manifest tree must set android:${attribute}=false.`);
   }
-  for (const required of ["isMonitoringTool", "child_monitoring", ...REQUIRED_SERVICES]) if (!tree.includes(required)) errors.push(`Release APK manifest tree is missing ${required}.`);
+  const metadataNodes = xmlTreeMetadataNodes(tree);
+  const monitoringMetadata = metadataNodes.some((node) =>
+    xmlTreeNodeHasStringAttribute(node, "name", "isMonitoringTool")
+      && xmlTreeNodeHasStringAttribute(node, "value", "child_monitoring"),
+  );
+  if (!monitoringMetadata) errors.push("Release APK manifest tree must declare isMonitoringTool=child_monitoring.");
+  for (const required of Object.keys(REQUIRED_METADATA).filter((name) => name !== "isMonitoringTool")) {
+    if (!metadataNodes.some((node) => xmlTreeNodeHasStringAttribute(node, "name", required))) {
+      errors.push(`Release APK manifest tree is missing metadata ${required}.`);
+    }
+  }
+  for (const service of REQUIRED_SERVICES) if (!tree.includes(service)) errors.push(`Release APK manifest tree is missing ${service}.`);
   for (const permission of PROHIBITED_PERMISSIONS) if (tree.includes(`android.permission.${permission}`)) errors.push(`Release APK manifest tree contains prohibited permission ${permission}.`);
   if (FIXTURE_MARKER.test(tree)) errors.push("Release APK manifest tree contains fixture content.");
   return errors;

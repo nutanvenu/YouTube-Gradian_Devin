@@ -330,8 +330,25 @@ test("APK manifest-tree policy verifier rejects changed shipping declarations", 
   assert.ok(errors.some((error) => error.includes("usesCleartextTraffic")));
   assert.ok(errors.some((error) => error.includes("RECORD_AUDIO")));
   assert.ok(errors.some((error) => error.includes("isMonitoringTool")));
+  assert.ok(errors.some((error) => error.includes("CHILD_MONITORING_DISCLOSURE")));
   assert.ok(errors.some((error) => error.includes("GuardianVpnService")));
   assert.ok(errors.some((error) => error.includes("fixture")));
+});
+
+test("APK manifest-tree policy binds monitoring values to their metadata nodes", () => {
+  const tree = `
+    E: manifest
+      E: application
+        A: android:label(0x01010001)="com.guardian.family.CHILD_MONITORING_DISCLOSURE"
+        E: meta-data
+          A: android:name(0x01010003)="isMonitoringTool"
+          A: android:value(0x01010024)="not_child_monitoring"
+        E: meta-data
+          A: android:name(0x01010003)="unrelated"
+          A: android:value(0x01010024)="child_monitoring"`;
+  const errors = verifyArtifactManifestTree(tree);
+  assert.ok(errors.some((error) => error.includes("isMonitoringTool=child_monitoring")));
+  assert.ok(errors.some((error) => error.includes("CHILD_MONITORING_DISCLOSURE")));
 });
 
 test("AAB effective-manifest policy verifier rejects changed release declarations", () => {
