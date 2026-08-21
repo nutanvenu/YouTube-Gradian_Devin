@@ -135,8 +135,11 @@ class EncryptedPolicyStore(
       .remove("content-device-id")
       .remove("content-approvals")
       .remove("content-risk-events")
+      .remove("content-review-outbox")
       .remove("active-content-block")
       .remove("content-fingerprint-key")
+      .remove("usage-counters")
+      .remove("usage-snapshots")
       .commit()
   }
 

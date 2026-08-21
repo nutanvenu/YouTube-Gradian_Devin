@@ -218,6 +218,7 @@ export const sessionStorage = {
     await SecureStore.deleteItemAsync(DEVICE_TOKEN_KEY);
     await SecureStore.deleteItemAsync(DEVICE_PRIVATE_KEY_KEY);
     await SecureStore.deleteItemAsync(FAMILY_ID_KEY);
+    await SecureStore.deleteItemAsync(SELECTED_CHILD_ID_KEY);
   },
   // Retained for explicit account deletion/unpair flows only.
   clear: async () => {

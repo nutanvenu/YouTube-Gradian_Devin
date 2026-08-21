@@ -18,8 +18,10 @@ import expo.modules.guardianprotection.vpn.ProtectionStatusChange
 import expo.modules.guardianprotection.vpn.ProtectionStatusEvents
 import expo.modules.guardianprotection.content.ContentSafetyConsentStore
 import expo.modules.guardianprotection.content.ContentSafetyServiceRuntime
-import expo.modules.guardianprotection.content.ContentApproval
 import expo.modules.guardianprotection.content.ContentBlockCoordinator
+import expo.modules.guardianprotection.content.ContentApproval
+import expo.modules.guardianprotection.accessibility.GuardianAccessibilityService
+import expo.modules.guardianprotection.accessibility.GuardianBlockActivity
 import expo.modules.guardianprotection.observability.GuardianPerformanceMetrics
 import android.util.Log
 import android.os.SystemClock
@@ -119,9 +121,7 @@ class GuardianProtectionModule : Module() {
     }
     AsyncFunction("clearChildIdentity") {
       val context = requireNotNull(appContext.reactContext)
-      GuardianVpnService.stop(context)
-      policyManager.clear()
-      ContentSafetyConsentStore(context).setAccessibilityContentConsent(false)
+      resetChildIdentity(context)
     }
     AsyncFunction("applyContentApprovals") { approvals: List<Map<String, Any?>> ->
       val parsed = approvals.map { approval ->
@@ -214,6 +214,20 @@ class GuardianProtectionModule : Module() {
       val json = org.json.JSONObject(value)
       json.keys().asSequence().associateWith { key -> json.getString(key) }
     }.getOrDefault(emptyMap())
+  }
+
+  private fun resetChildIdentity(context: android.content.Context) {
+    ChildProtectionReset(
+      stopVpn = { GuardianVpnService.stop(context) },
+      clearPendingVpnEnable = { GuardianVpnPreferences.clearEnableRequested(context) },
+      clearAccessibilityEnforcement = GuardianAccessibilityService::clearChildEnforcement,
+      dismissContentBlock = GuardianBlockActivity::dismissActiveContentBlock,
+      clearContentPresentation = ContentBlockCoordinator::clearPresentationState,
+      clearPolicyRuntime = GuardianPolicyRuntime::clear,
+      clearContentRuntime = ContentSafetyServiceRuntime::clear,
+      clearPersistedPolicy = policyManager::clear,
+      revokeContentConsent = { ContentSafetyConsentStore(context).setAccessibilityContentConsent(false) },
+    ).reset()
   }
 
   private fun emit(event: Map<String, Any?>) {

@@ -1,4 +1,4 @@
-import { ApiError, GuardianApiClient } from "@/api/client";
+import { ApiError, GuardianApiClient, sessionStorage } from "@/api/client";
 import * as SecureStore from "expo-secure-store";
 
 jest.mock("@/api/device-signing", () => ({
@@ -9,6 +9,21 @@ jest.mock("expo-secure-store", () => ({
   setItemAsync: jest.fn(),
   deleteItemAsync: jest.fn(),
 }));
+
+test("clearing a child device identity also clears the selected child", async () => {
+  (SecureStore.deleteItemAsync as jest.Mock).mockReset();
+  (SecureStore.deleteItemAsync as jest.Mock).mockResolvedValue(undefined);
+
+  await sessionStorage.clearDeviceIdentity();
+
+  const deletedKeys = (SecureStore.deleteItemAsync as jest.Mock).mock.calls.map((call: unknown[]) => call[0]);
+  expect(deletedKeys).toEqual([
+    "guardian.device-token",
+    "guardian.device-private-key",
+    "guardian.family-id",
+    "guardian.selected-child-id",
+  ]);
+});
 
 test("API client sends parent credentials and parses structured responses", async () => {
   const fetcher = jest.spyOn(globalThis, "fetch").mockResolvedValue(new Response(JSON.stringify({ id: "p1", email: "parent@example.com" }), { status: 200 }));

@@ -4,6 +4,7 @@ import { useMutation, useQuery, useQueryClient } from "@tanstack/react-query";
 import { api } from "@/api/client";
 import { useSession } from "@/auth/session";
 import { useNetworkStatus } from "@/state/network";
+import { resolveActiveChildId, selectParentHomeChild } from "./home-selection";
 import {
   CardSurface,
   DataState,
@@ -37,7 +38,7 @@ export default function ParentHomeRoute() {
     queryFn: () => api.children(activeFamilyId!),
     enabled: Boolean(activeFamilyId),
   });
-  const activeChildId = routeChildId ?? storedChildId ?? children.data?.[0]?.id;
+  const activeChildId = resolveActiveChildId(storedChildId, routeChildId, children.data?.[0]?.id);
   const health = useQuery({
     queryKey: ["health", activeFamilyId, activeChildId],
     queryFn: () => api.health(activeFamilyId!, activeChildId),
@@ -112,7 +113,10 @@ export default function ParentHomeRoute() {
               key={child.id}
               label={child.id === activeChildId ? `${child.name} selected` : `Switch to ${child.name}`}
               disabled={child.id === activeChildId}
-              onPress={() => { void setChildId(child.id); }}
+              onPress={() => {
+                if (!activeFamilyId) return;
+                void selectParentHomeChild(activeFamilyId, child.id, setChildId, router.replace);
+              }}
             />
           ))}
           <PrimaryButton
