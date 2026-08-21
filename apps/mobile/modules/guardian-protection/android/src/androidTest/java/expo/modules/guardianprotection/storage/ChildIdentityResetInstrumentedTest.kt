@@ -31,7 +31,7 @@ class ChildIdentityResetInstrumentedTest {
         category = ContentRiskCategory.SELF_HARM_SUICIDE,
         severity = ContentRiskSeverity.CRITICAL,
         confidence = 0.99,
-        reasonCode = "TEST_CONTENT_BLOCK",
+        reasonCode = "SELF_HARM_DIRECT",
         occurredAtMillis = now.toEpochMilli(),
       )
       store.swap("{\"child\":\"child-a\"}", 1)
