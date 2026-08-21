@@ -19,6 +19,7 @@ RUN uv sync --frozen --no-dev --no-install-project
 
 COPY backend /app/backend
 COPY packages/policy-schema /app/packages/policy-schema
+COPY packages/contracts /app/packages/contracts
 RUN chmod 0555 /app/backend/docker-entrypoint.sh \
     && chown -R guardian:guardian /app
 
