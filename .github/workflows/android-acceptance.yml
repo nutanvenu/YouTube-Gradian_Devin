@@ -155,46 +155,24 @@ jobs:
           backend_audit_status=$?
           set -e
           printf 'pnpm=%s\nbackend=%s\n' "$node_audit_status" "$backend_audit_status" > "$evidence/dependency-audit.exit-codes"
-          findings="$(NODE_AUDIT_STATUS="$node_audit_status" BACKEND_AUDIT_STATUS="$backend_audit_status" node - "$evidence/dependency-audit.json" "$evidence/backend-dependency-audit.json" <<'NODE'
+          node - "$evidence/dependency-audit.json" "$evidence/backend-dependency-audit.json" <<'NODE'
           const fs = require('node:fs');
-          const [nodePath, backendPath] = process.argv.slice(2);
-          const readJson = (path, label) => {
+          for (const [label, path] of [['pnpm', process.argv[2]], ['pip-audit', process.argv[3]]]) {
             try {
-              return JSON.parse(fs.readFileSync(path, 'utf8'));
+              const report = JSON.parse(fs.readFileSync(path, 'utf8'));
+              if (!report || typeof report !== 'object' || report.error) throw new Error('reported an audit-command error');
             } catch (error) {
               throw new Error(`${label} audit did not produce valid JSON: ${error.message}`);
             }
-          };
-          const nodeAudit = readJson(nodePath, 'pnpm');
-          if (!nodeAudit || Array.isArray(nodeAudit) || nodeAudit.error || !nodeAudit.metadata?.vulnerabilities) {
-            throw new Error('pnpm audit returned an infrastructure or audit-command error');
           }
-          const nodeFindings = ['high', 'critical'].reduce(
-            (total, severity) => total + Number(nodeAudit.metadata.vulnerabilities[severity] || 0),
-            0,
-          );
-          const backendAudit = readJson(backendPath, 'pip-audit');
-          if (!Array.isArray(backendAudit)) {
-            throw new Error('pip-audit returned an infrastructure or audit-command error');
-          }
-          const backendFindings = backendAudit.reduce(
-            (total, dependency) => total + (Array.isArray(dependency.vulns) ? dependency.vulns.length : 0),
-            0,
-          );
-          const nodeStatus = Number(process.env.NODE_AUDIT_STATUS);
-          const backendStatus = Number(process.env.BACKEND_AUDIT_STATUS);
-          if (nodeStatus > 1 || backendStatus > 1 || (nodeStatus === 1 && nodeFindings === 0) || (backendStatus === 1 && backendFindings === 0)) {
-            throw new Error('dependency audit command failed without a validated vulnerability finding');
-          }
-          process.stdout.write(String(nodeFindings + backendFindings));
           NODE
-          )"
-          printf 'release_admission=%s\nnode_high_or_critical_findings=%s\nbackend_findings=%s\n' \
-            "$([ "$findings" -gt 0 ] && echo BLOCKED || echo NOT_BLOCKED)" \
-            "$(node -e "const a=require(process.argv[1]); console.log((a.metadata.vulnerabilities.high || 0) + (a.metadata.vulnerabilities.critical || 0))" "$evidence/dependency-audit.json")" \
-            "$(node -e "const a=require(process.argv[1]); console.log(a.reduce((n, d) => n + (Array.isArray(d.vulns) ? d.vulns.length : 0), 0))" "$evidence/backend-dependency-audit.json")" \
-            > "$evidence/dependency-audit.release-status.txt"
-          if [ "$findings" -gt 0 ]; then
+          if [ "$node_audit_status" -gt 1 ] || [ "$backend_audit_status" -gt 1 ]; then
+            echo 'Dependency audit infrastructure command failed; inspect the audit evidence.' >&2
+            exit 1
+          fi
+          if [ "$node_audit_status" -eq 1 ] || [ "$backend_audit_status" -eq 1 ]; then
+            printf 'release_admission=BLOCKED\npnpm_exit_code=%s\npip_audit_exit_code=%s\n' \
+              "$node_audit_status" "$backend_audit_status" > "$evidence/dependency-audit.release-status.txt"
             printf '%s\n' \
               'NON-FINAL RELEASE BLOCKER: dependency audit findings require remediation before release.' \
               'This debug APK and emulator acceptance evidence is not release-ready.' \
@@ -202,8 +180,11 @@ jobs:
             echo 'NON-FINAL RELEASE BLOCKER: dependency audit findings were recorded; debug/emulator acceptance continues as non-final evidence.' >> "$GITHUB_STEP_SUMMARY"
             echo 'release_blocked=true' >> "$GITHUB_OUTPUT"
           else
+            printf 'release_admission=NOT_BLOCKED\npnpm_exit_code=%s\npip_audit_exit_code=%s\n' \
+              "$node_audit_status" "$backend_audit_status" > "$evidence/dependency-audit.release-status.txt"
             echo 'release_blocked=false' >> "$GITHUB_OUTPUT"
           fi
+          exit 0
       - name: Scan tracked sources for committed private secrets
         shell: bash
         run: |
