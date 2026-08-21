@@ -159,7 +159,7 @@ import ActivityScreen, { aggregateTodayUsage } from "@/app/parent/activity";
 import ChildHomeScreen from "@/app/child/home";
 import ChildRequestsScreen from "@/app/child/requests";
 import ChildTimeScreen from "@/app/child/time";
-import { appUsageEvents } from "@/app/child/home";
+import { appUsageEvents, flushPendingContentRiskEvents } from "@/app/child/home";
 
 function setQuery(key: unknown[], state: Record<string, unknown>) {
   mockQueryState.set(JSON.stringify(key), state);
