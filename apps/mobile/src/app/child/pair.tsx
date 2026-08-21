@@ -51,10 +51,10 @@ export default function ChildPairRoute() {
       const credentials = await api.redeemPairing({ session_id: sessionId, code, child_profile_id: childId, platform: "ANDROID", public_key: toBase64(publicKey) });
       setMessage("Resetting previous child identity…");
       await activateChildRePair(credentials, toBase64(privateKey), {
-        stopProtection: GuardianProtection.stopProtection,
-        clearNativeIdentity: GuardianProtection.clearChildIdentity,
+        stopProtection: () => GuardianProtection.stopProtection(),
+        clearNativeIdentity: () => GuardianProtection.clearChildIdentity(),
         clearRequestOutbox,
-        configureNativeDevice: GuardianProtection.setContentDeviceId,
+        configureNativeDevice: (deviceId) => GuardianProtection.setContentDeviceId(deviceId),
         clearDeviceCredentials: sessionStorage.clearDeviceIdentity,
         saveDeviceCredentials: sessionStorage.saveDeviceCredentials,
       });
