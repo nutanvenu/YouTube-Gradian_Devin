@@ -37,6 +37,10 @@ revision-scoped, no-ingress security-group reference. This deliberately
 re-runs the immutable boot script; changing EC2 user data alone only restarts
 an EBS-backed instance and does not replay the script.
 
+The VPC origin is ordered after the ALB routing rule and registered worker so
+a failed application target cannot leave an in-progress CloudFront VPC origin
+behind during CloudFormation rollback.
+
 ```bash
 GUARDIAN_SOURCE_BRANCH=codex/aws-mvp-deploy infra/aws/deploy-production.sh
 ```

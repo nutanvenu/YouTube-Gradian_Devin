@@ -431,7 +431,7 @@ Resources:
 
   GuardianVpcOrigin:
     Type: AWS::CloudFront::VpcOrigin
-    DependsOn: ApiLoadBalancer
+    DependsOn: ApiCloudFrontHeaderRule
     Properties:
       VpcOriginEndpointConfig:
         Arn: !Ref ApiLoadBalancer
