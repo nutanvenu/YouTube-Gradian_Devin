@@ -16,6 +16,7 @@ import expo.modules.guardianprotection.vpn.UserInitiatedEnableIntent
 import expo.modules.guardianprotection.vpn.UserInitiatedEnableIntentAction
 import expo.modules.guardianprotection.vpn.ProtectionStatusChange
 import expo.modules.guardianprotection.vpn.ProtectionStatusEvents
+import expo.modules.guardianprotection.inventory.PackageInventory
 import expo.modules.guardianprotection.content.ContentSafetyConsentStore
 import expo.modules.guardianprotection.content.ContentSafetyServiceRuntime
 import expo.modules.guardianprotection.content.ContentBlockCoordinator
@@ -219,13 +220,15 @@ class GuardianProtectionModule : Module() {
   private fun resetChildIdentity(context: android.content.Context) {
     ChildProtectionReset(
       stopVpn = { GuardianVpnService.stop(context) },
-      clearPendingVpnEnable = { GuardianVpnPreferences.clearEnableRequested(context) },
+      clearVpnState = { GuardianVpnPreferences.clearChildIdentity(context) },
       clearAccessibilityEnforcement = GuardianAccessibilityService::clearChildEnforcement,
       dismissContentBlock = GuardianBlockActivity::dismissActiveContentBlock,
       clearContentPresentation = ContentBlockCoordinator::clearPresentationState,
       clearPolicyRuntime = GuardianPolicyRuntime::clear,
       clearContentRuntime = ContentSafetyServiceRuntime::clear,
       clearPersistedPolicy = policyManager::clear,
+      clearReputation = reputationManager::clear,
+      clearPackageInventory = { PackageInventory(context).clear() },
       revokeContentConsent = { ContentSafetyConsentStore(context).setAccessibilityContentConsent(false) },
     ).reset()
   }

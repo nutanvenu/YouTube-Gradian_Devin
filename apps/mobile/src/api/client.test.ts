@@ -25,6 +25,32 @@ test("clearing a child device identity also clears the selected child", async ()
   ]);
 });
 
+test("device credentials commit proof material before the bearer token and clear on failure", async () => {
+  (SecureStore.setItemAsync as jest.Mock).mockReset();
+  (SecureStore.deleteItemAsync as jest.Mock).mockReset();
+  (SecureStore.setItemAsync as jest.Mock)
+    .mockResolvedValueOnce(undefined)
+    .mockRejectedValueOnce(new Error("family storage failed"));
+  (SecureStore.deleteItemAsync as jest.Mock).mockResolvedValue(undefined);
+
+  await expect(sessionStorage.saveDeviceCredentials({
+    privateKey: "private-b",
+    familyId: "family-b",
+    deviceToken: "token-b",
+  })).rejects.toThrow("family storage failed");
+
+  expect((SecureStore.setItemAsync as jest.Mock).mock.calls).toEqual([
+    ["guardian.device-private-key", "private-b"],
+    ["guardian.family-id", "family-b"],
+  ]);
+  expect((SecureStore.deleteItemAsync as jest.Mock).mock.calls.map((call: unknown[]) => call[0])).toEqual([
+    "guardian.device-token",
+    "guardian.device-private-key",
+    "guardian.family-id",
+    "guardian.selected-child-id",
+  ]);
+});
+
 test("API client sends parent credentials and parses structured responses", async () => {
   const fetcher = jest.spyOn(globalThis, "fetch").mockResolvedValue(new Response(JSON.stringify({ id: "p1", email: "parent@example.com" }), { status: 200 }));
   const client = new GuardianApiClient("https://guardian.test");

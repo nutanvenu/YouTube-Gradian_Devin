@@ -6,24 +6,28 @@ package expo.modules.guardianprotection
  */
 internal class ChildProtectionReset(
   private val stopVpn: () -> Unit,
-  private val clearPendingVpnEnable: () -> Unit,
+  private val clearVpnState: () -> Unit,
   private val clearAccessibilityEnforcement: () -> Unit,
   private val dismissContentBlock: () -> Unit,
   private val clearContentPresentation: () -> Unit,
   private val clearPolicyRuntime: () -> Unit,
   private val clearContentRuntime: () -> Unit,
   private val clearPersistedPolicy: () -> Unit,
+  private val clearReputation: () -> Unit,
+  private val clearPackageInventory: () -> Unit,
   private val revokeContentConsent: () -> Unit,
 ) {
   fun reset() {
     stopVpn()
-    clearPendingVpnEnable()
+    clearVpnState()
     clearAccessibilityEnforcement()
     dismissContentBlock()
     clearContentPresentation()
     clearPolicyRuntime()
     clearContentRuntime()
     clearPersistedPolicy()
+    clearReputation()
+    clearPackageInventory()
     revokeContentConsent()
   }
 }

@@ -183,6 +183,12 @@ const DEVICE_TOKEN_KEY = "guardian.device-token";
 const DEVICE_PRIVATE_KEY_KEY = "guardian.device-private-key";
 const FAMILY_ID_KEY = "guardian.family-id";
 const SELECTED_CHILD_ID_KEY = "guardian.selected-child-id";
+const DEVICE_IDENTITY_KEYS = [
+  DEVICE_TOKEN_KEY,
+  DEVICE_PRIVATE_KEY_KEY,
+  FAMILY_ID_KEY,
+  SELECTED_CHILD_ID_KEY,
+] as const;
 
 export class ApiError extends Error {
   constructor(message: string, readonly status: number, readonly code?: string, readonly requestId?: string) {
@@ -215,10 +221,11 @@ export const sessionStorage = {
     await SecureStore.deleteItemAsync(REFRESH_TOKEN_KEY);
   },
   clearDeviceIdentity: async () => {
-    await SecureStore.deleteItemAsync(DEVICE_TOKEN_KEY);
-    await SecureStore.deleteItemAsync(DEVICE_PRIVATE_KEY_KEY);
-    await SecureStore.deleteItemAsync(FAMILY_ID_KEY);
-    await SecureStore.deleteItemAsync(SELECTED_CHILD_ID_KEY);
+    const results = await Promise.allSettled(
+      DEVICE_IDENTITY_KEYS.map((key) => SecureStore.deleteItemAsync(key)),
+    );
+    const failure = results.find((result) => result.status === "rejected");
+    if (failure?.status === "rejected") throw failure.reason;
   },
   // Retained for explicit account deletion/unpair flows only.
   clear: async () => {
@@ -232,6 +239,25 @@ export const sessionStorage = {
   setFamilyId: (familyId: string) => SecureStore.setItemAsync(FAMILY_ID_KEY, familyId),
   getSelectedChildId: () => SecureStore.getItemAsync(SELECTED_CHILD_ID_KEY),
   setSelectedChildId: (childId: string) => SecureStore.setItemAsync(SELECTED_CHILD_ID_KEY, childId),
+  saveDeviceCredentials: async ({
+    privateKey,
+    familyId,
+    deviceToken,
+  }: {
+    privateKey: string;
+    familyId: string;
+    deviceToken: string;
+  }) => {
+    try {
+      await SecureStore.setItemAsync(DEVICE_PRIVATE_KEY_KEY, privateKey);
+      await SecureStore.setItemAsync(FAMILY_ID_KEY, familyId);
+      // The bearer token is committed last so it can never outlive its proof material.
+      await SecureStore.setItemAsync(DEVICE_TOKEN_KEY, deviceToken);
+    } catch (error) {
+      await sessionStorage.clearDeviceIdentity().catch(() => undefined);
+      throw error;
+    }
+  },
 };
 
 export class GuardianApiClient {

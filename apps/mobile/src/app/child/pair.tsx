@@ -7,6 +7,8 @@ import * as Crypto from "expo-crypto";
 import { api, ApiError, sessionStorage } from "@/api/client";
 import { PrimaryButton, ScreenScaffold, SectionSurface, TextField } from "@/design-system";
 import { parsePairingUri } from "@/state/pairing-uri";
+import { activateChildRePair } from "@/state/child-repair";
+import { clearRequestOutbox } from "@/state/request-outbox";
 import { GuardianProtection } from "../../../modules/guardian-protection/src";
 
 function toBase64(bytes: Uint8Array): string {
@@ -47,10 +49,15 @@ export default function ChildPairRoute() {
       const publicKey = await ed25519.getPublicKeyAsync(privateKey);
       setMessage("Registering child device…");
       const credentials = await api.redeemPairing({ session_id: sessionId, code, child_profile_id: childId, platform: "ANDROID", public_key: toBase64(publicKey) });
-      await sessionStorage.setDevicePrivateKey(toBase64(privateKey));
-      await sessionStorage.setDeviceToken(credentials.device_token);
-      await sessionStorage.setFamilyId(credentials.family_id);
-      await GuardianProtection.setContentDeviceId(credentials.device_id);
+      setMessage("Resetting previous child identity…");
+      await activateChildRePair(credentials, toBase64(privateKey), {
+        stopProtection: GuardianProtection.stopProtection,
+        clearNativeIdentity: GuardianProtection.clearChildIdentity,
+        clearRequestOutbox,
+        configureNativeDevice: GuardianProtection.setContentDeviceId,
+        clearDeviceCredentials: sessionStorage.clearDeviceIdentity,
+        saveDeviceCredentials: sessionStorage.saveDeviceCredentials,
+      });
       router.replace("/child/home");
     } catch (error) { setMessage(error instanceof ApiError ? error.message : `Pairing failed: ${error instanceof Error ? error.message : "check the code and try again."}`); }
   };

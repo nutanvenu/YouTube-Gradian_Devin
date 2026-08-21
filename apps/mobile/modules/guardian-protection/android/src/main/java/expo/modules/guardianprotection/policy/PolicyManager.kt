@@ -1,6 +1,6 @@
 package expo.modules.guardianprotection.policy
 
-import expo.modules.guardianprotection.storage.EncryptedPolicyStore
+import expo.modules.guardianprotection.storage.PolicySnapshotStore
 import expo.modules.guardianprotection.observability.GuardianPerformanceMetrics
 import expo.modules.guardianprotection.vpn.GuardianVpnService
 import expo.modules.guardianprotection.content.ContentRiskPolicy
@@ -8,7 +8,7 @@ import org.json.JSONObject
 import java.time.Instant
 
 class PolicyManager(
-  private val store: EncryptedPolicyStore,
+  private val store: PolicySnapshotStore,
   trustedKeysJson: String = "{}",
   activeKeyId: String = "",
 ) {
