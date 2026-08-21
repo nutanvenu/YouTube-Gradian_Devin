@@ -28,10 +28,7 @@ class Settings(BaseSettings):
         if self.environment != "production":
             return self
 
-        weak_markers = ("change-me", "replace", "placeholder", "development", "example", "fixture")
-        if len(self.jwt_secret) < 32 or any(
-            marker in self.jwt_secret.lower() for marker in weak_markers
-        ):
+        if _is_placeholder_jwt_secret(self.jwt_secret):
             raise ValueError(
                 "production JWT secret must be a non-placeholder value of at least 32 characters"
             )
@@ -75,6 +72,21 @@ def _is_placeholder_key_id(key_id: str) -> bool:
             r"(example|invalid|localhost|change[-_ ]?me|replace[-_ ]?me|"
             r"placeholder|fixture|test)(?:$|[._/-])",
             key_id,
+            flags=re.IGNORECASE,
+        )
+    )
+
+
+def _is_placeholder_jwt_secret(jwt_secret: str) -> bool:
+    if len(jwt_secret) < 32:
+        return True
+    return bool(
+        re.search(
+            r"(?:^|[^a-z0-9])"
+            r"(?:change[-_ ]?me|replace|placeholder|development|example|fixture|"
+            r"default|dummy|ci[-_ ]?only|test)"
+            r"(?:$|[^a-z0-9])",
+            jwt_secret,
             flags=re.IGNORECASE,
         )
     )
