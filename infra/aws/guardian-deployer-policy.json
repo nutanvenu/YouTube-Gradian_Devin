@@ -92,13 +92,18 @@
       "Action": [
         "apigateway:DELETE",
         "apigateway:GET",
+        "apigateway:GetTags",
         "apigateway:PATCH",
         "apigateway:POST",
-        "apigateway:PUT"
+        "apigateway:PUT",
+        "apigateway:TagResource",
+        "apigateway:UntagResource"
       ],
       "Resource": [
         "arn:aws:apigateway:ap-south-1::/apis",
         "arn:aws:apigateway:ap-south-1::/apis/*",
+        "arn:aws:apigateway:ap-south-1::/apis/*/stages",
+        "arn:aws:apigateway:ap-south-1::/apis/*/stages/*",
         "arn:aws:apigateway:ap-south-1::/vpclinks",
         "arn:aws:apigateway:ap-south-1::/vpclinks/*",
         "arn:aws:apigateway:ap-south-1::/tags/*"
