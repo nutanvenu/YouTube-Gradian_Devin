@@ -26,8 +26,9 @@ infra/aws/bootstrap-guardian-deployer.sh
 ## Deploy and validate
 
 Push the exact branch first. The deployment script refuses to use an unpushed
-or divergent branch, creates the Secrets Manager configuration only when it is
-absent, provisions the stack, and then validates the public HTTPS endpoint,
+or divergent branch, then passes that immutable Git commit SHA into the worker
+build. It creates the Secrets Manager configuration only when it is absent,
+provisions the stack, and then validates the public HTTPS endpoint,
 readiness/migrations, WebSocket upgrade, ALB target health, and RDS privacy /
 encryption / backup settings.
 
