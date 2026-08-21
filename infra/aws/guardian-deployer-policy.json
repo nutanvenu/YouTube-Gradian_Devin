@@ -66,6 +66,7 @@
       "Action": [
         "rds:AddTagsToResource",
         "rds:CreateDBInstance",
+        "rds:CreateDBSnapshot",
         "rds:CreateDBSubnetGroup",
         "rds:DeleteDBInstance",
         "rds:DeleteDBSubnetGroup",
