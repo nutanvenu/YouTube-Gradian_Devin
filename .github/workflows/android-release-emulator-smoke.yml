@@ -48,14 +48,25 @@ jobs:
             -H "Authorization: Bearer $GITHUB_TOKEN" \
             -H "X-GitHub-Api-Version: 2022-11-28" \
             "$GITHUB_API_URL/repos/$GITHUB_REPOSITORY/actions/runs/$RELEASE_RUN_ID" > "$response"
-          RESPONSE_PATH="$response" EVIDENCE_PATH=artifacts/release-emulator-smoke/release-run-provenance.json python - <<'PY'
+          workflow_id="$(RESPONSE_PATH="$response" python -c 'import json, os; print(json.load(open(os.environ["RESPONSE_PATH"], encoding="utf-8"))["workflow_id"])')"
+          [[ "$workflow_id" =~ ^[1-9][0-9]*$ ]]
+          workflow="$RUNNER_TEMP/release-workflow.json"
+          curl --fail --silent --show-error --retry 3 \
+            -H "Accept: application/vnd.github+json" \
+            -H "Authorization: Bearer $GITHUB_TOKEN" \
+            -H "X-GitHub-Api-Version: 2022-11-28" \
+            "$GITHUB_API_URL/repos/$GITHUB_REPOSITORY/actions/workflows/$workflow_id" > "$workflow"
+          RESPONSE_PATH="$response" WORKFLOW_PATH="$workflow" EVIDENCE_PATH=artifacts/release-emulator-smoke/release-run-provenance.json python - <<'PY'
           import json
           import os
           import re
 
           source = json.load(open(os.environ["RESPONSE_PATH"], encoding="utf-8"))
+          workflow = json.load(open(os.environ["WORKFLOW_PATH"], encoding="utf-8"))
           if source.get("name") != "Android production APK":
               raise SystemExit("The source run is not the Android production APK workflow.")
+          if workflow.get("path") != ".github/workflows/android-release-apk.yml":
+              raise SystemExit("The source run workflow path is not the protected Android release workflow.")
           if source.get("conclusion") != "success":
               raise SystemExit("The source release run did not complete successfully.")
           if source.get("head_branch") != "main":
@@ -65,6 +76,8 @@ jobs:
               raise SystemExit("The source run did not provide a valid commit SHA.")
           safe = {
               "workflow_name": source["name"],
+              "workflow_id": source["workflow_id"],
+              "workflow_path": workflow["path"],
               "run_id": source["id"],
               "conclusion": source["conclusion"],
               "head_branch": source["head_branch"],
@@ -187,7 +200,10 @@ jobs:
           set -euo pipefail
           apk=artifacts/release-source/Guardian-universal-release.apk
           evidence=artifacts/release-emulator-smoke
-          sudo chmod 666 /dev/kvm || true
+          if [[ ! -c /dev/kvm || ! -r /dev/kvm || ! -w /dev/kvm ]]; then
+            echo '/dev/kvm must be an existing readable/writable device for reliable dual-emulator smoke.' >&2
+            exit 1
+          fi
           cleanup() {
             adb -s emulator-5554 emu kill >/dev/null 2>&1 || true
             adb -s emulator-5556 emu kill >/dev/null 2>&1 || true
