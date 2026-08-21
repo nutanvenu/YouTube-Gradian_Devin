@@ -226,7 +226,7 @@ tasks.register(taskName, Exec) {
         def currentManifests = fileTree(buildDir).matching {
             include "intermediates/merged_manifest/release/**/AndroidManifest.xml"
         }.files
-        def manifests = currentManifests.size() == 1 ? currentManifests : fileTree(buildDir).matching {
+        def manifests = !currentManifests.isEmpty() ? currentManifests : fileTree(buildDir).matching {
             include "intermediates/merged_manifests/release/**/AndroidManifest.xml"
         }.files
         if (manifests.size() != 1) throw new GradleException("Expected exactly one logical merged release AndroidManifest.xml.")

@@ -191,7 +191,7 @@ test("Android release sources declare SDK 36, no debug signing, and fail-closed 
   assert.match(buildFile, /verifyGuardianReleaseAabArtifact/);
   assert.match(
     buildFile,
-    /def currentManifests = fileTree\(buildDir\)\.matching \{\s*include "intermediates\/merged_manifest\/release\/\*\*\/AndroidManifest\.xml"\s*\}\.files\s*def manifests = currentManifests\.size\(\) == 1 \? currentManifests : fileTree\(buildDir\)\.matching \{\s*include "intermediates\/merged_manifests\/release\/\*\*\/AndroidManifest\.xml"/,
+    /def currentManifests = fileTree\(buildDir\)\.matching \{\s*include "intermediates\/merged_manifest\/release\/\*\*\/AndroidManifest\.xml"\s*\}\.files\s*def manifests = !currentManifests\.isEmpty\(\) \? currentManifests : fileTree\(buildDir\)\.matching \{\s*include "intermediates\/merged_manifests\/release\/\*\*\/AndroidManifest\.xml"/,
     "release verification must select the current AGP manifest layout before its legacy compatibility copy",
   );
   assert.match(
