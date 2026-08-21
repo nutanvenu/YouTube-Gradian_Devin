@@ -15,7 +15,7 @@ class PolicyManagerTest {
   fun clearingChildIdentityLetsANewFamilyStartAtPolicyVersionOne() {
     val keyPair = KeyPairGenerator.getInstance("Ed25519").generateKeyPair()
     val store = InMemoryPolicyStore()
-    val trustedPublicKey = Base64.getEncoder().encodeToString(keyPair.public.encoded.takeLast(32))
+    val trustedPublicKey = Base64.getEncoder().encodeToString(keyPair.public.encoded.takeLast(32).toByteArray())
     val manager = PolicyManager(
       store,
       "{\"current\":\"$trustedPublicKey\"}",

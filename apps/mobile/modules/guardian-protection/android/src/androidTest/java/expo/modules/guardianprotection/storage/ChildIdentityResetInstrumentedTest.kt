@@ -12,6 +12,7 @@ import expo.modules.guardianprotection.content.ContentRiskSeverity
 import expo.modules.guardianprotection.content.SignalSource
 import java.time.Instant
 import java.util.UUID
+import org.junit.Assert.assertEquals
 import org.junit.Assert.assertFalse
 import org.junit.Assert.assertNull
 import org.junit.Assert.assertTrue
