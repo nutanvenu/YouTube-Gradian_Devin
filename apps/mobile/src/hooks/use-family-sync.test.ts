@@ -1,9 +1,8 @@
 import { act, renderHook } from "@testing-library/react-native";
-import { sessionStorage } from "@/api/client";
+import { api, sessionStorage } from "@/api/client";
 import { useFamilySync } from "@/hooks/use-family-sync";
 
 const mockInvalidateQueries = jest.fn().mockResolvedValue(undefined);
-const mockRealtimeToken = jest.fn(() => Promise.resolve("parent-token"));
 
 jest.mock("@tanstack/react-query", () => ({
   useQueryClient: () => ({ invalidateQueries: mockInvalidateQueries }),
@@ -12,7 +11,7 @@ jest.mock("@tanstack/react-query", () => ({
 jest.mock("@/api/client", () => ({
   api: {
     websocketUrl: jest.fn(() => "wss://guardian.example/v1/ws/sync?family_id=family-1"),
-    realtimeToken: mockRealtimeToken,
+    realtimeToken: jest.fn(() => Promise.resolve("parent-token")),
   },
   sessionStorage: {
     getAccessToken: jest.fn(() => Promise.resolve("parent-token")),
@@ -91,10 +90,8 @@ test("falls back to polling and reconnects after a WebSocket failure", async () 
   act(() => first.onclose?.());
   expect(mockInvalidateQueries).toHaveBeenCalled();
   const callsAfterDisconnect = mockInvalidateQueries.mock.calls.length;
-
-  await act(async () => {
-    await jest.advanceTimersByTimeAsync(1_000);
-  });
+  act(() => jest.advanceTimersByTime(1_000));
+  await act(async () => { await Promise.resolve(); });
   expect(MockWebSocket.instances).toHaveLength(2);
   act(() => MockWebSocket.instances[1].onopen?.());
   const callsAfterReconnect = mockInvalidateQueries.mock.calls.length;
@@ -111,16 +108,16 @@ test("falls back to polling and reconnects after a WebSocket failure", async () 
 });
 
 test("refreshes a parent token before reconnecting after expiry", async () => {
-  mockRealtimeToken.mockResolvedValueOnce("refreshed-parent-token");
+  const realtimeToken = jest.spyOn(api, "realtimeToken");
+  realtimeToken.mockResolvedValueOnce("refreshed-parent-token");
   const hook = renderHook(() => useFamilySync("family-1"));
   await act(async () => { await Promise.resolve(); });
 
   act(() => MockWebSocket.instances[0].onclose?.());
-  await act(async () => {
-    await jest.advanceTimersByTimeAsync(1_000);
-  });
+  act(() => jest.advanceTimersByTime(1_000));
+  await act(async () => { await Promise.resolve(); });
 
-  expect(mockRealtimeToken).toHaveBeenCalledTimes(1);
+  expect(realtimeToken).toHaveBeenCalledTimes(1);
   expect(MockWebSocket.instances[1].options).toEqual({
     headers: { Authorization: "Bearer refreshed-parent-token" },
   });
