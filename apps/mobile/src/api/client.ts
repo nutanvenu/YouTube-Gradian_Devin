@@ -237,9 +237,11 @@ export const sessionStorage = {
 export class GuardianApiClient {
   private readonly generated: GeneratedGuardianClient;
   private refreshInFlight: Promise<Tokens> | null = null;
+  private readonly baseUrl: string;
 
-  constructor(private readonly baseUrl = API_URL) {
-    this.generated = new GeneratedGuardianClient(baseUrl);
+  constructor(baseUrl = API_URL) {
+    this.baseUrl = baseUrl.replace(/\/+$/, "");
+    this.generated = new GeneratedGuardianClient(this.baseUrl);
   }
 
   private async refreshParentSession(): Promise<Tokens> {

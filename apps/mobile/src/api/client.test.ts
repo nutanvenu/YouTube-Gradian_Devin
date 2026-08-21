@@ -217,3 +217,10 @@ test("uses a stable request-specific key for parent approval retries", async () 
   );
   fetcher.mockRestore();
 });
+
+test("derives secure WebSocket URLs from the configured AWS HTTPS endpoint", () => {
+  const client = new GuardianApiClient("https://d123example.cloudfront.net/");
+  expect(client.websocketUrl("/v1/ws/sync", { family_id: "family-1" })).toBe(
+    "wss://d123example.cloudfront.net/v1/ws/sync?family_id=family-1",
+  );
+});
