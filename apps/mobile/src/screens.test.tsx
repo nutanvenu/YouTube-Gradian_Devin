@@ -1013,7 +1013,7 @@ test("content-risk outbox uploads minimized evidence once and acknowledges only 
   await flushPendingContentRiskEvents([queued], uploaded, acknowledged);
 
   expect(uploaded).toHaveBeenCalledWith({
-    event_type: "SAFETY_SELF_HARM_SUICIDE",
+    event_type: "SAFETY_CONTENT_RISK",
     occurred_at: "2023-11-14T22:13:20.000Z",
     app_ref: "com.example.video",
     category: "SELF_HARM_SUICIDE",

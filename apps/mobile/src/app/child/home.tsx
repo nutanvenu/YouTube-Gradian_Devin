@@ -34,7 +34,7 @@ export function appUsageEvents(byTarget: Record<string, number>, occurredAt: str
 /** Converts the native minimized outbox contract without introducing raw content into JS. */
 export function contentRiskEventToDeviceEvent(event: PendingContentRiskEvent): DeviceEvent {
   return {
-    event_type: `SAFETY_${event.category}`,
+    event_type: "SAFETY_CONTENT_RISK",
     occurred_at: new Date(event.occurred_at_millis).toISOString(),
     app_ref: event.app_ref,
     category: event.category,
@@ -141,7 +141,8 @@ export default function ChildHomeRoute() {
   const flushContentRiskOutbox = async () => flushPendingContentRiskEvents(
     await GuardianProtection.getPendingContentRiskEvents(),
     (event, idempotencyKey) => api.ingestEvents([event], undefined, idempotencyKey),
-    GuardianProtection.acknowledgeContentRiskEvent,
+    (source, appRef, fingerprint) =>
+      GuardianProtection.acknowledgeContentRiskEvent(source, appRef, fingerprint),
   );
 
   const requestAccessibilityContentConsent = () => Alert.alert(
