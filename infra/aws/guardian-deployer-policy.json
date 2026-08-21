@@ -94,6 +94,8 @@
         "cloudfront:GetOriginRequestPolicy",
         "cloudfront:GetVpcOrigin",
         "cloudfront:ListDistributions",
+        "cloudfront:ListTagsForResource",
+        "cloudfront:ListVpcOrigins",
         "cloudfront:TagResource",
         "cloudfront:UntagResource",
         "cloudfront:UpdateDistribution"
@@ -174,7 +176,8 @@
       "Action": "iam:CreateServiceLinkedRole",
       "Resource": [
         "arn:aws:iam::*:role/aws-service-role/elasticloadbalancing.amazonaws.com/AWSServiceRoleForElasticLoadBalancing",
-        "arn:aws:iam::*:role/aws-service-role/rds.amazonaws.com/AWSServiceRoleForRDS"
+        "arn:aws:iam::*:role/aws-service-role/rds.amazonaws.com/AWSServiceRoleForRDS",
+        "arn:aws:iam::*:role/aws-service-role/vpcorigin.cloudfront.amazonaws.com/AWSServiceRoleForCloudFrontVPCOrigin"
       ]
     }
   ]
