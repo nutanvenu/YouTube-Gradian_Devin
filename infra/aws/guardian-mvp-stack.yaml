@@ -25,7 +25,10 @@ Parameters:
     Default: https://github.com/ThisIsDikshithPodhila/YouTube-Gradian_Devin.git
   SourceBranch:
     Type: String
-    Description: Immutable release branch or tag that contains the backend Dockerfile.
+    Description: Release branch used only to fetch the pinned source revision.
+  SourceRevision:
+    Type: String
+    Description: Immutable Git commit SHA to build and run.
   BackendConfigSecretArn:
     Type: String
     Description: Secrets Manager ARN with the Guardian production config JSON.
@@ -323,8 +326,9 @@ Resources:
             'GUARDIAN_UVICORN_WORKERS=1' > /opt/guardian/api.env
           chmod 0600 /opt/guardian/api.env
           rm -rf /opt/guardian/source
-          git clone --depth 1 --branch '${SourceBranch}' '${SourceRepository}' /opt/guardian/source
+          git clone --filter=blob:none --no-checkout --branch '${SourceBranch}' '${SourceRepository}' /opt/guardian/source
           cd /opt/guardian/source
+          git checkout --detach '${SourceRevision}'
           docker build --pull -f backend/Dockerfile -t guardian-api:production .
           docker rm -f guardian-api >/dev/null 2>&1 || true
           docker run -d --name guardian-api --restart unless-stopped \

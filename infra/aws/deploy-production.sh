@@ -136,6 +136,7 @@ aws cloudformation deploy \
     "AvailabilityZoneB=${availability_zone_b}" \
     "SourceRepository=${source_repository}" \
     "SourceBranch=${source_branch}" \
+    "SourceRevision=${local_sha}" \
     "BackendConfigSecretArn=${config_secret_arn}" \
     "DatabaseMasterPassword=${database_master_password}" \
     "OriginSharedSecret=${origin_shared_secret}" \
