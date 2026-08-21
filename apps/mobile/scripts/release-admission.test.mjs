@@ -424,6 +424,17 @@ test("release APK policy requires every configured native ABI", () => {
   );
 });
 
+test("signed-release emulator smoke preserves exact-artifact coverage without KVM", async () => {
+  const smokeWorkflow = await readFile(
+    new URL("../../../.github/workflows/android-release-emulator-smoke.yml", import.meta.url),
+    "utf8",
+  );
+  assert.match(smokeWorkflow, /emulator_acceleration=\(-accel on\)/);
+  assert.match(smokeWorkflow, /emulator_acceleration=\(-accel off\)/);
+  assert.match(smokeWorkflow, /emulator-acceleration\.txt/);
+  assert.doesNotMatch(smokeWorkflow, /must be an existing readable\/writable device/);
+});
+
 test("the mobile API client has no production placeholder endpoint", async () => {
   const client = await readFile(
     new URL("../src/api/client.ts", import.meta.url),
