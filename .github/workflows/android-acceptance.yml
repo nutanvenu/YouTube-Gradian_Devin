@@ -235,28 +235,36 @@ jobs:
           "$aapt" dump xmltree "$apk" AndroidManifest.xml > "$evidence/app-debug.manifest.xmltree.txt"
           "$ANDROID_HOME/build-tools/36.0.0/apksigner" verify --verbose --print-certs "$apk" | tee "$evidence/app-debug.apksigner.txt"
           for permission in ACCESS_FINE_LOCATION ACCESS_COARSE_LOCATION READ_SMS RECEIVE_SMS SEND_SMS READ_CONTACTS RECORD_AUDIO QUERY_ALL_PACKAGES MANAGE_EXTERNAL_STORAGE; do
-            if rg -F "android.permission.$permission" "$evidence/app-debug.permissions.txt"; then
+            if grep -Fq "android.permission.$permission" "$evidence/app-debug.permissions.txt"; then
               echo "Prohibited permission android.permission.$permission is present." >&2
               exit 1
             fi
           done
-          python - "$evidence/app-debug.manifest.xmltree.txt" <<'PY'
-          import re, sys
+          python - "$evidence/app-debug.manifest.xmltree.txt" "$evidence/app-debug.component-inventory.json" <<'PY'
+          import json
+          import re
+          import sys
+
+          manifest_path, inventory_path = sys.argv[1:]
           components, current = [], None
-          for line in open(sys.argv[1], encoding="utf-8"):
+          for line in open(manifest_path, encoding="utf-8"):
             start = re.match(r"^\s*E: (activity|service|receiver|provider)\b", line)
             if start:
                 if current:
                     components.append(current)
                 current = {"kind": start.group(1), "name": None, "exported": None}
             elif current and "android:name" in line:
-                match = re.search(r'Raw: "([^"]+)"', line)
+                match = re.search(r'Raw:\s*"([^"]+)"', line) or re.search(r'=\s*"([^"]+)"', line)
                 if match:
                     current["name"] = match.group(1)
             elif current and "android:exported" in line:
-                current["exported"] = "0xffffffff" in line or 'Raw: "true"' in line
+                match = re.search(r'Raw:\s*"([^"]+)"', line) or re.search(r'=\s*"([^"]+)"', line)
+                current["exported"] = "0xffffffff" in line or (match and match.group(1).lower() == "true")
           if current:
               components.append(current)
+          with open(inventory_path, "w", encoding="utf-8") as inventory:
+              json.dump(components, inventory, indent=2, sort_keys=True)
+              inventory.write("\n")
           required = {
               "MainActivity": True,
               "GuardianBootReceiver": True,
@@ -292,7 +300,7 @@ jobs:
           accessibility_handler="$raw_sources/java/expo/modules/guardianprotection/accessibility/GuardianAccessibilityService.kt"
           notification_handler="$raw_sources/java/expo/modules/guardianprotection/communication/GuardianNotificationListenerService.kt"
           consent_store="$raw_sources/java/expo/modules/guardianprotection/content/ContentSafetyConsentStore.kt"
-          rg -n -i '(Log\.[vdiwe]|println|putString|putStringSet|SharedPreferences)' \
+          grep -nEi '(Log\.[vdiwe]|println|putString|putStringSet|SharedPreferences)' \
             "$accessibility_handler" "$notification_handler" \
             > "$evidence/raw-input-handler-sinks.txt" || true
           if grep -vF 'Log.d("GuardianBudget", "budget_tick")' "$evidence/raw-input-handler-sinks.txt" | grep -q .; then
@@ -300,19 +308,19 @@ jobs:
             echo "Raw accessibility or notification text handler has a prohibited sink." >&2
             exit 1
           fi
-          if rg -n '(putString|putStringSet|Log\.[vdiwe]|println)' "$consent_store"; then
+          if grep -nE '(putString|putStringSet|Log\.[vdiwe]|println)' "$consent_store"; then
             echo "Consent storage must not retain raw content text." >&2
             exit 1
           fi
-          rg -n '(putBoolean|ACCESSIBILITY_CONTENT_CONSENT)' "$consent_store" \
+          grep -nE '(putBoolean|ACCESSIBILITY_CONTENT_CONSENT)' "$consent_store" \
             > "$evidence/consent-boolean-storage.txt"
-          rg -n '(node\.text|node\.contentDescription|android\.text|Notification text is transient)' \
+          grep -nE '(node\.text|node\.contentDescription|android\.text|Notification text is transient)' \
             "$accessibility_handler" "$notification_handler" \
             > "$evidence/raw-input-acquisition.txt"
-          rg -F 'never persists Accessibility text' \
+          grep -F 'never persists Accessibility text' \
             "$accessibility_handler" \
             > "$evidence/raw-content-accessibility-contract.txt"
-          rg -F 'Never log, bridge, or retain it.' \
+          grep -F 'Never log, bridge, or retain it.' \
             "$notification_handler" \
             > "$evidence/raw-content-notification-contract.txt"
           printf '%s\n' "No raw notification/accessibility text sink found; consent storage is explicitly boolean-only and discard contracts are retained." > "$evidence/raw-content-leakage-check.txt"
