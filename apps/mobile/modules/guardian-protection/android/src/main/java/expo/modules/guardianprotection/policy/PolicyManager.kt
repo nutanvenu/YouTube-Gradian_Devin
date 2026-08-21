@@ -4,6 +4,7 @@ import expo.modules.guardianprotection.storage.PolicySnapshotStore
 import expo.modules.guardianprotection.observability.GuardianPerformanceMetrics
 import expo.modules.guardianprotection.vpn.GuardianVpnService
 import expo.modules.guardianprotection.content.ContentRiskPolicy
+import android.util.Base64
 import org.json.JSONObject
 import java.time.Instant
 
@@ -11,9 +12,10 @@ class PolicyManager(
   private val store: PolicySnapshotStore,
   trustedKeysJson: String = "{}",
   activeKeyId: String = "",
+  decodeBase64: (String) -> ByteArray = { Base64.decode(it, Base64.DEFAULT) },
 ) {
   private val trustedKeys = parseTrustedKeys(trustedKeysJson)
-  private val verifier = PolicyVerifier(trustedKeys)
+  private val verifier = PolicyVerifier(trustedKeys, decodeBase64)
   @Volatile private var active: CompiledPolicySnapshot? = null
   @Volatile private var previous: CompiledPolicySnapshot? = null
   init {

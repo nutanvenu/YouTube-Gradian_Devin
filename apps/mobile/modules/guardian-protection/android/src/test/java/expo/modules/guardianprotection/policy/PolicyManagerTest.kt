@@ -15,10 +15,11 @@ class PolicyManagerTest {
   fun clearingChildIdentityLetsANewFamilyStartAtPolicyVersionOne() {
     val keyPair = KeyPairGenerator.getInstance("Ed25519").generateKeyPair()
     val store = InMemoryPolicyStore()
-    val trustedPublicKey = Base64.getEncoder().encodeToString(keyPair.public.encoded.takeLast(32).toByteArray())
+    val trustedPublicKey = Base64.getEncoder().encodeToString(keyPair.public.encoded)
     val manager = PolicyManager(
       store,
       "{\"current\":\"$trustedPublicKey\"}",
+      decodeBase64 = Base64.getDecoder()::decode,
     )
 
     assertTrue(manager.apply(signedPolicy(keyPair, version = 7, familyId = "family-a"))["applied"] == true)
