@@ -32,6 +32,11 @@ provisions the stack, and then validates the public HTTPS endpoint,
 readiness/migrations, WebSocket upgrade, ALB target health, and RDS privacy /
 encryption / backup settings.
 
+Each source-revision update also replaces the single API instance through a
+revision-scoped, no-ingress security-group reference. This deliberately
+re-runs the immutable boot script; changing EC2 user data alone only restarts
+an EBS-backed instance and does not replay the script.
+
 ```bash
 GUARDIAN_SOURCE_BRANCH=codex/aws-mvp-deploy infra/aws/deploy-production.sh
 ```

@@ -142,6 +142,20 @@ Resources:
         - Key: Environment
           Value: production
 
+  ApiReleaseRevisionSecurityGroup:
+    Type: AWS::EC2::SecurityGroup
+    Properties:
+      GroupDescription: !Sub 'Guardian API release ${SourceRevision}'
+      VpcId: !Ref VpcId
+      SecurityGroupEgress: []
+      Tags:
+        - Key: Name
+          Value: !Sub 'guardian-production-api-release-${SourceRevision}'
+        - Key: Project
+          Value: guardian
+        - Key: Environment
+          Value: production
+
   ApiLoadBalancerEgress:
     Type: AWS::EC2::SecurityGroupEgress
     Properties:
@@ -280,6 +294,7 @@ Resources:
           DeviceIndex: '0'
           GroupSet:
             - !Ref ApiInstanceSecurityGroup
+            - !Ref ApiReleaseRevisionSecurityGroup
           SubnetId: !Ref PublicSubnetId
       BlockDeviceMappings:
         - DeviceName: /dev/xvda
