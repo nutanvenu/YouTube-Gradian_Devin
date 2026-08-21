@@ -41,6 +41,7 @@ router = APIRouter()
 
 async def family_activity(
     family_id: UUID,
+    child_id: UUID | None = Query(None),
     parent: Parent = Depends(current_parent),
     session: AsyncSession = Depends(get_session),
 ) -> list[dict[str, object]]:
@@ -51,7 +52,10 @@ async def family_activity(
                 select(WebEvent)
                 .join(Device, Device.id == WebEvent.device_id)
                 .join(ChildProfile, ChildProfile.id == Device.child_profile_id)
-                .where(ChildProfile.family_id == family_id)
+                .where(
+                    ChildProfile.family_id == family_id,
+                    *([ChildProfile.id == child_id] if child_id is not None else []),
+                )
                 .order_by(WebEvent.occurred_at.desc())
                 .limit(200)
             )
@@ -63,7 +67,10 @@ async def family_activity(
                 select(SafetyEvent)
                 .join(Device, Device.id == SafetyEvent.device_id)
                 .join(ChildProfile, ChildProfile.id == Device.child_profile_id)
-                .where(ChildProfile.family_id == family_id)
+                .where(
+                    ChildProfile.family_id == family_id,
+                    *([ChildProfile.id == child_id] if child_id is not None else []),
+                )
                 .order_by(SafetyEvent.occurred_at.desc())
                 .limit(200)
             )
@@ -104,6 +111,7 @@ async def family_activity(
 
 async def family_usage(
     family_id: UUID,
+    child_id: UUID | None = Query(None),
     parent: Parent = Depends(current_parent),
     session: AsyncSession = Depends(get_session),
 ) -> list[dict[str, object]]:
@@ -118,6 +126,7 @@ async def family_usage(
                 .join(ChildProfile, ChildProfile.id == Device.child_profile_id)
                 .where(
                     ChildProfile.family_id == family_id,
+                    *([ChildProfile.id == child_id] if child_id is not None else []),
                     UsageAggregate.occurred_at >= usage_start,
                     UsageAggregate.occurred_at <= usage_end,
                 )
@@ -252,6 +261,11 @@ async def websocket_sync(
         if child is None or (child_id is not None and str(child.id) != child_id):
             await websocket.close(code=1008)
             return
+        # A device credential is permanently bound to one child.  Derive the
+        # scope from that credential when the client omits the query parameter
+        # so a child connection can never accidentally subscribe to the whole
+        # family (which would expose another child's events).
+        child_id = str(child.id)
     bundle = None
     if child_id is not None:
         try:
