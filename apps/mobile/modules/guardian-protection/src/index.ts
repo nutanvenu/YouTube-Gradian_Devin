@@ -3,6 +3,7 @@ import type {
   ApplyResult,
   CapabilityRecord,
   ContentApproval,
+  PendingContentRiskEvent,
   ContentReviewRequest,
   GuardianNativeEvent,
   GuardianProtectionNative,
@@ -35,6 +36,9 @@ export const GuardianProtection: GuardianProtectionNative = {
   setContentDeviceId: (deviceId: string): Promise<void> => native.setContentDeviceId(deviceId),
   clearChildIdentity: (): Promise<void> => native.clearChildIdentity(),
   applyContentApprovals: (approvals: ContentApproval[]) => native.applyContentApprovals(approvals),
+  getPendingContentRiskEvents: (): Promise<PendingContentRiskEvent[]> => native.getPendingContentRiskEvents(),
+  acknowledgeContentRiskEvent: (signalSource, appRef, fingerprint): Promise<void> =>
+    native.acknowledgeContentRiskEvent(signalSource, appRef, fingerprint),
   getPendingContentReviewRequests: (): Promise<ContentReviewRequest[]> => native.getPendingContentReviewRequests(),
   acknowledgeContentReviewRequest: (appRef: string, fingerprint: string): Promise<void> =>
     native.acknowledgeContentReviewRequest(appRef, fingerprint),

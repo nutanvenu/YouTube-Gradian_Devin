@@ -135,6 +135,12 @@ class GuardianProtectionModule : Module() {
       }
       ContentBlockCoordinator.applyApprovals(requireNotNull(appContext.reactContext), parsed)
     }
+    AsyncFunction("getPendingContentRiskEvents") {
+      store.pendingContentRiskEvents()
+    }
+    AsyncFunction("acknowledgeContentRiskEvent") { signalSource: String, appRef: String, fingerprint: String ->
+      store.acknowledgeContentRiskEvent(signalSource, appRef, fingerprint)
+    }
     AsyncFunction("getPendingContentReviewRequests") {
       store.pendingContentReviewRequests()
     }

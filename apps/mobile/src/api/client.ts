@@ -441,11 +441,11 @@ export class GuardianApiClient {
       body: JSON.stringify(body),
     });
   }
-  ingestEvents(events: DeviceEvent[], correlationId?: string) {
+  ingestEvents(events: DeviceEvent[], correlationId?: string, idempotencyKey?: string) {
     return this.request<undefined>("/v1/devices/me/events", {
       method: "POST",
       headers: {
-        "Idempotency-Key": `event-batch:${Date.now()}:${Math.random().toString(36).slice(2)}`,
+        "Idempotency-Key": idempotencyKey ?? `event-batch:${Date.now()}:${Math.random().toString(36).slice(2)}`,
         ...(correlationId ? { "X-Request-ID": correlationId } : {}),
       },
       body: JSON.stringify({ events }),

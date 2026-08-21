@@ -120,6 +120,8 @@ jest.mock("../modules/guardian-protection/src", () => ({
     openUsageAccessSettings: jest.fn(),
     openAccessibilitySettings: () => mockOpenAccessibilitySettings(),
     setAccessibilityContentConsent: (granted: boolean) => mockSetAccessibilityContentConsent(granted),
+    getPendingContentRiskEvents: () => Promise.resolve([]),
+    acknowledgeContentRiskEvent: () => Promise.resolve(),
     getPendingContentReviewRequests: () => Promise.resolve([]),
     applyContentApprovals: () => Promise.resolve(),
     acknowledgeContentReviewRequest: () => Promise.resolve(),
@@ -989,6 +991,65 @@ test("Child requests flush when connectivity returns", async () => {
   await waitFor(() => expect(mockFlushRequest).toHaveBeenCalledTimes(1));
   screen.unmount();
   addEventListener.mockRestore();
+});
+
+test("content-risk outbox uploads minimized evidence once and acknowledges only after success", async () => {
+  const queued = {
+    signal_source: "ACCESSIBILITY_TEXT",
+    app_ref: "com.example.video",
+    fingerprint: "a".repeat(64),
+    category: "SELF_HARM_SUICIDE",
+    severity: "HIGH",
+    confidence: 0.81,
+    reason_code: "SELF_HARM_DIRECT",
+    classifier_version: "deterministic-rules-v1",
+    capability_level: "BEST_EFFORT",
+    action: "BLOCK_AND_REQUEST",
+    occurred_at_millis: 1_700_000_000_000,
+  } as const;
+  const uploaded = jest.fn(() => Promise.resolve());
+  const acknowledged = jest.fn(() => Promise.resolve());
+
+  await flushPendingContentRiskEvents([queued], uploaded, acknowledged);
+
+  expect(uploaded).toHaveBeenCalledWith({
+    event_type: "SAFETY_SELF_HARM_SUICIDE",
+    occurred_at: "2023-11-14T22:13:20.000Z",
+    app_ref: "com.example.video",
+    category: "SELF_HARM_SUICIDE",
+    severity: "HIGH",
+    confidence: 0.81,
+    reason_code: "SELF_HARM_DIRECT",
+    signal_source: "ACCESSIBILITY_TEXT",
+    action: "BLOCK_AND_REQUEST",
+    classifier_version: "deterministic-rules-v1",
+    capability_level: "BEST_EFFORT",
+    content_fingerprint: "a".repeat(64),
+  }, "content-risk:ACCESSIBILITY_TEXT:com.example.video:" + "a".repeat(64));
+  expect(acknowledged).toHaveBeenCalledWith("ACCESSIBILITY_TEXT", "com.example.video", "a".repeat(64));
+  expect(JSON.stringify(uploaded.mock.calls)).not.toContain("raw title");
+});
+
+test("content-risk upload failure retains its native outbox item for a later retry", async () => {
+  const queued = {
+    signal_source: "NOTIFICATION",
+    app_ref: "com.example.chat",
+    fingerprint: "b".repeat(64),
+    category: "GROOMING_RISK",
+    severity: "HIGH",
+    confidence: 0.8,
+    reason_code: "GROOMING_PATTERN",
+    classifier_version: "deterministic-rules-v1",
+    capability_level: "BEST_EFFORT",
+    action: "BLOCK_AND_REQUEST",
+    occurred_at_millis: 1_700_000_000_000,
+  } as const;
+  const acknowledged = jest.fn(() => Promise.resolve());
+
+  await expect(flushPendingContentRiskEvents([queued], () => Promise.reject(new Error("offline")), acknowledged))
+    .rejects.toThrow("offline");
+
+  expect(acknowledged).not.toHaveBeenCalled();
 });
 
 test("screen test harness can render a state marker", () => {

@@ -2,7 +2,7 @@ import { useEffect, useRef, useState } from "react";
 import { useQuery } from "@tanstack/react-query";
 import { useRouter } from "expo-router";
 import { Alert, AppState, Platform, Text } from "react-native";
-import { ApiError, api, sessionStorage } from "@/api/client";
+import { ApiError, api, sessionStorage, type DeviceEvent } from "@/api/client";
 import { useFamilySync } from "@/hooks/use-family-sync";
 import { useNetworkStatus } from "@/state/network";
 import {
@@ -14,7 +14,7 @@ import {
   SectionSurface,
 } from "@/design-system";
 import { GuardianProtection } from "../../../modules/guardian-protection/src";
-import type { GuardianNativeEvent } from "@guardian/contracts";
+import type { GuardianNativeEvent, PendingContentRiskEvent } from "@guardian/contracts";
 import { clearRevokedChildDevice } from "@/state/child-device-recovery";
 
 const ACCESSIBILITY_SIGNALS_DISABLED_BY_PARENT_POLICY =
@@ -29,6 +29,39 @@ export function appUsageEvents(byTarget: Record<string, number>, occurredAt: str
       app_ref: target.slice("APP:".length),
       duration_seconds: Math.min(Math.round(seconds), 86400),
     }));
+}
+
+/** Converts the native minimized outbox contract without introducing raw content into JS. */
+export function contentRiskEventToDeviceEvent(event: PendingContentRiskEvent): DeviceEvent {
+  return {
+    event_type: `SAFETY_${event.category}`,
+    occurred_at: new Date(event.occurred_at_millis).toISOString(),
+    app_ref: event.app_ref,
+    category: event.category,
+    severity: event.severity,
+    confidence: event.confidence,
+    reason_code: event.reason_code,
+    signal_source: event.signal_source,
+    action: event.action,
+    classifier_version: event.classifier_version,
+    capability_level: event.capability_level,
+    content_fingerprint: event.fingerprint,
+  };
+}
+
+/** Acknowledge only after signed upload; offline failures remain in native storage. */
+export async function flushPendingContentRiskEvents(
+  events: PendingContentRiskEvent[],
+  upload: (event: DeviceEvent, idempotencyKey: string) => Promise<void>,
+  acknowledge: (signalSource: PendingContentRiskEvent["signal_source"], appRef: string, fingerprint: string) => Promise<void>,
+): Promise<void> {
+  for (const event of events) {
+    await upload(
+      contentRiskEventToDeviceEvent(event),
+      `content-risk:${event.signal_source}:${event.app_ref}:${event.fingerprint}`,
+    );
+    await acknowledge(event.signal_source, event.app_ref, event.fingerprint);
+  }
 }
 
 function isRevokedDeviceError(error: unknown): boolean {
@@ -104,6 +137,12 @@ export default function ChildHomeRoute() {
       );
     }
   };
+
+  const flushContentRiskOutbox = async () => flushPendingContentRiskEvents(
+    await GuardianProtection.getPendingContentRiskEvents(),
+    (event, idempotencyKey) => api.ingestEvents([event], undefined, idempotencyKey),
+    GuardianProtection.acknowledgeContentRiskEvent,
+  );
 
   const requestAccessibilityContentConsent = () => Alert.alert(
     "Optional content-safety inspection",
@@ -315,6 +354,7 @@ export default function ChildHomeRoute() {
         .then((approvals) => GuardianProtection.applyContentApprovals(approvals))
         .catch(() => undefined);
       void flushContentReviewOutbox().catch(() => undefined);
+      void flushContentRiskOutbox().catch(() => undefined);
       setAcknowledgedVersion(policy.data.policy_version);
       setProtectionMessage("Web protection is active for encrypted DNS and known blocked destinations. Other traffic may bypass Guardian.");
       // Reputation is advisory and independently retryable. A transient
