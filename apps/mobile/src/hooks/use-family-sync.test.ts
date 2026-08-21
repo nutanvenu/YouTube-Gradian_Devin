@@ -9,7 +9,10 @@ jest.mock("@tanstack/react-query", () => ({
 }));
 
 jest.mock("@/api/client", () => ({
-  api: { websocketUrl: jest.fn(() => "wss://guardian.example/v1/ws/sync?family_id=family-1") },
+  api: {
+    websocketUrl: jest.fn(() => "wss://guardian.example/v1/ws/sync?family_id=family-1"),
+    realtimeToken: jest.fn(() => Promise.resolve("parent-token")),
+  },
   sessionStorage: {
     getAccessToken: jest.fn(() => Promise.resolve("parent-token")),
     getDeviceToken: jest.fn(() => Promise.resolve(null)),
@@ -99,8 +102,27 @@ test("falls back to polling and reconnects after a WebSocket failure", async () 
 
   act(() => MockWebSocket.instances[1].onclose?.());
   expect(mockInvalidateQueries.mock.calls.length).toBeGreaterThan(callsAfterDisconnect);
-  act(() => jest.advanceTimersByTime(3_000));
+  act(() => jest.advanceTimersByTime(2_000));
   expect(mockInvalidateQueries.mock.calls.length).toBeGreaterThan(callsAfterReconnect);
 
+  hook.unmount();
+});
+
+test("refreshes a parent token before reconnecting after expiry", async () => {
+  const { api } = jest.requireMock("@/api/client") as {
+    api: { realtimeToken: jest.Mock };
+  };
+  api.realtimeToken.mockResolvedValueOnce("refreshed-parent-token");
+  const hook = renderHook(() => useFamilySync("family-1"));
+  await act(async () => { await Promise.resolve(); });
+
+  act(() => MockWebSocket.instances[0].onclose?.());
+  act(() => jest.advanceTimersByTime(1_000));
+  await act(async () => { await Promise.resolve(); });
+
+  expect(api.realtimeToken).toHaveBeenCalledTimes(1);
+  expect(MockWebSocket.instances[1].options).toEqual({
+    headers: { Authorization: "Bearer refreshed-parent-token" },
+  });
   hook.unmount();
 });

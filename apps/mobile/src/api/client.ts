@@ -483,6 +483,24 @@ export class GuardianApiClient {
     Object.entries(params).forEach(([key, value]) => url.searchParams.set(key, value));
     return url.toString();
   }
+
+  /**
+   * Refresh a parent access token before reconnecting realtime transport.
+   * Device credentials do not expire through the parent refresh flow, so they
+   * are returned directly when no parent session is present.
+   */
+  async realtimeToken(): Promise<string | null> {
+    const accessToken = await sessionStorage.getAccessToken();
+    if (!accessToken) return sessionStorage.getDeviceToken();
+    try {
+      await this.me();
+    } catch (error) {
+      if (error instanceof ApiError && error.code === "SESSION_EXPIRED") return null;
+      // Keep the existing token for transient network failures; the socket
+      // fallback remains honest and can retry when connectivity returns.
+    }
+    return sessionStorage.getAccessToken();
+  }
 }
 
 export const api = new GuardianApiClient();

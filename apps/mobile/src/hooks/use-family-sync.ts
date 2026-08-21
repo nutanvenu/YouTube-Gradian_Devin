@@ -2,7 +2,7 @@ import { useEffect } from "react";
 import { useQueryClient } from "@tanstack/react-query";
 import { api, sessionStorage } from "@/api/client";
 
-const POLL_INTERVAL_MS = 3_000;
+const POLL_INTERVAL_MS = 2_000;
 const INITIAL_RECONNECT_DELAY_MS = 1_000;
 const MAX_RECONNECT_DELAY_MS = 30_000;
 
@@ -49,14 +49,15 @@ export function useFamilySync(familyId: string | undefined, childId?: string) {
       reconnectDelay = Math.min(reconnectDelay * 2, MAX_RECONNECT_DELAY_MS);
       reconnectTimer = setTimeout(() => {
         reconnectTimer = null;
-        void connect().catch(scheduleReconnect);
+        void connect(true).catch(scheduleReconnect);
       }, delay);
     };
 
-    const connect = async () => {
-      const token =
-        (await sessionStorage.getAccessToken()) ??
-        (await sessionStorage.getDeviceToken());
+    const connect = async (refreshParent = false) => {
+      const accessToken = await sessionStorage.getAccessToken();
+      const token = refreshParent && accessToken
+        ? await api.realtimeToken()
+        : accessToken ?? (await sessionStorage.getDeviceToken());
       if (cancelled || !token) {
         if (!cancelled) scheduleReconnect();
         return;
