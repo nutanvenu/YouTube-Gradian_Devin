@@ -12,6 +12,7 @@ import {
   verifyArtifactManifestTree,
   verifyArtifactManifestXml,
   fixtureMarkerErrors,
+  verifyApkAbis,
   verifyMergedManifest,
 } from "./verify-release-artifact.mjs";
 
@@ -362,6 +363,20 @@ test("artifact archive policy rejects fixture names and fixture bytes", () => {
   assert.deepEqual(fixtureMarkerErrors(["assets/policy.json"], [Buffer.from("production payload")]), []);
 });
 
+test("release APK policy requires every configured native ABI", () => {
+  const entries = [
+    "lib/armeabi-v7a/libguardian.so",
+    "lib/arm64-v8a/libguardian.so",
+    "lib/x86/libguardian.so",
+    "lib/x86_64/libguardian.so",
+  ];
+  assert.deepEqual(verifyApkAbis(entries), []);
+  assert.deepEqual(
+    verifyApkAbis(entries.filter((entry) => !entry.startsWith("lib/x86/"))),
+    ["Release APK is missing native libraries for ABI x86."],
+  );
+});
+
 test("the mobile API client has no production placeholder endpoint", async () => {
   const client = await readFile(
     new URL("../src/api/client.ts", import.meta.url),
@@ -369,4 +384,29 @@ test("the mobile API client has no production placeholder endpoint", async () =>
   );
   assert.doesNotMatch(client, /api\.guardian\.example/);
   assert.match(client, /require an explicitly configured HTTPS API URL/);
+});
+
+test("production APK workflow is manual, protected, universal, and secret-bound", async () => {
+  const workflow = await readFile(
+    new URL("../../../.github/workflows/android-release-apk.yml", import.meta.url),
+    "utf8",
+  );
+  assert.match(workflow, /workflow_dispatch:/);
+  assert.match(workflow, /environment: guardian-production/);
+  assert.match(workflow, /GUARDIAN_RELEASE_REQUIRED_ABIS: "armeabi-v7a,arm64-v8a,x86,x86_64"/);
+  for (const secret of [
+    "EXPO_PUBLIC_API_URL",
+    "GUARDIAN_DOH_URL",
+    "GUARDIAN_POLICY_TRUSTED_PUBLIC_KEYS",
+    "GUARDIAN_POLICY_KEY_ID",
+    "GUARDIAN_RELEASE_KEYSTORE_BASE64",
+    "GUARDIAN_RELEASE_STORE_PASSWORD",
+    "GUARDIAN_RELEASE_KEY_ALIAS",
+    "GUARDIAN_RELEASE_KEY_PASSWORD",
+    "GUARDIAN_RELEASE_CERT_SHA256",
+  ]) {
+    assert.match(workflow, new RegExp(`secrets\\.${secret}`));
+  }
+  assert.doesNotMatch(workflow, /GUARDIAN_(?:JWT_SECRET|POLICY_PRIVATE_KEY)/);
+  assert.match(workflow, /actions\/upload-artifact@[0-9a-f]{40}/);
 });

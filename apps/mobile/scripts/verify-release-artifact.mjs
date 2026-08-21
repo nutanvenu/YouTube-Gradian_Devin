@@ -65,6 +65,24 @@ export function fixtureMarkerErrors(entries, contents) {
 
 function output(command, args) { return execFileSync(command, args, { encoding: "utf8", maxBuffer: 64 * 1024 * 1024 }); }
 function archiveEntries(artifact) { return output("unzip", ["-Z1", artifact]).split("\n").filter(Boolean); }
+const DEFAULT_REQUIRED_APK_ABIS = ["armeabi-v7a", "arm64-v8a", "x86", "x86_64"];
+function requiredApkAbis() {
+  const configured = (process.env.GUARDIAN_RELEASE_REQUIRED_ABIS ?? "")
+    .split(",")
+    .map((abi) => abi.trim())
+    .filter(Boolean);
+  return configured.length ? configured : DEFAULT_REQUIRED_APK_ABIS;
+}
+export function verifyApkAbis(entries, required = requiredApkAbis()) {
+  const present = new Set(
+    entries
+      .map((entry) => entry.match(/^lib\/([^/]+)\//)?.[1])
+      .filter(Boolean),
+  );
+  return required
+    .filter((abi) => !present.has(abi))
+    .map((abi) => `Release APK is missing native libraries for ABI ${abi}.`);
+}
 function archiveFixtureErrors(artifact) {
   const entries = archiveEntries(artifact);
   const inspected = entries.filter((entry) => /(^|\/)(assets\/|.*\.dex$|.*\.(?:jsbundle|bundle|json)$)/i.test(entry));
@@ -124,7 +142,7 @@ function main() {
   if (kind === "apk") {
     const aapt = requiredFile(argument("--aapt"), "Android aapt");
     const apksigner = requiredFile(argument("--apksigner"), "Android apksigner");
-    errors.push(...verifyArtifactManifestTree(output(aapt, ["dump", "xmltree", artifact, "AndroidManifest.xml"])), ...verifyApkCertificate(artifact, apksigner), ...verifyApkVersion(artifact, aapt, expectedVersion));
+    errors.push(...verifyArtifactManifestTree(output(aapt, ["dump", "xmltree", artifact, "AndroidManifest.xml"])), ...verifyApkCertificate(artifact, apksigner), ...verifyApkVersion(artifact, aapt, expectedVersion), ...verifyApkAbis(archiveEntries(artifact)));
   } else if (kind === "aab") {
     const keytool = requiredFile(argument("--keytool"), "keytool");
     const jarsigner = requiredFile(argument("--jarsigner"), "jarsigner");
