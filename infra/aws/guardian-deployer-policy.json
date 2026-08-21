@@ -70,6 +70,27 @@
       "Resource": "arn:aws:elasticloadbalancing:ap-south-1:866490183313:targetgroup/guardian-production-api/*"
     },
     {
+      "Sid": "GuardianLoadBalancerInPlaceUpdates",
+      "Effect": "Allow",
+      "Action": [
+        "elasticloadbalancing:ModifyListener",
+        "elasticloadbalancing:ModifyRule"
+      ],
+      "Resource": [
+        "arn:aws:elasticloadbalancing:ap-south-1:866490183313:listener/app/guardian-production-api/*",
+        "arn:aws:elasticloadbalancing:ap-south-1:866490183313:listener-rule/app/guardian-production-api/*"
+      ]
+    },
+    {
+      "Sid": "GuardianTargetGroupInPlaceUpdates",
+      "Effect": "Allow",
+      "Action": [
+        "elasticloadbalancing:ModifyTargetGroup",
+        "elasticloadbalancing:ModifyTargetGroupAttributes"
+      ],
+      "Resource": "arn:aws:elasticloadbalancing:ap-south-1:866490183313:targetgroup/guardian-production-api/*"
+    },
+    {
       "Sid": "GuardianDatabase",
       "Effect": "Allow",
       "Action": [
