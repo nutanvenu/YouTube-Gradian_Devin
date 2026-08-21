@@ -449,7 +449,7 @@ jobs:
         shell: bash
         run: |
           set -euo pipefail
-          evidence=artifacts/trusted-acceptance
+          evidence="$GITHUB_WORKSPACE/artifacts/trusted-acceptance"
           seed="$RUNNER_TEMP/guardian-policy-seed"
           trust_map="$RUNNER_TEMP/guardian-policy-trust-map.json"
           key_id=guardian-ci-2026
