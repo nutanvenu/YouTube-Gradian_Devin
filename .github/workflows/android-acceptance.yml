@@ -148,7 +148,7 @@ jobs:
           pnpm audit --prod --audit-level=high --json > "$evidence/dependency-audit.json"
           node_audit_status=$?
           requirements="$RUNNER_TEMP/guardian-backend-requirements.txt"
-          uv export --directory backend --locked --no-hashes --format requirements-txt > "$requirements"
+          uv export --directory backend --locked --no-hashes --no-emit-project --format requirements-txt > "$requirements"
           uvx --from pip-audit==2.9.0 pip-audit --requirement "$requirements" \
             > "$evidence/backend-dependency-audit.txt"
           backend_audit_status=$?
