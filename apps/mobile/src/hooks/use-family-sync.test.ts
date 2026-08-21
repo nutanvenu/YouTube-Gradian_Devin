@@ -65,6 +65,20 @@ test("connects to the configured secure WebSocket and uses the parent bearer tok
   hook.unmount();
 });
 
+test("ignores malformed WebSocket frames and still invalidates valid events", async () => {
+  const hook = renderHook(() => useFamilySync("family-1"));
+  await act(async () => undefined);
+  const socket = MockWebSocket.instances[0];
+
+  expect(() => socket.onmessage?.({ data: "not-json" })).not.toThrow();
+  expect(mockInvalidateQueries).not.toHaveBeenCalled();
+  act(() => socket.onmessage?.({ data: JSON.stringify({ type: "request-created" }) }));
+  expect(mockInvalidateQueries).toHaveBeenCalled();
+  expect(mockInvalidateQueries).toHaveBeenCalledWith({ queryKey: ["activity-usage", "family-1"] });
+
+  hook.unmount();
+});
+
 test("falls back to polling and reconnects after a WebSocket failure", async () => {
   const hook = renderHook(() => useFamilySync("family-1"));
   await act(async () => { await Promise.resolve(); });

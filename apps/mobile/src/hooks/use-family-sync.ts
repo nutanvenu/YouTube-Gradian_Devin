@@ -21,6 +21,7 @@ export function useFamilySync(familyId: string | undefined, childId?: string) {
       queryClient.invalidateQueries({ queryKey: ["health", familyId] }),
       queryClient.invalidateQueries({ queryKey: ["requests", familyId] }),
       queryClient.invalidateQueries({ queryKey: ["activity", familyId] }),
+      queryClient.invalidateQueries({ queryKey: ["activity-usage", familyId] }),
       queryClient.invalidateQueries({ queryKey: ["device-policy"] }),
     ]).catch(() => undefined);
 
@@ -79,7 +80,14 @@ export function useFamilySync(familyId: string | undefined, childId?: string) {
         stopPolling();
       };
       currentSocket.onmessage = ({ data }) => {
-        const event = JSON.parse(String(data)) as { type?: string };
+        let event: { type?: string };
+        try {
+          event = JSON.parse(String(data)) as { type?: string };
+        } catch {
+          // Ignore malformed proxy/server frames without tearing down the
+          // live connection or crashing the React event callback.
+          return;
+        }
         if (event.type === "ping") {
           currentSocket.send("pong");
           return;

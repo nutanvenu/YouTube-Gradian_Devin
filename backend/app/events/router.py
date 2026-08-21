@@ -261,6 +261,11 @@ async def websocket_sync(
         if child is None or (child_id is not None and str(child.id) != child_id):
             await websocket.close(code=1008)
             return
+        # A device credential is permanently bound to one child.  Derive the
+        # scope from that credential when the client omits the query parameter
+        # so a child connection can never accidentally subscribe to the whole
+        # family (which would expose another child's events).
+        child_id = str(child.id)
     bundle = None
     if child_id is not None:
         try:
