@@ -307,8 +307,6 @@ class EncryptedPolicyStore(
         emptyList()
       }
     } ?: emptyList()
-  }
-
   private fun read(key: String): String? {
     val encoded = preferences.getString(key, null) ?: return null
     return runCatching { decrypt(encoded) }.getOrElse {

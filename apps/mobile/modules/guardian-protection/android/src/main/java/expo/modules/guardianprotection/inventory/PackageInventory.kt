@@ -40,8 +40,8 @@ class PackageInventory(private val context: Context) {
       val packageInfo = runCatching { packageManager.getPackageInfo(packageName, 0) }.getOrNull()
       mapOf(
         "platformAppId" to packageName,
-        "displayName" to application?.let { packageManager.getApplicationLabel(it).toString() } ?: packageName,
-        "category" to application?.let(::category) ?: "UNKNOWN",
+        "displayName" to (application?.let { packageManager.getApplicationLabel(it).toString() } ?: packageName),
+        "category" to (application?.let(::category) ?: "UNKNOWN"),
         "iconUri" to icon,
         "newlyObserved" to newlyObserved.contains(packageName),
         "observedAt" to observedAt(packageName),
@@ -63,7 +63,7 @@ class PackageInventory(private val context: Context) {
   }
 
   /** Records package identifiers and source only; it never stores notification text or flow payloads. */
-  fun recordObservedPackages(
+  internal fun recordObservedPackages(
     packages: Collection<String>,
     source: InventorySource,
     observedAtMillis: Long = System.currentTimeMillis(),
