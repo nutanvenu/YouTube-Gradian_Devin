@@ -200,15 +200,13 @@ jobs:
           set -euo pipefail
           apk=artifacts/release-source/Guardian-universal-release.apk
           evidence=artifacts/release-emulator-smoke
-          emulator_acceleration=(-accel on)
+          sudo chmod 666 /dev/kvm || true
           if [[ ! -c /dev/kvm || ! -r /dev/kvm || ! -w /dev/kvm ]]; then
-            emulator_acceleration=(-accel off)
-            printf '%s\n' 'KVM unavailable: running the exact release APK with Android Emulator software acceleration.' \
-              > "$evidence/emulator-acceleration.txt"
-          else
-            printf '%s\n' 'KVM available: running the exact release APK with hardware acceleration.' \
-              > "$evidence/emulator-acceleration.txt"
+            echo '/dev/kvm must be an existing readable/writable device for reliable dual-emulator smoke.' >&2
+            exit 1
           fi
+          printf '%s\n' 'KVM available: running the exact release APK with hardware acceleration.' \
+            > "$evidence/emulator-acceleration.txt"
           cleanup() {
             adb -s emulator-5554 emu kill >/dev/null 2>&1 || true
             adb -s emulator-5556 emu kill >/dev/null 2>&1 || true
@@ -220,7 +218,7 @@ jobs:
             local serial="$3"
             local port="$4"
             emulator -avd "$avd" -port "$port" -no-window -no-audio -no-boot-anim \
-              -gpu swiftshader_indirect -no-snapshot -wipe-data "${emulator_acceleration[@]}" \
+              -gpu swiftshader_indirect -no-snapshot -wipe-data \
               > "$evidence/$role.emulator.log" 2>&1 &
             timeout 120 adb -s "$serial" wait-for-device
             timeout 300 bash -c "until adb -s '$serial' shell getprop sys.boot_completed | tr -d '\\r' | grep -qx 1; do sleep 2; done"
