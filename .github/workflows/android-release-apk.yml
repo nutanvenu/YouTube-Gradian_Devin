@@ -21,20 +21,6 @@ jobs:
     runs-on: ubuntu-latest
     timeout-minutes: 90
     environment: guardian-production
-    env:
-      # These values are intentionally read only from the protected environment.
-      EXPO_PUBLIC_API_URL: ${{ secrets.EXPO_PUBLIC_API_URL }}
-      GUARDIAN_DOH_URL: ${{ secrets.GUARDIAN_DOH_URL }}
-      GUARDIAN_POLICY_TRUSTED_PUBLIC_KEYS: ${{ secrets.GUARDIAN_POLICY_TRUSTED_PUBLIC_KEYS }}
-      GUARDIAN_POLICY_KEY_ID: ${{ secrets.GUARDIAN_POLICY_KEY_ID }}
-      GUARDIAN_RELEASE_STORE_PASSWORD: ${{ secrets.GUARDIAN_RELEASE_STORE_PASSWORD }}
-      GUARDIAN_RELEASE_KEY_ALIAS: ${{ secrets.GUARDIAN_RELEASE_KEY_ALIAS }}
-      GUARDIAN_RELEASE_KEY_PASSWORD: ${{ secrets.GUARDIAN_RELEASE_KEY_PASSWORD }}
-      GUARDIAN_RELEASE_CERT_SHA256: ${{ secrets.GUARDIAN_RELEASE_CERT_SHA256 }}
-      GUARDIAN_RELEASE_STORE_TYPE: ${{ vars.GUARDIAN_RELEASE_STORE_TYPE || 'PKCS12' }}
-      GUARDIAN_RELEASE_VERSION_CODE: ${{ inputs.version_code }}
-      GUARDIAN_ENABLE_TEST_FIXTURES: "false"
-      GUARDIAN_RELEASE_REQUIRED_ABIS: "armeabi-v7a,arm64-v8a,x86,x86_64"
 
     steps:
       - name: Check out the requested commit
@@ -128,15 +114,42 @@ jobs:
 
       - name: Run release admission tests
         working-directory: apps/mobile
+        env:
+          EXPO_PUBLIC_API_URL: ${{ secrets.EXPO_PUBLIC_API_URL }}
+          GUARDIAN_DOH_URL: ${{ secrets.GUARDIAN_DOH_URL }}
+          GUARDIAN_POLICY_TRUSTED_PUBLIC_KEYS: ${{ secrets.GUARDIAN_POLICY_TRUSTED_PUBLIC_KEYS }}
+          GUARDIAN_POLICY_KEY_ID: ${{ secrets.GUARDIAN_POLICY_KEY_ID }}
+          GUARDIAN_RELEASE_STORE_PASSWORD: ${{ secrets.GUARDIAN_RELEASE_STORE_PASSWORD }}
+          GUARDIAN_RELEASE_KEY_ALIAS: ${{ secrets.GUARDIAN_RELEASE_KEY_ALIAS }}
+          GUARDIAN_RELEASE_KEY_PASSWORD: ${{ secrets.GUARDIAN_RELEASE_KEY_PASSWORD }}
+          GUARDIAN_RELEASE_CERT_SHA256: ${{ secrets.GUARDIAN_RELEASE_CERT_SHA256 }}
+          GUARDIAN_RELEASE_STORE_TYPE: ${{ vars.GUARDIAN_RELEASE_STORE_TYPE || 'PKCS12' }}
+          GUARDIAN_RELEASE_VERSION_CODE: ${{ inputs.version_code }}
+          GUARDIAN_ENABLE_TEST_FIXTURES: "false"
         run: pnpm test:release-admission
 
       - name: Build signed universal APK and run artifact policy gate
         working-directory: apps/mobile/android
+        env:
+          EXPO_PUBLIC_API_URL: ${{ secrets.EXPO_PUBLIC_API_URL }}
+          GUARDIAN_DOH_URL: ${{ secrets.GUARDIAN_DOH_URL }}
+          GUARDIAN_POLICY_TRUSTED_PUBLIC_KEYS: ${{ secrets.GUARDIAN_POLICY_TRUSTED_PUBLIC_KEYS }}
+          GUARDIAN_POLICY_KEY_ID: ${{ secrets.GUARDIAN_POLICY_KEY_ID }}
+          GUARDIAN_RELEASE_STORE_PASSWORD: ${{ secrets.GUARDIAN_RELEASE_STORE_PASSWORD }}
+          GUARDIAN_RELEASE_KEY_ALIAS: ${{ secrets.GUARDIAN_RELEASE_KEY_ALIAS }}
+          GUARDIAN_RELEASE_KEY_PASSWORD: ${{ secrets.GUARDIAN_RELEASE_KEY_PASSWORD }}
+          GUARDIAN_RELEASE_CERT_SHA256: ${{ secrets.GUARDIAN_RELEASE_CERT_SHA256 }}
+          GUARDIAN_RELEASE_STORE_TYPE: ${{ vars.GUARDIAN_RELEASE_STORE_TYPE || 'PKCS12' }}
+          GUARDIAN_RELEASE_VERSION_CODE: ${{ inputs.version_code }}
+          GUARDIAN_ENABLE_TEST_FIXTURES: "false"
+          GUARDIAN_RELEASE_REQUIRED_ABIS: "armeabi-v7a,arm64-v8a,x86,x86_64"
         run: |
           ./gradlew -PreactNativeArchitectures="$GUARDIAN_RELEASE_REQUIRED_ABIS" :app:assembleRelease --no-daemon --stacktrace
 
       - name: Record checksum, manifest, signer, and ABI evidence
         shell: bash
+        env:
+          GUARDIAN_RELEASE_VERSION_CODE: ${{ inputs.version_code }}
         run: |
           set -euo pipefail
           apk_dir="apps/mobile/android/app/build/outputs/apk/release"
@@ -146,7 +159,7 @@ jobs:
           evidence="$RUNNER_TEMP/guardian-release-evidence"
           mkdir -p "$evidence"
           cp "$apk" "$evidence/Guardian-universal-release.apk"
-          sha256sum "$apk" > "$evidence/Guardian-universal-release.apk.sha256"
+          (cd "$evidence" && sha256sum Guardian-universal-release.apk > Guardian-universal-release.apk.sha256)
           "$ANDROID_HOME/build-tools/36.0.0/aapt" dump badging "$apk" > "$evidence/manifest.badging.txt"
           "$ANDROID_HOME/build-tools/36.0.0/aapt" dump permissions "$apk" > "$evidence/manifest.permissions.txt"
           "$ANDROID_HOME/build-tools/36.0.0/aapt" dump xmltree "$apk" AndroidManifest.xml > "$evidence/manifest.xmltree.txt"
