@@ -182,6 +182,7 @@ const REFRESH_TOKEN_KEY = "guardian.refresh-token";
 const DEVICE_TOKEN_KEY = "guardian.device-token";
 const DEVICE_PRIVATE_KEY_KEY = "guardian.device-private-key";
 const FAMILY_ID_KEY = "guardian.family-id";
+const SELECTED_CHILD_ID_KEY = "guardian.selected-child-id";
 
 export class ApiError extends Error {
   constructor(message: string, readonly status: number, readonly code?: string, readonly requestId?: string) {
@@ -228,6 +229,8 @@ export const sessionStorage = {
   setDevicePrivateKey: (key: string) => SecureStore.setItemAsync(DEVICE_PRIVATE_KEY_KEY, key),
   getFamilyId: () => SecureStore.getItemAsync(FAMILY_ID_KEY),
   setFamilyId: (familyId: string) => SecureStore.setItemAsync(FAMILY_ID_KEY, familyId),
+  getSelectedChildId: () => SecureStore.getItemAsync(SELECTED_CHILD_ID_KEY),
+  setSelectedChildId: (childId: string) => SecureStore.setItemAsync(SELECTED_CHILD_ID_KEY, childId),
 };
 
 export class GuardianApiClient {
@@ -325,6 +328,22 @@ export class GuardianApiClient {
 
   signup(email: string, password: string) { return this.request<Tokens>("/v1/auth/signup", { method: "POST", body: JSON.stringify({ email, password }) }); }
   login(email: string, password: string) { return this.request<Tokens>("/v1/auth/login", { method: "POST", body: JSON.stringify({ email, password }) }); }
+  async logout(): Promise<void> {
+    const refreshToken = await sessionStorage.getRefreshToken();
+    try {
+      if (refreshToken) {
+        await fetch(`${this.baseUrl}/v1/auth/logout`, {
+          method: "POST",
+          headers: { "Content-Type": "application/json" },
+          body: JSON.stringify({ refresh_token: refreshToken }),
+        });
+      }
+    } catch {
+      // Local parent credentials must be cleared even when the device is offline.
+    } finally {
+      await sessionStorage.clearParentSession();
+    }
+  }
   me() { return this.request<Parent>("/v1/auth/me"); }
   deleteAccount() { return this.request<undefined>("/v1/auth/account", { method: "DELETE" }); }
   createFamily(name: string) { return this.request<Family>("/v1/families", { method: "POST", body: JSON.stringify({ name }) }); }
@@ -334,9 +353,15 @@ export class GuardianApiClient {
   createChild(familyId: string, input: { name: string; date_of_birth: string; timezone: string }) { return this.request<Child>(`/v1/families/${familyId}/children`, { method: "POST", body: JSON.stringify(input) }); }
   children(familyId: string) { return this.request<Child[]>(`/v1/families/${familyId}/children`); }
   child(familyId: string, childId: string) { return this.request<Child>(`/v1/families/${familyId}/children/${childId}`); }
-  health(familyId: string) { return this.request<Health[]>(`/v1/families/${familyId}/health`); }
-  activity(familyId: string) { return this.request<ActivityEvent[]>(`/v1/families/${familyId}/activity`); }
-  activityUsage(familyId: string) { return this.request<ActivityUsagePoint[]>(`/v1/families/${familyId}/activity/usage`); }
+  health(familyId: string, childId?: string) {
+    return this.request<Health[]>(`/v1/families/${familyId}/health${childId ? `?child_id=${encodeURIComponent(childId)}` : ""}`);
+  }
+  activity(familyId: string, childId?: string) {
+    return this.request<ActivityEvent[]>(`/v1/families/${familyId}/activity${childId ? `?child_id=${encodeURIComponent(childId)}` : ""}`);
+  }
+  activityUsage(familyId: string, childId?: string) {
+    return this.request<ActivityUsagePoint[]>(`/v1/families/${familyId}/activity/usage${childId ? `?child_id=${encodeURIComponent(childId)}` : ""}`);
+  }
   usageReport(familyId: string, input: { childId?: string; start: string; end: string; timezone: string; granularity?: "DAILY" | "WEEKLY" }) {
     const params = new URLSearchParams({
       start: input.start,
@@ -430,8 +455,8 @@ export class GuardianApiClient {
       body: JSON.stringify(input),
     });
   }
-  requests(familyId: string) {
-    return this.request<AccessRequest[]>(`/v1/families/${familyId}/requests`);
+  requests(familyId: string, childId?: string) {
+    return this.request<AccessRequest[]>(`/v1/families/${familyId}/requests${childId ? `?child_id=${encodeURIComponent(childId)}` : ""}`);
   }
   contentApprovals() {
     return this.request<ContentApproval[]>("/v1/devices/me/content-approvals");

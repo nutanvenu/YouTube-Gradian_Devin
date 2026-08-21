@@ -15,6 +15,7 @@ import {
 } from "@/design-system";
 import { GuardianProtection } from "../../../modules/guardian-protection/src";
 import type { GuardianNativeEvent } from "@guardian/contracts";
+import { clearRevokedChildDevice } from "@/state/child-device-recovery";
 
 const ACCESSIBILITY_SIGNALS_DISABLED_BY_PARENT_POLICY =
   "Disabled by the current signed parent policy. Ask a parent to enable Android content-safety signals.";
@@ -367,7 +368,7 @@ export default function ChildHomeRoute() {
   return (
     <ScreenScaffold title="My time">
       {revoked ? (
-        <ProtectionRemovedState onRecover={() => router.replace("/role-selection")} />
+        <ProtectionRemovedState onRecover={() => { void clearRevokedChildDevice().then(() => router.replace("/child/pair")); }} />
       ) : (
         <DataState
           state={policyState}

@@ -217,7 +217,7 @@ test("Rules renders loading and pending-sync states and submits an app limit", a
   setQuery(["child-inventory", "family-1", "child-1"], {
     data: [{ platform_app_id: "com.example.app", display_name: "Example", category: null, reviewed: true }],
   });
-  setQuery(["health", "family-1"], { data: [] });
+  setQuery(["health", "family-1", "child-1"], { data: [] });
   const screen = render(<RulesScreen />);
   expect(screen.getByText(/Rules active on device\./)).toBeTruthy();
   fireEvent.press(screen.getByLabelText("Limit to 30 minutes"));
@@ -243,7 +243,7 @@ test("Rules keeps content blocking separate from notification alert sensitivity"
     }],
   });
   setQuery(["child-inventory", "family-1", "child-1"], { data: [] });
-  setQuery(["health", "family-1"], { data: [] });
+  setQuery(["health", "family-1", "child-1"], { data: [] });
   const screen = render(<RulesScreen />);
   expect(screen.getByText("Content Safety")).toBeTruthy();
   expect(screen.getByText("Block content at: MEDIUM")).toBeTruthy();
@@ -268,7 +268,7 @@ test("Rules keeps a newly observed app in review until the parent marks it revie
     data: [{ platform_app_id: "com.example.new", display_name: "New app", category: null, reviewed: false }],
     refetch,
   });
-  setQuery(["health", "family-1"], { data: [] });
+  setQuery(["health", "family-1", "child-1"], { data: [] });
   const screen = render(<RulesScreen />);
   expect(screen.getByText("This app was newly observed on the child device. Review it before treating it as trusted.")).toBeTruthy();
   fireEvent.press(screen.getByLabelText("Mark app reviewed"));
@@ -291,7 +291,7 @@ test("Rules keep app-specific drafts on the selected package when inventory reor
     ],
   });
   setQuery(["reputation", "family-1", "child-1"], { isError: true });
-  setQuery(["health", "family-1"], { data: [] });
+  setQuery(["health", "family-1", "child-1"], { data: [] });
   const screen = render(<RulesScreen />);
   expect(stableObservedApps([
     { platform_app_id: "z", display_name: "Beta", category: null, reviewed: true },
@@ -314,13 +314,13 @@ test("Rules keep app-specific drafts on the selected package when inventory reor
 
 test("Requests renders retry and terminal approval states", async () => {
   const refetch = jest.fn();
-  setQuery(["requests", "family-1"], { isError: true, refetch });
+  setQuery(["requests", "family-1", "child-1"], { isError: true, refetch });
   const errorScreen = render(<RequestsScreen />);
   fireEvent.press(errorScreen.getByLabelText("Retry"));
   expect(refetch).toHaveBeenCalled();
   errorScreen.unmount();
 
-  setQuery(["requests", "family-1"], {
+  setQuery(["requests", "family-1", "child-1"], {
     data: [{
       id: "request-1",
       request_type: "MORE_TIME",
@@ -343,13 +343,13 @@ test("Rules and Requests render stale and offline states", () => {
   staleRules.unmount();
 
   mockOffline = true;
-  setQuery(["requests", "family-1"], { data: [] });
+  setQuery(["requests", "family-1", "child-1"], { data: [] });
   const offlineRequests = render(<RequestsScreen />);
   expect(offlineRequests.getByText("You're offline. Last-known data may be shown.")).toBeTruthy();
 });
 
 test("Protection Health renders permission-denied and platform-unavailable capability details", () => {
-  setQuery(["health", "family-1"], { data: [] });
+  setQuery(["health", "family-1", "child-1"], { data: [] });
   setQuery(["guardian-capabilities"], {
     data: {
       app_usage: { level: "UNAVAILABLE", detail: "Permission denied" },
@@ -400,17 +400,17 @@ test("Child device explains when signed parent policy disables Accessibility con
 
 test("Activity renders empty data distinctly from endpoint errors", () => {
   const refetch = jest.fn();
-  setQuery(["activity", "family-1"], { data: [], isError: true, refetch });
-  setQuery(["activity-usage", "family-1"], { data: [], isError: true });
+  setQuery(["activity", "family-1", "child-1"], { data: [], isError: true, refetch });
+  setQuery(["activity-usage", "family-1", "child-1"], { data: [], isError: true });
   const screen = render(<ActivityScreen />);
   fireEvent.press(screen.getByLabelText("Retry"));
   expect(refetch).toHaveBeenCalled();
   expect(screen.getByText("We couldn't load this data.")).toBeTruthy();
   screen.unmount();
 
-  setQuery(["activity", "family-1"], { data: [] });
-  setQuery(["activity-usage", "family-1"], { data: [] });
-  setQuery(["usage-report", "family-1"], { data: [] });
+  setQuery(["activity", "family-1", "child-1"], { data: [] });
+  setQuery(["activity-usage", "family-1", "child-1"], { data: [] });
+  setQuery(["usage-report", "family-1", "child-1"], { data: [] });
   const loaded = render(<ActivityScreen />);
   expect(loaded.getByText("Nothing to show yet.")).toBeTruthy();
   expect(loaded.getByText("Unknown · this family has not reported activity yet.")).toBeTruthy();
@@ -421,17 +421,17 @@ test("Activity renders empty data distinctly from endpoint errors", () => {
 test("Activity renders permission-denied for an expired session", () => {
   const mockedClient: { ApiError: new (message: string, status: number) => Error & { status: number } } = jest.requireMock("@/api/client");
   const ApiError = mockedClient.ApiError;
-  setQuery(["activity", "family-1"], { error: new ApiError("Unauthorized", 401), isError: true });
-  setQuery(["activity-usage", "family-1"], { data: [] });
-  setQuery(["usage-report", "family-1"], { data: [] });
+  setQuery(["activity", "family-1", "child-1"], { error: new ApiError("Unauthorized", 401), isError: true });
+  setQuery(["activity-usage", "family-1", "child-1"], { data: [] });
+  setQuery(["usage-report", "family-1", "child-1"], { data: [] });
   const screen = render(<ActivityScreen />);
   expect(screen.getByText("Permission is required to continue.")).toBeTruthy();
   expect(screen.queryByText("We couldn't load this data.")).toBeNull();
 });
 
 test("Activity renders sub-minute usage without rounding it to zero", () => {
-  setQuery(["activity", "family-1"], { data: [] });
-  setQuery(["activity-usage", "family-1"], {
+  setQuery(["activity", "family-1", "child-1"], { data: [] });
+  setQuery(["activity-usage", "family-1", "child-1"], {
     data: [{
       app_ref: "com.example.short",
       category: "EDUCATION",
@@ -440,7 +440,7 @@ test("Activity renders sub-minute usage without rounding it to zero", () => {
       occurred_at: new Date().toISOString(),
     }],
   });
-  setQuery(["usage-report", "family-1"], { data: [] });
+  setQuery(["usage-report", "family-1", "child-1"], { data: [] });
   const screen = render(<ActivityScreen />);
   expect(screen.getByText("APP:com.example.short")).toBeTruthy();
   expect(screen.getAllByText("<1 min")).toHaveLength(2);

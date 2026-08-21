@@ -219,6 +219,11 @@ test("Android release sources declare SDK 36, no debug signing, and fail-closed 
     /GUARDIAN_(?:JWT_SECRET|POLICY_PRIVATE_KEY|ENVIRONMENT)/,
   );
   assert.match(moduleBuildFile, /GUARDIAN_NON_RELEASE_FIXTURES_ENABLED/);
+  assert.match(moduleBuildFile, /System\.getenv\("GUARDIAN_POLICY_TRUSTED_PUBLIC_KEYS"\)/);
+  assert.match(moduleBuildFile, /System\.getenv\("GUARDIAN_POLICY_KEY_ID"\)/);
+  assert.match(moduleBuildFile, /System\.getenv\("GUARDIAN_DOH_URL"\)/);
+  assert.match(moduleBuildFile, /GUARDIAN_POLICY_KEY_ID/);
+  assert.doesNotMatch(moduleBuildFile, /project\.findProperty/);
 });
 
 test("release manifest is private by default and declares transparent monitoring only", async () => {

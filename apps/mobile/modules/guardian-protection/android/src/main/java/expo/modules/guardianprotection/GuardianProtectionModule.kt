@@ -29,7 +29,13 @@ import java.util.concurrent.atomic.AtomicReference
 
 class GuardianProtectionModule : Module() {
   private val store by lazy { EncryptedPolicyStore(requireNotNull(appContext.reactContext)) }
-  private val policyManager by lazy { PolicyManager(store, BuildConfig.GUARDIAN_POLICY_TRUSTED_PUBLIC_KEYS) }
+  private val policyManager by lazy {
+    PolicyManager(
+      store,
+      BuildConfig.GUARDIAN_POLICY_TRUSTED_PUBLIC_KEYS,
+      BuildConfig.GUARDIAN_POLICY_KEY_ID,
+    )
+  }
   private val reputationManager by lazy {
     val verifier = PolicyVerifier(parseTrustedKeys(BuildConfig.GUARDIAN_POLICY_TRUSTED_PUBLIC_KEYS))
     ReputationManager(EncryptedReputationStore(requireNotNull(appContext.reactContext))) { verifier.verify(it) }
@@ -110,6 +116,12 @@ class GuardianProtectionModule : Module() {
     }
     AsyncFunction("setContentDeviceId") { deviceId: String ->
       store.setContentDeviceId(deviceId)
+    }
+    AsyncFunction("clearChildIdentity") {
+      val context = requireNotNull(appContext.reactContext)
+      GuardianVpnService.stop(context)
+      policyManager.clear()
+      ContentSafetyConsentStore(context).setAccessibilityContentConsent(false)
     }
     AsyncFunction("applyContentApprovals") { approvals: List<Map<String, Any?>> ->
       val parsed = approvals.map { approval ->

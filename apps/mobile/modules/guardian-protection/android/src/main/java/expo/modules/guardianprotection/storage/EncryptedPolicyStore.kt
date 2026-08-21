@@ -125,6 +125,21 @@ class EncryptedPolicyStore(
 
   fun contentDeviceId(): String? = read("content-device-id")?.takeIf(DEVICE_ID_PATTERN::matches)
 
+  /** An explicit re-pairing discards the prior child's credentials and signed local state. */
+  @Synchronized
+  fun clearChildIdentity() {
+    preferences.edit()
+      .remove("active")
+      .remove("previous")
+      .remove("applied-version")
+      .remove("content-device-id")
+      .remove("content-approvals")
+      .remove("content-risk-events")
+      .remove("active-content-block")
+      .remove("content-fingerprint-key")
+      .commit()
+  }
+
   /** Bounded encrypted queue used while the JS runtime is absent. Values are pre-minimized. */
   @Synchronized
   fun appendContentRiskEvent(event: Map<String, Any>): Boolean {

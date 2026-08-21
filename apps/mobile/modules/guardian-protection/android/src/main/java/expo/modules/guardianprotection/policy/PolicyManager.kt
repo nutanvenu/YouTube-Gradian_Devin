@@ -10,11 +10,16 @@ import java.time.Instant
 class PolicyManager(
   private val store: EncryptedPolicyStore,
   trustedKeysJson: String = "{}",
+  activeKeyId: String = "",
 ) {
-  private val verifier = PolicyVerifier(parseTrustedKeys(trustedKeysJson))
+  private val trustedKeys = parseTrustedKeys(trustedKeysJson)
+  private val verifier = PolicyVerifier(trustedKeys)
   @Volatile private var active: CompiledPolicySnapshot? = null
   @Volatile private var previous: CompiledPolicySnapshot? = null
   init {
+    require(activeKeyId.isBlank() || trustedKeys.containsKey(activeKeyId)) {
+      "Configured active policy key is absent from the trusted key set"
+    }
     store.active()?.let { encoded ->
       runCatching {
         val restored = compile(parseJsonObject(encoded))
@@ -54,6 +59,12 @@ class PolicyManager(
     previous = active ?: snapshot
     active = restored
     return true
+  }
+
+  fun clear() {
+    active = null
+    previous = null
+    store.clearChildIdentity()
   }
 
   fun activeSnapshot(): CompiledPolicySnapshot? = active

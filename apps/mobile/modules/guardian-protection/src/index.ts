@@ -33,6 +33,7 @@ export const GuardianProtection: GuardianProtectionNative = {
   setAccessibilityContentConsent: (granted: boolean): Promise<PermissionResult> =>
     native.setAccessibilityContentConsent(granted),
   setContentDeviceId: (deviceId: string): Promise<void> => native.setContentDeviceId(deviceId),
+  clearChildIdentity: (): Promise<void> => native.clearChildIdentity(),
   applyContentApprovals: (approvals: ContentApproval[]) => native.applyContentApprovals(approvals),
   getPendingContentReviewRequests: (): Promise<ContentReviewRequest[]> => native.getPendingContentReviewRequests(),
   acknowledgeContentReviewRequest: (appRef: string, fingerprint: string): Promise<void> =>
