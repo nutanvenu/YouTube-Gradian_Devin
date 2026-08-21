@@ -61,6 +61,15 @@
       "Resource": "*"
     },
     {
+      "Sid": "GuardianApiTargetRegistration",
+      "Effect": "Allow",
+      "Action": [
+        "elasticloadbalancing:DeregisterTargets",
+        "elasticloadbalancing:RegisterTargets"
+      ],
+      "Resource": "arn:aws:elasticloadbalancing:ap-south-1:866490183313:targetgroup/guardian-production-api/*"
+    },
+    {
       "Sid": "GuardianDatabase",
       "Effect": "Allow",
       "Action": [
