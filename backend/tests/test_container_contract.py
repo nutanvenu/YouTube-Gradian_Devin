@@ -13,6 +13,7 @@ def test_container_runs_unprivileged_single_worker_and_has_a_healthcheck() -> No
     assert "HEALTHCHECK" in dockerfile
     assert "alembic upgrade head" in entrypoint
     assert "--workers 1" in entrypoint
+    assert "--no-access-log" in entrypoint
     assert "GUARDIAN_UVICORN_WORKERS must be exactly 1" in entrypoint
 
 

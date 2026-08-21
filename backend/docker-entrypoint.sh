@@ -10,4 +10,6 @@ fi
 
 python -c 'from app.core.config import get_settings; get_settings()'
 alembic upgrade head
-exec uvicorn app.main:app --host 0.0.0.0 --port "${PORT:-8000}" --workers 1
+# The application emits an audited, token-redacted request record. Uvicorn's
+# default access log would otherwise retain one-time push action tokens.
+exec uvicorn app.main:app --host 0.0.0.0 --port "${PORT:-8000}" --workers 1 --no-access-log
