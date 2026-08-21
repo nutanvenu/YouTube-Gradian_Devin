@@ -189,6 +189,16 @@ test("Android release sources declare SDK 36, no debug signing, and fail-closed 
   assert.match(buildFile, /verifyGuardianReleaseAdmission/);
   assert.match(buildFile, /verifyGuardianReleaseApkArtifact/);
   assert.match(buildFile, /verifyGuardianReleaseAabArtifact/);
+  assert.match(
+    buildFile,
+    /def currentManifests = fileTree\(buildDir\)\.matching \{\s*include "intermediates\/merged_manifest\/release\/\*\*\/AndroidManifest\.xml"\s*\}\.files\s*def manifests = currentManifests\.size\(\) == 1 \? currentManifests : fileTree\(buildDir\)\.matching \{\s*include "intermediates\/merged_manifests\/release\/\*\*\/AndroidManifest\.xml"/,
+    "release verification must select the current AGP manifest layout before its legacy compatibility copy",
+  );
+  assert.match(
+    buildFile,
+    /Expected exactly one logical merged release AndroidManifest\.xml\./,
+    "each accepted AGP layout must still contain exactly one logical release manifest",
+  );
   assert.match(buildFile, /com\.android\.tools\.build:bundletool:1\.18\.1/);
   assert.doesNotMatch(buildFile, /apkanalyzer/);
   assert.match(buildFile, /GUARDIAN_RELEASE_VERSION_CODE/);
