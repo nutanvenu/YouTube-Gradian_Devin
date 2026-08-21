@@ -45,7 +45,10 @@ async def test_protected_device_posts_require_signed_request_proof(
         bearer_only = await client.post(
             path,
             content=encoded_body,
-            headers={"Authorization": f"Bearer {paired_device.device_token}"},
+            headers={
+                "Authorization": f"Bearer {paired_device.device_token}",
+                "Content-Type": "application/json",
+            },
         )
         assert bearer_only.status_code == 401, (path, bearer_only.text)
 
