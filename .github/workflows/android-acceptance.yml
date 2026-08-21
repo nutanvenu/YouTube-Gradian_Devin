@@ -52,6 +52,7 @@ jobs:
   android-public-checks:
     name: Fork-safe host, backend, Kotlin, and debug APK checks
     runs-on: ubuntu-latest
+    timeout-minutes: 90
     services:
       postgres:
         image: postgres:16@sha256:e17e86066e5ef83e0952a9347f5c792b7ece00972e2aa787a6986f471b3dd3d5
@@ -217,7 +218,7 @@ jobs:
           git diff --exit-code -- packages/api-client/src/generated.ts
       - name: Kotlin policy unit tests and acceptance debug APK
         working-directory: apps/mobile/android
-        run: ./gradlew :guardian-protection:testDebugUnitTest :app:assembleDebug --no-daemon --stacktrace
+        run: ./gradlew -PreactNativeArchitectures=x86_64 :guardian-protection:testDebugUnitTest :app:assembleDebug --no-daemon --stacktrace
       - name: Record public-build APK and security evidence
         shell: bash
         run: |
@@ -227,6 +228,7 @@ jobs:
           aapt="$ANDROID_HOME/build-tools/36.0.0/aapt"
           test -s "$apk"
           cp "$apk" "$evidence/app-debug.apk"
+          printf '%s\n' 'Emulator-only x86_64 debug APK; not a universal or release artifact.' > "$evidence/app-debug.emulator-only.txt"
           sha256sum "$apk" | tee "$evidence/app-debug.apk.sha256"
           "$aapt" dump badging "$apk" | tee "$evidence/app-debug.badging.txt"
           "$aapt" dump permissions "$apk" | tee "$evidence/app-debug.permissions.txt"
@@ -325,7 +327,7 @@ jobs:
       - name: Upload fork-safe debug APK and evidence
         uses: actions/upload-artifact@ea165f8d65b6e75b540449e92b4886f43607fa02 # v4.6.2
         with:
-          name: guardian-public-check-debug-apk
+          name: guardian-public-check-emulator-only-debug-apk
           path: artifacts/android-acceptance/
           if-no-files-found: error
           retention-days: 14
@@ -336,6 +338,7 @@ jobs:
     # Pull requests use only a per-run generated acceptance-only key; no repository or production secrets are read.
     if: github.event_name == 'push' || github.event_name == 'pull_request' || github.event_name == 'workflow_dispatch'
     runs-on: ubuntu-latest
+    timeout-minutes: 90
     services:
       postgres:
         image: postgres:16@sha256:e17e86066e5ef83e0952a9347f5c792b7ece00972e2aa787a6986f471b3dd3d5
@@ -465,11 +468,12 @@ jobs:
           export GUARDIAN_POLICY_KEY_ID="$key_id"
           export GUARDIAN_POLICY_TRUSTED_PUBLIC_KEYS="$(< "$trust_map")"
           GUARDIAN_POLICY_PRIVATE_KEY="$(< "$seed")" uv run --directory backend alembic upgrade head
-          (cd apps/mobile/android && ./gradlew :guardian-protection:testDebugUnitTest :app:assembleDebug --no-daemon --stacktrace)
+          (cd apps/mobile/android && ./gradlew -PreactNativeArchitectures=x86_64 :guardian-protection:testDebugUnitTest :app:assembleDebug --no-daemon --stacktrace)
           apk=apps/mobile/android/app/build/outputs/apk/debug/app-debug.apk
           aapt="$ANDROID_HOME/build-tools/36.0.0/aapt"
           test -s "$apk"
           cp "$apk" "$evidence/app-debug.apk"
+          printf '%s\n' 'Emulator-only x86_64 debug APK; not a universal or release artifact.' > "$evidence/app-debug.emulator-only.txt"
           sha256sum "$apk" | tee "$evidence/app-debug.apk.sha256"
           "$aapt" dump badging "$apk" | tee "$evidence/app-debug.badging.txt"
           "$aapt" dump permissions "$apk" | tee "$evidence/app-debug.permissions.txt"
