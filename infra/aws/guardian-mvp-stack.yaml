@@ -1,7 +1,7 @@
 AWSTemplateFormatVersion: '2010-09-09'
 Description: >-
-  Guardian consumer-MVP API: CloudFront viewer TLS and VPC origin, internal ALB,
-  one EC2 API worker, and encrypted private RDS PostgreSQL. No managed-device controls.
+  Guardian consumer-MVP API: API Gateway HTTPS, VPC Link, internal ALB, one
+  EC2 API worker, and encrypted private RDS PostgreSQL. No managed-device controls.
 
 Parameters:
   VpcId:
@@ -110,7 +110,7 @@ Resources:
   ApiLoadBalancerSecurityGroup:
     Type: AWS::EC2::SecurityGroup
     Properties:
-      GroupDescription: Guardian internal ALB. Ingress is granted only to CloudFront VPC origins after deploy.
+      GroupDescription: Guardian internal ALB. Ingress is granted only to the API Gateway VPC Link.
       VpcId: !Ref VpcId
       SecurityGroupEgress: []
       Tags:
@@ -120,6 +120,33 @@ Resources:
           Value: guardian
         - Key: Environment
           Value: production
+
+  ApiGatewayVpcLinkSecurityGroup:
+    Type: AWS::EC2::SecurityGroup
+    Properties:
+      GroupDescription: Guardian API Gateway VPC Link can reach only the internal ALB.
+      VpcId: !Ref VpcId
+      SecurityGroupEgress:
+        - IpProtocol: tcp
+          FromPort: 80
+          ToPort: 80
+          DestinationSecurityGroupId: !Ref ApiLoadBalancerSecurityGroup
+      Tags:
+        - Key: Name
+          Value: guardian-production-api-gateway-vpc-link
+        - Key: Project
+          Value: guardian
+        - Key: Environment
+          Value: production
+
+  ApiLoadBalancerIngressFromApiGateway:
+    Type: AWS::EC2::SecurityGroupIngress
+    Properties:
+      GroupId: !Ref ApiLoadBalancerSecurityGroup
+      IpProtocol: tcp
+      FromPort: 80
+      ToPort: 80
+      SourceSecurityGroupId: !Ref ApiGatewayVpcLinkSecurityGroup
 
   ApiInstanceSecurityGroup:
     Type: AWS::EC2::SecurityGroup
@@ -414,7 +441,7 @@ Resources:
       Port: 80
       Protocol: HTTP
 
-  ApiCloudFrontHeaderRule:
+  ApiGatewayHeaderRule:
     Type: AWS::ElasticLoadBalancingV2::ListenerRule
     Properties:
       Actions:
@@ -429,97 +456,80 @@ Resources:
       ListenerArn: !Ref ApiLoadBalancerListener
       Priority: 1
 
-  GuardianVpcOrigin:
-    Type: AWS::CloudFront::VpcOrigin
-    DependsOn: ApiCloudFrontHeaderRule
+  GuardianApiGatewayVpcLink:
+    Type: AWS::ApiGatewayV2::VpcLink
     Properties:
-      VpcOriginEndpointConfig:
-        Arn: !Ref ApiLoadBalancer
-        HTTPPort: 80
-        Name: guardian-production-api
-        OriginProtocolPolicy: http-only
+      Name: guardian-production-api-vpc-link
+      SubnetIds:
+        - !Ref GuardianPrivateSubnetA
+        - !Ref GuardianPrivateSubnetB
+      SecurityGroupIds:
+        - !Ref ApiGatewayVpcLinkSecurityGroup
       Tags:
         - Key: Project
           Value: guardian
         - Key: Environment
           Value: production
 
-  ApiCachePolicy:
-    Type: AWS::CloudFront::CachePolicy
+  GuardianHttpApi:
+    Type: AWS::ApiGatewayV2::Api
     Properties:
-      CachePolicyConfig:
-        Comment: Guardian API and WebSocket requests must not be cached.
-        DefaultTTL: 0
-        MaxTTL: 0
-        MinTTL: 0
-        Name: guardian-production-api-no-cache
-        ParametersInCacheKeyAndForwardedToOrigin:
-          CookiesConfig:
-            CookieBehavior: none
-          EnableAcceptEncodingBrotli: false
-          EnableAcceptEncodingGzip: false
-          HeadersConfig:
-            HeaderBehavior: none
-          QueryStringsConfig:
-            QueryStringBehavior: none
+      Name: guardian-production-api
+      Description: Guardian consumer MVP public API. API Gateway is the sole public entry point.
+      ProtocolType: HTTP
+      RouteSelectionExpression: '$request.method $request.path'
+      Tags:
+        - Key: Project
+          Value: guardian
+        - Key: Environment
+          Value: production
 
-  ApiOriginRequestPolicy:
-    Type: AWS::CloudFront::OriginRequestPolicy
-    Properties:
-      OriginRequestPolicyConfig:
-        Comment: Forward authenticated API and WebSocket upgrade requests without viewer logging.
-        Name: guardian-production-api-all-viewer
-        CookiesConfig:
-          CookieBehavior: all
-        HeadersConfig:
-          HeaderBehavior: allViewer
-        QueryStringsConfig:
-          QueryStringBehavior: all
-
-  GuardianDistribution:
-    Type: AWS::CloudFront::Distribution
+  GuardianHttpIntegration:
+    Type: AWS::ApiGatewayV2::Integration
     DependsOn:
-      - GuardianVpcOrigin
-      - ApiCloudFrontHeaderRule
+      - ApiLoadBalancerListener
+      - GuardianApiGatewayVpcLink
+      - ApiLoadBalancerIngressFromApiGateway
+      - ApiGatewayHeaderRule
     Properties:
-      DistributionConfig:
-        Comment: Guardian consumer MVP API. CloudFront is the only public entry point.
-        Enabled: true
-        HttpVersion: http2and3
-        IPV6Enabled: true
-        PriceClass: PriceClass_200
-        Origins:
-          - Id: guardian-private-api
-            DomainName: !GetAtt ApiLoadBalancer.DNSName
-            ConnectionAttempts: 2
-            ConnectionTimeout: 10
-            OriginCustomHeaders:
-              - HeaderName: X-Guardian-Origin-Verify
-                HeaderValue: !Ref OriginSharedSecret
-            VpcOriginConfig:
-              OwnerAccountId: !Ref AWS::AccountId
-              OriginKeepaliveTimeout: 60
-              OriginReadTimeout: 120
-              VpcOriginId: !Ref GuardianVpcOrigin
-        DefaultCacheBehavior:
-          AllowedMethods:
-            - GET
-            - HEAD
-            - OPTIONS
-            - PUT
-            - POST
-            - PATCH
-            - DELETE
-          CachedMethods:
-            - GET
-            - HEAD
-          CachePolicyId: !Ref ApiCachePolicy
-          OriginRequestPolicyId: !Ref ApiOriginRequestPolicy
-          TargetOriginId: guardian-private-api
-          ViewerProtocolPolicy: https-only
-        ViewerCertificate:
-          CloudFrontDefaultCertificate: true
-          MinimumProtocolVersion: TLSv1.2_2021
+      ApiId: !Ref GuardianHttpApi
+      ConnectionId: !Ref GuardianApiGatewayVpcLink
+      ConnectionType: VPC_LINK
+      IntegrationMethod: ANY
+      IntegrationType: HTTP_PROXY
+      IntegrationUri: !Ref ApiLoadBalancerListener
+      PayloadFormatVersion: '1.0'
+      RequestParameters:
+        'overwrite:header.X-Guardian-Origin-Verify': !Sub "'${OriginSharedSecret}'"
+      TimeoutInMillis: 30000
+
+  GuardianHttpDefaultRoute:
+    Type: AWS::ApiGatewayV2::Route
+    Properties:
+      ApiId: !Ref GuardianHttpApi
+      AuthorizationType: NONE
+      RouteKey: '$default'
+      Target: !Join
+        - /
+        - - integrations
+          - !Ref GuardianHttpIntegration
+
+  ApiGatewayAccessLogGroup:
+    Type: AWS::Logs::LogGroup
+    Properties:
+      LogGroupName: /guardian/production/api-gateway
+      RetentionInDays: 30
+
+  GuardianHttpDefaultStageAccessLogs:
+    Type: AWS::ApiGatewayV2::Stage
+    Properties:
+      ApiId: !Ref GuardianHttpApi
+      AutoDeploy: true
+      StageName: '$default'
+      AccessLogSettings:
+        DestinationArn: !GetAtt ApiGatewayAccessLogGroup.Arn
+        Format: >-
+          {"requestId":"$context.requestId","routeKey":"$context.routeKey","status":"$context.status","responseLatency":"$context.responseLatency"}
       Tags:
         - Key: Project
           Value: guardian
@@ -564,14 +574,12 @@ Resources:
 
 Outputs:
   ApiBaseUrl:
-    Description: AWS-managed public TLS endpoint to configure in the Android release APK.
-    Value: !Sub 'https://${GuardianDistribution.DomainName}'
-  CloudFrontDomainName:
-    Value: !GetAtt GuardianDistribution.DomainName
-  CloudFrontDistributionId:
-    Value: !Ref GuardianDistribution
-  VpcOriginId:
-    Value: !Ref GuardianVpcOrigin
+    Description: API Gateway-managed public TLS endpoint to configure in the Android release APK.
+    Value: !GetAtt GuardianHttpApi.ApiEndpoint
+  ApiGatewayHttpApiId:
+    Value: !Ref GuardianHttpApi
+  ApiGatewayVpcLinkId:
+    Value: !Ref GuardianApiGatewayVpcLink
   ApiLoadBalancerSecurityGroupId:
     Value: !Ref ApiLoadBalancerSecurityGroup
   ApiInstanceId:

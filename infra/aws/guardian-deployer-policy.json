@@ -87,30 +87,22 @@
       "Resource": "*"
     },
     {
-      "Sid": "GuardianEdge",
+      "Sid": "GuardianApiGatewayHttpPrivateIntegration",
       "Effect": "Allow",
       "Action": [
-        "cloudfront:CreateDistribution",
-        "cloudfront:CreateCachePolicy",
-        "cloudfront:CreateOriginRequestPolicy",
-        "cloudfront:CreateVpcOrigin",
-        "cloudfront:DeleteCachePolicy",
-        "cloudfront:DeleteDistribution",
-        "cloudfront:DeleteOriginRequestPolicy",
-        "cloudfront:DeleteVpcOrigin",
-        "cloudfront:GetCachePolicy",
-        "cloudfront:GetDistribution",
-        "cloudfront:GetDistributionConfig",
-        "cloudfront:GetOriginRequestPolicy",
-        "cloudfront:GetVpcOrigin",
-        "cloudfront:ListDistributions",
-        "cloudfront:ListTagsForResource",
-        "cloudfront:ListVpcOrigins",
-        "cloudfront:TagResource",
-        "cloudfront:UntagResource",
-        "cloudfront:UpdateDistribution"
+        "apigateway:DELETE",
+        "apigateway:GET",
+        "apigateway:PATCH",
+        "apigateway:POST",
+        "apigateway:PUT"
       ],
-      "Resource": "*"
+      "Resource": [
+        "arn:aws:apigateway:ap-south-1::/apis",
+        "arn:aws:apigateway:ap-south-1::/apis/*",
+        "arn:aws:apigateway:ap-south-1::/vpclinks",
+        "arn:aws:apigateway:ap-south-1::/vpclinks/*",
+        "arn:aws:apigateway:ap-south-1::/tags/*"
+      ]
     },
     {
       "Sid": "GuardianCloudWatch",
@@ -186,8 +178,7 @@
       "Action": "iam:CreateServiceLinkedRole",
       "Resource": [
         "arn:aws:iam::*:role/aws-service-role/elasticloadbalancing.amazonaws.com/AWSServiceRoleForElasticLoadBalancing",
-        "arn:aws:iam::*:role/aws-service-role/rds.amazonaws.com/AWSServiceRoleForRDS",
-        "arn:aws:iam::*:role/aws-service-role/vpcorigin.cloudfront.amazonaws.com/AWSServiceRoleForCloudFrontVPCOrigin"
+        "arn:aws:iam::*:role/aws-service-role/rds.amazonaws.com/AWSServiceRoleForRDS"
       ]
     }
   ]

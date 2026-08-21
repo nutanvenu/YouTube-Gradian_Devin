@@ -1,8 +1,10 @@
 #!/usr/bin/env bash
 set -euo pipefail
 
-# Creates no customer-visible endpoint until CloudFront, private-origin ingress,
-# database encryption, HTTPS, readiness, and a WebSocket upgrade have all passed.
+# Creates no customer-visible endpoint until API Gateway HTTPS, VPC-Link-only
+# ingress, database encryption, and readiness have all passed. HTTP APIs do
+# not provide this app's WebSocket route; mobile must use the supported polling
+# fallback for live sync until a dedicated WebSocket edge is separately added.
 # The account currently starts with root credentials. The root session only
 # creates/updates this named stack; CloudFormation assumes the restricted
 # Guardian service role for all stack resource mutations.
@@ -147,42 +149,10 @@ stack_output() {
     --query "Stacks[0].Outputs[?OutputKey=='$1'].OutputValue | [0]" --output text
 }
 
-vpc_origin_id="$(stack_output VpcOriginId)"
-alb_security_group_id="$(stack_output ApiLoadBalancerSecurityGroupId)"
-distribution_id="$(stack_output CloudFrontDistributionId)"
 api_base_url="$(stack_output ApiBaseUrl)"
 database_id="$(stack_output DatabaseInstanceIdentifier)"
 target_group_arn="$(aws cloudformation describe-stack-resource --stack-name "$stack_name" \
   --logical-resource-id ApiTargetGroup --query 'StackResourceDetail.PhysicalResourceId' --output text)"
-
-for _ in $(seq 1 30); do
-  vpc_origin_status="$(aws cloudfront get-vpc-origin --id "$vpc_origin_id" --query 'VpcOrigin.Status' --output text 2>/dev/null || true)"
-  vpc_origin_security_group_id="$(aws ec2 describe-security-groups \
-    --filters "Name=vpc-id,Values=${vpc_id}" "Name=group-name,Values=CloudFront-VPCOrigins-Service-SG" \
-    --query 'SecurityGroups[0].GroupId' --output text 2>/dev/null || true)"
-  if [[ "$vpc_origin_status" == "Deployed" && -n "$vpc_origin_security_group_id" && "$vpc_origin_security_group_id" != "None" ]]; then
-    break
-  fi
-  sleep 30
-done
-if [[ "${vpc_origin_status:-}" != "Deployed" || "${vpc_origin_security_group_id:-}" == "" || "${vpc_origin_security_group_id:-}" == "None" ]]; then
-  echo "CloudFront VPC origin did not become ready; refusing to expose the API." >&2
-  exit 70
-fi
-
-if ! aws ec2 authorize-security-group-ingress \
-  --group-id "$alb_security_group_id" --protocol tcp --port 80 \
-  --source-group "$vpc_origin_security_group_id" >/dev/null 2>&1; then
-  existing_source="$(aws ec2 describe-security-groups --group-ids "$alb_security_group_id" \
-    --query "SecurityGroups[0].IpPermissions[?FromPort==\`80\` && ToPort==\`80\`].UserIdGroupPairs[].GroupId" \
-    --output text)"
-  if [[ "$existing_source" != *"$vpc_origin_security_group_id"* ]]; then
-    echo "Could not restrict the internal ALB to CloudFront VPC origin traffic." >&2
-    exit 70
-  fi
-fi
-
-aws cloudfront wait distribution-deployed --id "$distribution_id"
 
 for _ in $(seq 1 36); do
   target_health="$(aws elbv2 describe-target-health --target-group-arn "$target_group_arn" \
@@ -206,20 +176,7 @@ fi
 curl --fail --silent --show-error --retry 12 --retry-all-errors --retry-delay 5 "${api_base_url}/livez" >/dev/null
 curl --fail --silent --show-error --retry 6 --retry-all-errors --retry-delay 5 "${api_base_url}/readiness" >/dev/null
 
-# A rejected unauthenticated connection still must complete a TLS WebSocket
-# upgrade. This proves CloudFront forwarding without sending a real account token.
-websocket_handshake="$(timeout 7 curl --http1.1 --silent --show-error --include --no-buffer \
-  -H 'Connection: Upgrade' \
-  -H 'Upgrade: websocket' \
-  -H 'Sec-WebSocket-Version: 13' \
-  -H 'Sec-WebSocket-Key: SGVsbG8sIHdvcmxkIQ==' \
-  "${api_base_url}/v1/ws/sync?family_id=00000000-0000-0000-0000-000000000000" 2>&1 || true)"
-if ! grep -q '101 Switching Protocols' <<< "$websocket_handshake"; then
-  echo "TLS WebSocket upgrade through CloudFront was not observed; deployment remains unverified." >&2
-  exit 70
-fi
-
 printf '%s\n' "Guardian API ready: ${api_base_url}"
 printf '%s\n' "Policy key id: ${policy_key_id}"
 printf '%s\n' "Policy public key: ${policy_public_key}"
-printf '%s\n' "Validated: CloudFront TLS, private VPC origin, target health, encrypted non-public RDS, migrations/readiness, and WebSocket upgrade."
+printf '%s\n' "Validated: API Gateway TLS, VPC-Link-only ALB ingress, target health, encrypted non-public RDS, and migrations/readiness. WebSocket edge is unavailable; use polling fallback."
