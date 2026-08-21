@@ -466,10 +466,8 @@ Resources:
       SecurityGroupIds:
         - !Ref ApiGatewayVpcLinkSecurityGroup
       Tags:
-        - Key: Project
-          Value: guardian
-        - Key: Environment
-          Value: production
+        Project: guardian
+        Environment: production
 
   GuardianHttpApi:
     Type: AWS::ApiGatewayV2::Api
@@ -477,12 +475,9 @@ Resources:
       Name: guardian-production-api
       Description: Guardian consumer MVP public API. API Gateway is the sole public entry point.
       ProtocolType: HTTP
-      RouteSelectionExpression: '$request.method $request.path'
       Tags:
-        - Key: Project
-          Value: guardian
-        - Key: Environment
-          Value: production
+        Project: guardian
+        Environment: production
 
   GuardianHttpIntegration:
     Type: AWS::ApiGatewayV2::Integration
@@ -531,10 +526,8 @@ Resources:
         Format: >-
           {"requestId":"$context.requestId","routeKey":"$context.routeKey","status":"$context.status","responseLatency":"$context.responseLatency"}
       Tags:
-        - Key: Project
-          Value: guardian
-        - Key: Environment
-          Value: production
+        Project: guardian
+        Environment: production
 
   ApiTarget5xxAlarm:
     Type: AWS::CloudWatch::Alarm
