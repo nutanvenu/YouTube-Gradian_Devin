@@ -17,6 +17,17 @@ source_repository="${GUARDIAN_SOURCE_REPOSITORY:-https://github.com/ThisIsDikshi
 source_branch="${GUARDIAN_SOURCE_BRANCH:-$(git -C "$repo_root" branch --show-current)}"
 account_id="866490183313"
 service_role_arn="arn:aws:iam::${account_id}:role/guardian-mvp-deployer"
+config_secret_tmp=""
+deployment_parameters_tmp="$(mktemp)"
+chmod 0600 "$deployment_parameters_tmp"
+trap 'rm -f "$config_secret_tmp" "$deployment_parameters_tmp"' EXIT
+
+if [[ "$region" != "ap-south-1" ]]; then
+  echo "Guardian production MVP is pinned to ap-south-1." >&2
+  exit 64
+fi
+export AWS_REGION="$region"
+export AWS_DEFAULT_REGION="$region"
 
 for required_command in aws curl git jq python3 timeout; do
   command -v "$required_command" >/dev/null || {
@@ -44,6 +55,7 @@ if [[ -z "$vpc_id" || "$vpc_id" == "None" ]]; then
   echo "No default VPC is available; set up a dedicated Guardian VPC before deployment." >&2
   exit 66
 fi
+vpc_cidr="$(aws --region "$region" ec2 describe-vpcs --vpc-ids "$vpc_id" --query 'Vpcs[0].CidrBlock' --output text)"
 
 mapfile -t public_subnets < <(aws --region "$region" ec2 describe-subnets \
   --filters "Name=vpc-id,Values=${vpc_id}" "Name=map-public-ip-on-launch,Values=true" \
@@ -59,13 +71,33 @@ if [[ "$availability_zone_a" == "$availability_zone_b" ]]; then
   exit 66
 fi
 
+python3 - "$vpc_cidr" 172.31.48.0/20 172.31.64.0/20 <<'PY'
+import ipaddress
+import sys
+
+vpc = ipaddress.ip_network(sys.argv[1])
+planned = [ipaddress.ip_network(value) for value in sys.argv[2:]]
+if planned[0] == planned[1] or planned[0].overlaps(planned[1]):
+    raise SystemExit("Guardian private subnet CIDRs must be distinct and non-overlapping.")
+if any(not network.subnet_of(vpc) for network in planned):
+    raise SystemExit("Guardian private subnet CIDRs must remain inside the selected VPC.")
+PY
+
 for cidr in 172.31.48.0/20 172.31.64.0/20; do
-  existing_count="$(aws --region "$region" ec2 describe-subnets --filters "Name=vpc-id,Values=${vpc_id}" \
-    --query "length(Subnets[?CidrBlock=='${cidr}'])" --output text)"
-  if [[ "$existing_count" != "0" ]]; then
-    echo "The planned Guardian private subnet CIDR ${cidr} is already in use." >&2
-    exit 66
-  fi
+  mapfile -t existing_subnet_ids < <(aws --region "$region" ec2 describe-subnets \
+    --filters "Name=vpc-id,Values=${vpc_id}" "Name=cidr-block,Values=${cidr}" \
+    --query 'Subnets[].SubnetId' --output text)
+  for subnet_id in "${existing_subnet_ids[@]}"; do
+    [[ -z "$subnet_id" || "$subnet_id" == "None" ]] && continue
+    owner_stack="$(aws --region "$region" ec2 describe-tags --filters \
+      "Name=resource-id,Values=${subnet_id}" \
+      'Name=key,Values=aws:cloudformation:stack-name' \
+      --query 'Tags[0].Value' --output text)"
+    if [[ "$owner_stack" != "$stack_name" ]]; then
+      echo "The planned Guardian private subnet CIDR ${cidr} is already in use by a non-Guardian stack resource." >&2
+      exit 66
+    fi
+  done
 done
 
 if ! aws iam get-role --role-name guardian-mvp-deployer >/dev/null 2>&1; then
@@ -80,7 +112,6 @@ if config_secret_arn="$(aws --region "$region" secretsmanager describe-secret \
 else
   config_secret_tmp="$(mktemp)"
   chmod 0600 "$config_secret_tmp"
-  trap 'rm -f "$config_secret_tmp"' EXIT
   python3 - <<'PY' > "$config_secret_tmp"
 import base64
 import json
@@ -125,23 +156,38 @@ done
 
 unset config_json
 
+jq -n \
+  --arg vpc_id "$vpc_id" \
+  --arg public_subnet_id "$public_subnet_id" \
+  --arg availability_zone_a "$availability_zone_a" \
+  --arg availability_zone_b "$availability_zone_b" \
+  --arg source_repository "$source_repository" \
+  --arg source_branch "$source_branch" \
+  --arg source_revision "$local_sha" \
+  --arg backend_config_secret_arn "$config_secret_arn" \
+  --arg database_master_password "$database_master_password" \
+  --arg origin_shared_secret "$origin_shared_secret" \
+  '[
+    {ParameterKey: "VpcId", ParameterValue: $vpc_id},
+    {ParameterKey: "PublicSubnetId", ParameterValue: $public_subnet_id},
+    {ParameterKey: "AvailabilityZoneA", ParameterValue: $availability_zone_a},
+    {ParameterKey: "AvailabilityZoneB", ParameterValue: $availability_zone_b},
+    {ParameterKey: "SourceRepository", ParameterValue: $source_repository},
+    {ParameterKey: "SourceBranch", ParameterValue: $source_branch},
+    {ParameterKey: "SourceRevision", ParameterValue: $source_revision},
+    {ParameterKey: "BackendConfigSecretArn", ParameterValue: $backend_config_secret_arn},
+    {ParameterKey: "DatabaseMasterPassword", ParameterValue: $database_master_password},
+    {ParameterKey: "OriginSharedSecret", ParameterValue: $origin_shared_secret}
+  ]' > "$deployment_parameters_tmp"
+unset database_master_password origin_shared_secret
+
 aws cloudformation deploy \
   --stack-name "$stack_name" \
   --template-file "${script_dir}/guardian-mvp-stack.yaml" \
   --capabilities CAPABILITY_NAMED_IAM \
   --role-arn "$service_role_arn" \
   --no-fail-on-empty-changeset \
-  --parameter-overrides \
-    "VpcId=${vpc_id}" \
-    "PublicSubnetId=${public_subnet_id}" \
-    "AvailabilityZoneA=${availability_zone_a}" \
-    "AvailabilityZoneB=${availability_zone_b}" \
-    "SourceRepository=${source_repository}" \
-    "SourceBranch=${source_branch}" \
-    "SourceRevision=${local_sha}" \
-    "BackendConfigSecretArn=${config_secret_arn}" \
-    "DatabaseMasterPassword=${database_master_password}" \
-    "OriginSharedSecret=${origin_shared_secret}" \
+  --parameter-overrides "file://${deployment_parameters_tmp}" \
   --tags Project=guardian Environment=production ManagedBy=cloudformation
 
 stack_output() {
