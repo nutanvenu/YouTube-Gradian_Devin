@@ -246,20 +246,27 @@ jobs:
           import sys
 
           manifest_path, inventory_path = sys.argv[1:]
-          components, current = [], None
+          components, current, component_indent = [], None, None
           for line in open(manifest_path, encoding="utf-8"):
             start = re.match(r"^\s*E: (activity|service|receiver|provider)\b", line)
             if start:
                 if current:
                     components.append(current)
                 current = {"kind": start.group(1), "name": None, "exported": None}
-            elif current and "android:name" in line:
+                component_indent = len(line) - len(line.lstrip())
+            elif current and re.match(r"^\s*E: \w", line) and len(line) - len(line.lstrip()) <= component_indent:
+                components.append(current)
+                current, component_indent = None, None
+            elif current and len(line) - len(line.lstrip()) == component_indent + 2 and "android:name" in line:
                 match = re.search(r'Raw:\s*"([^"]+)"', line) or re.search(r'=\s*"([^"]+)"', line)
                 if match:
                     current["name"] = match.group(1)
-            elif current and "android:exported" in line:
+            elif current and len(line) - len(line.lstrip()) == component_indent + 2 and "android:exported" in line:
                 match = re.search(r'Raw:\s*"([^"]+)"', line) or re.search(r'=\s*"([^"]+)"', line)
-                current["exported"] = "0xffffffff" in line or (match and match.group(1).lower() == "true")
+                if "0xffffffff" in line or (match and match.group(1).lower() == "true"):
+                    current["exported"] = True
+                elif "0x0" in line or (match and match.group(1).lower() == "false"):
+                    current["exported"] = False
           if current:
               components.append(current)
           with open(inventory_path, "w", encoding="utf-8") as inventory:
@@ -278,18 +285,22 @@ jobs:
               if not matches or {item["exported"] for item in matches} != {expected}:
                   raise SystemExit(f"Unexpected exported state for {suffix}: {matches}")
           allowed_exported = {
-              ("activity", "MainActivity"),
-              ("receiver", "GuardianBootReceiver"),
-              ("service", "GuardianAccessibilityService"),
-              ("service", "GuardianNotificationListenerService"),
+              ("activity", "com.guardian.family.MainActivity"),
+              ("activity", "expo.modules.devlauncher.launcher.DevLauncherActivity"),
+              ("activity", "expo.modules.devlauncher.compose.AuthActivity"),
+              ("activity", "androidx.compose.ui.tooling.PreviewActivity"),
+              ("receiver", "expo.modules.guardianprotection.vpn.GuardianBootReceiver"),
+              ("receiver", "androidx.profileinstaller.ProfileInstallReceiver"),
+              ("service", "expo.modules.guardianprotection.accessibility.GuardianAccessibilityService"),
+              ("service", "expo.modules.guardianprotection.communication.GuardianNotificationListenerService"),
           }
           unexpected = [
               item
               for item in components
               if item["exported"]
               and not any(
-                  item["kind"] == kind and (item["name"] or "").endswith(suffix)
-                  for kind, suffix in allowed_exported
+                  item["kind"] == kind and item["name"] == name
+                  for kind, name in allowed_exported
               )
           ]
           if unexpected:
