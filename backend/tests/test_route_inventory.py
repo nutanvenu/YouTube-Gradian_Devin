@@ -97,7 +97,14 @@ def _dependency_names(route: APIRoute) -> set[str]:
 
 def _registered_routes() -> list[ExpectedRoute]:
     routes: list[ExpectedRoute] = []
-    for route in app.routes:
+    pending = list(app.routes)
+    while pending:
+        route = pending.pop()
+        nested_router = getattr(route, "original_router", None)
+        nested_routes = getattr(nested_router, "routes", None)
+        if isinstance(nested_routes, list):
+            pending.extend(nested_routes)
+            continue
         if isinstance(route, APIWebSocketRoute):
             routes.append((route.path, "WEBSOCKET", "parent-or-device"))
             continue

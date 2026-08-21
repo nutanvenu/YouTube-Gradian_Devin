@@ -217,3 +217,30 @@ test("uses a stable request-specific key for parent approval retries", async () 
   );
   fetcher.mockRestore();
 });
+
+test("derives secure WebSocket URLs from the configured AWS HTTPS endpoint", () => {
+  const client = new GuardianApiClient("https://d123example.cloudfront.net/");
+  expect(client.websocketUrl("/v1/ws/sync", { family_id: "family-1" })).toBe(
+    "wss://d123example.cloudfront.net/v1/ws/sync?family_id=family-1",
+  );
+});
+
+test("refreshes an expired parent session before realtime reconnect", async () => {
+  const values: Record<string, string | null> = {
+    "guardian.access-token": "expired-access",
+    "guardian.refresh-token": "refresh-token",
+  };
+  (SecureStore.getItemAsync as jest.Mock).mockImplementation((key: string) => Promise.resolve(values[key] ?? null));
+  (SecureStore.setItemAsync as jest.Mock).mockImplementation((key: string, value: string) => {
+    values[key] = value;
+    return Promise.resolve();
+  });
+  const fetcher = jest.spyOn(globalThis, "fetch")
+    .mockResolvedValueOnce(new Response(JSON.stringify({ error: { message: "expired" } }), { status: 401 }))
+    .mockResolvedValueOnce(new Response(JSON.stringify({ access_token: "new-access", refresh_token: "new-refresh" }), { status: 200 }))
+    .mockResolvedValueOnce(new Response(JSON.stringify({ id: "p1", email: "parent@example.com" }), { status: 200 }));
+
+  await expect(new GuardianApiClient("https://guardian.test").realtimeToken()).resolves.toBe("new-access");
+  expect(fetcher).toHaveBeenCalledTimes(3);
+  fetcher.mockRestore();
+});
