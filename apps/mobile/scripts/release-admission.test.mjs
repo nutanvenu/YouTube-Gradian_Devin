@@ -351,6 +351,18 @@ test("APK manifest-tree policy binds monitoring values to their metadata nodes",
   assert.ok(errors.some((error) => error.includes("CHILD_MONITORING_DISCLOSURE")));
 });
 
+test("APK manifest-tree policy rejects malformed nested metadata cross-association", () => {
+  const tree = `
+    E: manifest
+      E: application
+        E: meta-data
+          A: android:name(0x01010003)="isMonitoringTool"
+          E: meta-data
+            A: android:value(0x01010024)="child_monitoring"`;
+  const errors = verifyArtifactManifestTree(tree);
+  assert.ok(errors.some((error) => error.includes("isMonitoringTool=child_monitoring")));
+});
+
 test("AAB effective-manifest policy verifier rejects changed release declarations", () => {
   const invalidAabManifest = `
     <manifest xmlns:android="http://schemas.android.com/apk/res/android">

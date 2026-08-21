@@ -46,11 +46,9 @@ function xmlTreeMetadataNodes(tree) {
   for (let index = 0; index < lines.length; index += 1) {
     const start = lines[index].match(/^(\s*)E:\s+meta-data\b/);
     if (!start) continue;
-    const indentation = start[1].length;
     let end = index + 1;
     while (end < lines.length) {
-      const nested = lines[end].match(/^(\s*)E:/);
-      if (nested && nested[1].length <= indentation) break;
+      if (/^\s*E:/.test(lines[end])) break;
       end += 1;
     }
     nodes.push(lines.slice(index, end).join("\n"));
