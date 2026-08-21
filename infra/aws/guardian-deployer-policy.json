@@ -121,9 +121,11 @@
         "logs:DeleteLogDelivery",
         "logs:DeleteLogGroup",
         "logs:DescribeLogGroups",
+        "logs:DescribeResourcePolicies",
         "logs:GetLogDelivery",
         "logs:ListLogDeliveries",
         "logs:ListTagsForResource",
+        "logs:PutResourcePolicy",
         "logs:PutRetentionPolicy",
         "logs:TagResource",
         "logs:UntagResource",
@@ -190,6 +192,17 @@
         "arn:aws:iam::*:role/aws-service-role/elasticloadbalancing.amazonaws.com/AWSServiceRoleForElasticLoadBalancing",
         "arn:aws:iam::*:role/aws-service-role/rds.amazonaws.com/AWSServiceRoleForRDS"
       ]
+    },
+    {
+      "Sid": "CreateApiGatewayServiceLinkedRole",
+      "Effect": "Allow",
+      "Action": "iam:CreateServiceLinkedRole",
+      "Resource": "arn:aws:iam::*:role/aws-service-role/ops.apigateway.amazonaws.com/AWSServiceRoleForAPIGateway",
+      "Condition": {
+        "StringLike": {
+          "iam:AWSServiceName": "ops.apigateway.amazonaws.com"
+        }
+      }
     }
   ]
 }
