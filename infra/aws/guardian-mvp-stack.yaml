@@ -452,7 +452,10 @@ Resources:
           HttpHeaderConfig:
             HttpHeaderName: X-Guardian-Origin-Verify
             Values:
-              - !Ref OriginSharedSecret
+              # HTTP API parameter mapping requires static values to be
+              # single-quoted. ALB compares the delivered header value, which
+              # includes those delimiters in the VPC-link request contract.
+              - !Sub "'${OriginSharedSecret}'"
       ListenerArn: !Ref ApiLoadBalancerListener
       Priority: 1
 
