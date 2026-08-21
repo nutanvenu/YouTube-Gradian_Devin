@@ -13,9 +13,11 @@ logs. The API's own request logger redacts one-time push action tokens.
 ## One-time bootstrap
 
 Run this only from the AWS account-root session currently used to bootstrap the
-account. It creates or updates the `guardian-mvp-deployer` role with the
-Guardian-only policy in this directory; the deployment script immediately uses
-short-lived credentials for that role.
+account. AWS does not allow that root principal to assume a role, so it creates
+or updates a CloudFormation-only `guardian-mvp-deployer` service role. The root
+session only submits this named stack and CloudFormation performs stack resource
+mutations through the constrained service role. No long-lived IAM user or
+access key is created.
 
 ```bash
 infra/aws/bootstrap-guardian-deployer.sh

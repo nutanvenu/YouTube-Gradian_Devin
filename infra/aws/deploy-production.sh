@@ -3,8 +3,9 @@ set -euo pipefail
 
 # Creates no customer-visible endpoint until CloudFront, private-origin ingress,
 # database encryption, HTTPS, readiness, and a WebSocket upgrade have all passed.
-# The caller may be account root only for the initial AssumeRole; provisioning
-# occurs using guardian-mvp-deployer with short-lived STS credentials.
+# The account currently starts with root credentials. The root session only
+# creates/updates this named stack; CloudFormation assumes the restricted
+# Guardian service role for all stack resource mutations.
 script_dir="$(cd -- "$(dirname -- "${BASH_SOURCE[0]}")" && pwd)"
 repo_root="$(cd -- "${script_dir}/../.." && pwd)"
 region="${AWS_REGION:-ap-south-1}"
@@ -13,7 +14,7 @@ config_secret_name="${GUARDIAN_CONFIG_SECRET_NAME:-guardian/production/backend-c
 source_repository="${GUARDIAN_SOURCE_REPOSITORY:-https://github.com/ThisIsDikshithPodhila/YouTube-Gradian_Devin.git}"
 source_branch="${GUARDIAN_SOURCE_BRANCH:-$(git -C "$repo_root" branch --show-current)}"
 account_id="866490183313"
-role_arn="arn:aws:iam::${account_id}:role/guardian-mvp-deployer"
+service_role_arn="arn:aws:iam::${account_id}:role/guardian-mvp-deployer"
 
 for required_command in aws curl git jq python3 timeout; do
   command -v "$required_command" >/dev/null || {
@@ -120,18 +121,13 @@ for required_value in "$database_master_password" "$origin_shared_secret" "$poli
   fi
 done
 
-assumed_role="$(aws sts assume-role --role-arn "$role_arn" \
-  --role-session-name "guardian-mvp-$(date +%s)" --duration-seconds 3600)"
-export AWS_ACCESS_KEY_ID="$(printf '%s' "$assumed_role" | jq -r '.Credentials.AccessKeyId')"
-export AWS_SECRET_ACCESS_KEY="$(printf '%s' "$assumed_role" | jq -r '.Credentials.SecretAccessKey')"
-export AWS_SESSION_TOKEN="$(printf '%s' "$assumed_role" | jq -r '.Credentials.SessionToken')"
-export AWS_DEFAULT_REGION="$region"
-unset assumed_role config_json
+unset config_json
 
 aws cloudformation deploy \
   --stack-name "$stack_name" \
   --template-file "${script_dir}/guardian-mvp-stack.yaml" \
   --capabilities CAPABILITY_NAMED_IAM \
+  --role-arn "$service_role_arn" \
   --no-fail-on-empty-changeset \
   --parameter-overrides \
     "VpcId=${vpc_id}" \
