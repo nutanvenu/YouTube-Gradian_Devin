@@ -566,8 +566,13 @@ jobs:
         if: always()
         shell: bash
         run: |
+          set -euo pipefail
           mkdir -p artifacts/emulator
-          adb logcat -d -t 1000 > artifacts/emulator/logcat.txt || true
+          if timeout 10 adb devices | awk 'NR > 1 && $2 == "device" { found = 1 } END { exit !found }'; then
+            timeout 30 adb logcat -d -t 1000 > artifacts/emulator/logcat.txt || true
+          else
+            printf '%s\n' 'No attached adb emulator was available for log capture.' > artifacts/emulator/logcat.no-device.txt
+          fi
           cp -R apps/mobile/modules/guardian-protection/android/build/reports/androidTests artifacts/emulator/androidTest-reports 2>/dev/null || true
       - name: Upload API 35 emulator evidence
         if: always()
