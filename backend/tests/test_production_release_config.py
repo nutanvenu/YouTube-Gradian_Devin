@@ -56,6 +56,28 @@ def test_get_settings_rejects_ci_only_jwt_secret_in_production(
         get_settings.cache_clear()
 
 
+def test_get_settings_rejects_acceptance_only_jwt_secret_in_production(
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    public_key = base64.b64encode(bytes(range(32))).decode("ascii")
+    monkeypatch.setenv("GUARDIAN_ENVIRONMENT", "production")
+    monkeypatch.setenv(
+        "GUARDIAN_JWT_SECRET", "acceptance-only-secret-with-at-least-32-bytes"
+    )
+    monkeypatch.setenv("GUARDIAN_POLICY_KEY_ID", "guardian-prod-2026-01")
+    monkeypatch.setenv("GUARDIAN_POLICY_PRIVATE_KEY", public_key)
+    monkeypatch.setenv(
+        "GUARDIAN_POLICY_TRUSTED_PUBLIC_KEYS",
+        '{"guardian-prod-2026-01":"' + public_key + '"}',
+    )
+    get_settings.cache_clear()
+    try:
+        with pytest.raises(ValidationError, match="JWT secret"):
+            get_settings()
+    finally:
+        get_settings.cache_clear()
+
+
 def test_get_settings_honors_dotenv_jwt_secret_without_an_environment_override(
     monkeypatch: pytest.MonkeyPatch, tmp_path
 ) -> None:

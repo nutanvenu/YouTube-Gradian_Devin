@@ -9,7 +9,14 @@ on:
       - 'backend/**'
       - 'packages/**'
       - 'scripts/**'
+      - '.nvmrc'
+      - '.python-version'
+      - '.uv-version'
+      - 'eslint.config.mjs'
+      - 'package.json'
       - 'pnpm-lock.yaml'
+      - 'pnpm-workspace.yaml'
+      - 'tsconfig.json'
       - 'uv.lock'
   push:
     branches: [main]
@@ -19,7 +26,14 @@ on:
       - 'backend/**'
       - 'packages/**'
       - 'scripts/**'
+      - '.nvmrc'
+      - '.python-version'
+      - '.uv-version'
+      - 'eslint.config.mjs'
+      - 'package.json'
       - 'pnpm-lock.yaml'
+      - 'pnpm-workspace.yaml'
+      - 'tsconfig.json'
       - 'uv.lock'
 
 permissions:
@@ -40,18 +54,16 @@ jobs:
     runs-on: ubuntu-latest
     services:
       postgres:
+        # TODO(task-2): pin the official postgres:16 image digest before release promotion.
         image: postgres:16
         env:
           POSTGRES_DB: guardian
           POSTGRES_USER: guardian
           POSTGRES_PASSWORD: guardian
-        ports:
-          - 5432:5432
+        ports: ['5432:5432']
         options: >-
           --health-cmd "pg_isready -U guardian -d guardian"
-          --health-interval 5s
-          --health-timeout 5s
-          --health-retries 10
+          --health-interval 5s --health-timeout 5s --health-retries 10
     steps:
       - uses: actions/checkout@11d5960a326750d5838078e36cf38b85af677262 # v4.2.2
       - uses: pnpm/action-setup@b906affcce14559ad1aafd4ab0e942779e9f58b1 # v4.1.0
@@ -63,7 +75,7 @@ jobs:
           cache: pnpm
       - uses: actions/setup-python@a26af69be951a213d495a4c3e4e4022e16d87065 # v5.6.0
         with:
-          python-version: '3.13'
+          python-version: '3.13.1'
       - uses: astral-sh/setup-uv@d4b2f3b6ecc6e67c4457f6d3e41ec42d3d0fcb86 # v5.4.0
         with:
           version: 0.7.9
@@ -71,12 +83,28 @@ jobs:
         with:
           distribution: temurin
           java-version: '17'
-          cache: gradle
-      - name: Install pinned Android SDK components
+      - name: Initialize task-isolated Android and Gradle roots
         shell: bash
         run: |
           set -euo pipefail
-          sdkmanager="${ANDROID_HOME}/cmdline-tools/latest/bin/sdkmanager"
+          bootstrap_sdk="${ANDROID_HOME:?Runner SDK is required only to bootstrap the task SDK}"
+          sdk_root="$RUNNER_TEMP/guardian-android-sdk"
+          mkdir -p "$sdk_root" "$RUNNER_TEMP/guardian-gradle" "$RUNNER_TEMP/guardian-avd"
+          "$bootstrap_sdk/cmdline-tools/latest/bin/sdkmanager" --sdk_root="$sdk_root" --install "cmdline-tools;latest"
+          {
+            echo "ANDROID_HOME=$sdk_root"
+            echo "ANDROID_SDK_ROOT=$sdk_root"
+            echo "ANDROID_USER_HOME=$RUNNER_TEMP/guardian-android-user"
+            echo "ANDROID_AVD_HOME=$RUNNER_TEMP/guardian-avd"
+            echo "GRADLE_USER_HOME=$RUNNER_TEMP/guardian-gradle"
+          } >> "$GITHUB_ENV"
+          echo "$sdk_root/cmdline-tools/latest/bin" >> "$GITHUB_PATH"
+          echo "$sdk_root/platform-tools" >> "$GITHUB_PATH"
+      - name: Install pinned Android SDK, platform, build tools, and NDK
+        shell: bash
+        run: |
+          set -euo pipefail
+          sdkmanager="$ANDROID_HOME/cmdline-tools/latest/bin/sdkmanager"
           "$sdkmanager" --sdk_root="$ANDROID_HOME" --licenses >/dev/null <<'EOF'
           y
           y
@@ -89,40 +117,37 @@ jobs:
           y
           y
           EOF
-          "$sdkmanager" --sdk_root="$ANDROID_HOME" --install \
-            "platform-tools" \
-            "platforms;android-36" \
-            "build-tools;36.0.0" \
-            "ndk;27.1.12297006"
-          test "$(awk -F' = ' '/Pkg.Revision/{print $2}' \
-            "$ANDROID_HOME/ndk/27.1.12297006/source.properties")" = "27.1.12297006"
-      - name: Generate ephemeral acceptance policy key
+          "$sdkmanager" --sdk_root="$ANDROID_HOME" --install "platform-tools" "platforms;android-36" "build-tools;36.0.0" "ndk;27.1.12297006"
+          test "$(awk -F' = ' '/Pkg.Revision/{print $2}' "$ANDROID_HOME/ndk/27.1.12297006/source.properties")" = "27.1.12297006"
+      - name: Install locked JavaScript and backend environments
+        run: |
+          pnpm install --frozen-lockfile
+          uv sync --directory backend --locked --extra dev
+      - name: Dependency audit is a non-final release gate
         shell: bash
         run: |
           set -euo pipefail
-          python - <<'PY' >> "$GITHUB_ENV"
-          import base64
-          import json
-          import secrets
-          from cryptography.hazmat.primitives import serialization
-          from cryptography.hazmat.primitives.asymmetric.ed25519 import Ed25519PrivateKey
-
-          key_id = "guardian-ci-2026"
-          private_key = base64.b64encode(secrets.token_bytes(32)).decode("ascii")
-          public_key = Ed25519PrivateKey.from_private_bytes(
-              base64.b64decode(private_key)
-          ).public_key().public_bytes(
-              serialization.Encoding.Raw, serialization.PublicFormat.Raw
-          )
-          trusted_keys = json.dumps(
-              {key_id: base64.b64encode(public_key).decode("ascii")}, separators=(",", ":")
-          )
-          print(f"GUARDIAN_POLICY_KEY_ID={key_id}")
-          print(f"GUARDIAN_POLICY_PRIVATE_KEY={private_key}")
-          print(f"GUARDIAN_POLICY_TRUSTED_PUBLIC_KEYS={trusted_keys}")
-          PY
-      - name: Install locked JavaScript dependencies
-        run: pnpm install --frozen-lockfile
+          evidence=artifacts/android-acceptance
+          mkdir -p "$evidence"
+          set +e
+          pnpm audit --prod --audit-level=high --json > "$evidence/dependency-audit.json"
+          audit_status=$?
+          set -e
+          printf '%s\n' "$audit_status" > "$evidence/dependency-audit.exit-code"
+          if [ "$audit_status" -ne 0 ]; then
+            echo "NON-FINAL RELEASE BLOCKER: production dependency audit failed; inspect dependency-audit.json." >> "$GITHUB_STEP_SUMMARY"
+            exit "$audit_status"
+          fi
+      - name: Scan tracked sources for committed private secrets
+        shell: bash
+        run: |
+          set -euo pipefail
+          evidence=artifacts/android-acceptance
+          if git grep -nI -E '(-----BEGIN [A-Z ]*PRIVATE KEY-----|AKIA[0-9A-Z]{16}|AIza[0-9A-Za-z_-]{35}|gh[pousr]_[A-Za-z0-9_]{20,}|xox[baprs]-[A-Za-z0-9-]{10,})' -- . ':(exclude)backend/.env.example' ':(exclude)apps/mobile/.env.example' > "$evidence/secret-scan.matches.txt"; then
+            cat "$evidence/secret-scan.matches.txt"
+            exit 1
+          fi
+          printf '%s\n' "No configured high-confidence private-secret patterns found in tracked sources." > "$evidence/secret-scan.passed.txt"
       - name: Host and mobile checks
         run: |
           set -euo pipefail
@@ -133,40 +158,108 @@ jobs:
           pnpm --filter guardian-mobile typecheck
           pnpm --filter guardian-mobile exec jest --runInBand
           pnpm --filter guardian-mobile test:release-admission
-      - name: Backend and OpenAPI checks
+      - name: Generate ephemeral policy seed after locked checks
+        shell: bash
         run: |
           set -euo pipefail
-          uv sync --directory backend --locked --extra dev
-          uv run --directory backend alembic upgrade head
-          uv run --directory backend ruff check app tests
-          uv run --directory backend mypy app
-          uv run --directory backend pytest
+          uv run --directory backend python - <<'PY' >> "$GITHUB_ENV"
+          import base64, hashlib, json, os, secrets
+          from pathlib import Path
+          from cryptography.hazmat.primitives import serialization
+          from cryptography.hazmat.primitives.asymmetric.ed25519 import Ed25519PrivateKey
+
+          key_id = "guardian-ci-2026"
+          seed_path = Path(os.environ["RUNNER_TEMP"]) / "guardian-policy-seed"
+          seed_path.write_bytes(base64.b64encode(secrets.token_bytes(32)))
+          os.chmod(seed_path, 0o600)
+          public = Ed25519PrivateKey.from_private_bytes(base64.b64decode(seed_path.read_bytes())).public_key()
+          public_b64 = base64.b64encode(public.public_bytes(serialization.Encoding.Raw, serialization.PublicFormat.Raw)).decode("ascii")
+          trust_map = json.dumps({key_id: public_b64}, separators=(",", ":"))
+          evidence = Path("artifacts/android-acceptance")
+          trust_path = evidence / "policy-public-trust-map.json"
+          trust_path.write_text(trust_map + "\n", encoding="utf-8")
+          (evidence / "policy-key-id.txt").write_text(key_id + "\n", encoding="utf-8")
+          (evidence / "policy-public-trust-map.sha256").write_text(
+              f"{hashlib.sha256(trust_path.read_bytes()).hexdigest()}  {trust_path.name}\n", encoding="utf-8"
+          )
+          print(f"GUARDIAN_POLICY_KEY_ID={key_id}")
+          print(f"GUARDIAN_POLICY_TRUSTED_PUBLIC_KEYS={trust_map}")
+          PY
+          test "$(stat -c '%a' "$RUNNER_TEMP/guardian-policy-seed")" = 600
+      - name: Backend and OpenAPI checks with scoped policy seed
+        shell: bash
+        run: |
+          set -euo pipefail
+          seed="$RUNNER_TEMP/guardian-policy-seed"
+          GUARDIAN_POLICY_PRIVATE_KEY="$(< "$seed")" uv run --directory backend alembic upgrade head
+          GUARDIAN_POLICY_PRIVATE_KEY="$(< "$seed")" uv run --directory backend ruff check app tests
+          GUARDIAN_POLICY_PRIVATE_KEY="$(< "$seed")" uv run --directory backend mypy app
+          GUARDIAN_POLICY_PRIVATE_KEY="$(< "$seed")" uv run --directory backend pytest
+          rm -f "$seed"
           pnpm check:openapi
           git diff --exit-code -- packages/api-client/src/generated.ts
       - name: Kotlin policy unit tests and acceptance debug APK
         working-directory: apps/mobile/android
-        run: |
-          set -euo pipefail
-          ./gradlew :guardian-protection:testDebugUnitTest :app:assembleDebug \
-            --no-daemon --stacktrace
-      - name: Record debug APK manifest and hash evidence
+        run: ./gradlew :guardian-protection:testDebugUnitTest :app:assembleDebug --no-daemon --stacktrace
+      - name: Record APK, public trust, and security evidence
         shell: bash
         run: |
           set -euo pipefail
-          apk="apps/mobile/android/app/build/outputs/apk/debug/app-debug.apk"
-          evidence="artifacts/android-acceptance"
+          apk=apps/mobile/android/app/build/outputs/apk/debug/app-debug.apk
+          evidence=artifacts/android-acceptance
+          aapt="$ANDROID_HOME/build-tools/36.0.0/aapt"
           test -s "$apk"
-          mkdir -p "$evidence"
           cp "$apk" "$evidence/app-debug.apk"
           sha256sum "$apk" | tee "$evidence/app-debug.apk.sha256"
-          "$ANDROID_HOME/build-tools/36.0.0/aapt" dump badging "$apk" \
-            | tee "$evidence/app-debug.badging.txt"
-          "$ANDROID_HOME/build-tools/36.0.0/aapt" dump permissions "$apk" \
-            | tee "$evidence/app-debug.permissions.txt"
-          "$ANDROID_HOME/build-tools/36.0.0/aapt" dump xmltree "$apk" AndroidManifest.xml \
-            > "$evidence/app-debug.manifest.xmltree.txt"
-          "$ANDROID_HOME/build-tools/36.0.0/apksigner" verify --verbose --print-certs "$apk" \
-            | tee "$evidence/app-debug.apksigner.txt"
+          "$aapt" dump badging "$apk" | tee "$evidence/app-debug.badging.txt"
+          "$aapt" dump permissions "$apk" | tee "$evidence/app-debug.permissions.txt"
+          "$aapt" dump xmltree "$apk" AndroidManifest.xml > "$evidence/app-debug.manifest.xmltree.txt"
+          "$ANDROID_HOME/build-tools/36.0.0/apksigner" verify --verbose --print-certs "$apk" | tee "$evidence/app-debug.apksigner.txt"
+          for permission in ACCESS_FINE_LOCATION ACCESS_COARSE_LOCATION READ_SMS RECEIVE_SMS SEND_SMS READ_CONTACTS RECORD_AUDIO QUERY_ALL_PACKAGES MANAGE_EXTERNAL_STORAGE; do
+            if rg -F "android.permission.$permission" "$evidence/app-debug.permissions.txt"; then
+              echo "Prohibited permission android.permission.$permission is present." >&2
+              exit 1
+            fi
+          done
+          python - "$evidence/app-debug.manifest.xmltree.txt" <<'PY'
+          import re, sys
+          components, current = [], None
+          for line in open(sys.argv[1], encoding="utf-8"):
+              start = re.match(r"^\s*E: (activity|service|receiver|provider)\b", line)
+              if start:
+                  if current:
+                      components.append(current)
+                  current = {"name": None, "exported": None}
+              elif current and "android:name" in line:
+                  match = re.search(r'Raw: "([^"]+)"', line)
+                  if match:
+                      current["name"] = match.group(1)
+              elif current and "android:exported" in line:
+                  current["exported"] = "0xffffffff" in line or 'Raw: "true"' in line
+          if current:
+              components.append(current)
+          required = {"MainActivity": True, "GuardianBootReceiver": True, "GuardianAccessibilityService": True, "GuardianNotificationListenerService": True, "GuardianVpnService": False, "GuardianBlockActivity": False}
+          for suffix, expected in required.items():
+              matches = [item for item in components if (item["name"] or "").endswith(suffix)]
+              if not matches or {item["exported"] for item in matches} != {expected}:
+                  raise SystemExit(f"Unexpected exported state for {suffix}: {matches}")
+          print("Guardian exported-component allowlist verified")
+          PY
+          public_key="$(python -c "import json; print(next(iter(json.load(open('artifacts/android-acceptance/policy-public-trust-map.json')).values())))")"
+          { while IFS= read -r dex; do unzip -p "$apk" "$dex" | strings | rg -F -- "$public_key"; done < <(unzip -Z1 "$apk" | rg '^classes[0-9]*\.dex$'); } | tee "$evidence/policy-public-key-in-apk.txt"
+          test -s "$evidence/policy-public-key-in-apk.txt"
+          raw_sources=apps/mobile/modules/guardian-protection/android/src/main
+          if rg -n -i -g '*.{kt,java}' '(Log\.[vdiwe]|println)\([^\n]*(rawContent|rawText|windowText)' "$raw_sources"; then exit 1; fi
+          if rg -n -i -g '*.{kt,java}' '(putString|putStringSet)\([^\n]*(rawContent|rawText|windowText)' "$raw_sources"; then exit 1; fi
+          printf '%s\n' "No raw content logging or shared-preference persistence sink found." > "$evidence/raw-content-leakage-check.txt"
+      - name: Upload security-blocker evidence
+        if: failure()
+        uses: actions/upload-artifact@ea165f8d65b6e75b540449e92b4886f43607fa02 # v4.6.2
+        with:
+          name: guardian-acceptance-security-blocker
+          path: artifacts/android-acceptance/
+          if-no-files-found: warn
+          retention-days: 14
       - name: Upload non-final debug APK and evidence
         uses: actions/upload-artifact@ea165f8d65b6e75b540449e92b4886f43607fa02 # v4.6.2
         with:
@@ -176,50 +269,152 @@ jobs:
           retention-days: 14
 
   api35-emulator-smoke:
-    name: API 35 headless emulator smoke
+    name: API 35 primary and child emulator acceptance
     needs: android-acceptance
     runs-on: ubuntu-latest
+    services:
+      postgres:
+        # TODO(task-2): pin the official postgres:16 image digest before release promotion.
+        image: postgres:16
+        env:
+          POSTGRES_DB: guardian
+          POSTGRES_USER: guardian
+          POSTGRES_PASSWORD: guardian
+        ports: ['5432:5432']
+        options: >-
+          --health-cmd "pg_isready -U guardian -d guardian"
+          --health-interval 5s --health-timeout 5s --health-retries 10
     steps:
       - uses: actions/checkout@11d5960a326750d5838078e36cf38b85af677262 # v4.2.2
+      - uses: pnpm/action-setup@b906affcce14559ad1aafd4ab0e942779e9f58b1 # v4.1.0
+        with:
+          version: 10.14.0
+      - uses: actions/setup-node@49933ea5288caeca8642d1e84afbd3f7d6820020 # v4.4.0
+        with:
+          node-version: 22.13.0
+          cache: pnpm
+      - uses: actions/setup-python@a26af69be951a213d495a4c3e4e4022e16d87065 # v5.6.0
+        with:
+          python-version: '3.13.1'
+      - uses: astral-sh/setup-uv@d4b2f3b6ecc6e67c4457f6d3e41ec42d3d0fcb86 # v5.4.0
+        with:
+          version: 0.7.9
+      - uses: actions/setup-java@cf277c60eb25467037889841efdb72551f06f6c3 # v4.7.1
+        with:
+          distribution: temurin
+          java-version: '17'
+      - name: Initialize task-isolated Android and Gradle roots
+        shell: bash
+        run: |
+          set -euo pipefail
+          bootstrap_sdk="${ANDROID_HOME:?Runner SDK is required only to bootstrap the task SDK}"
+          sdk_root="$RUNNER_TEMP/guardian-android-sdk"
+          mkdir -p "$sdk_root" "$RUNNER_TEMP/guardian-gradle" "$RUNNER_TEMP/guardian-avd"
+          "$bootstrap_sdk/cmdline-tools/latest/bin/sdkmanager" --sdk_root="$sdk_root" --install "cmdline-tools;latest"
+          {
+            echo "ANDROID_HOME=$sdk_root"
+            echo "ANDROID_SDK_ROOT=$sdk_root"
+            echo "ANDROID_USER_HOME=$RUNNER_TEMP/guardian-android-user"
+            echo "ANDROID_AVD_HOME=$RUNNER_TEMP/guardian-avd"
+            echo "GRADLE_USER_HOME=$RUNNER_TEMP/guardian-gradle"
+          } >> "$GITHUB_ENV"
+          echo "$sdk_root/cmdline-tools/latest/bin" >> "$GITHUB_PATH"
+          echo "$sdk_root/platform-tools" >> "$GITHUB_PATH"
+          echo "$sdk_root/emulator" >> "$GITHUB_PATH"
+      - name: Install API 35 emulator SDK components
+        shell: bash
+        run: |
+          set -euo pipefail
+          sdkmanager="$ANDROID_HOME/cmdline-tools/latest/bin/sdkmanager"
+          "$sdkmanager" --sdk_root="$ANDROID_HOME" --licenses >/dev/null <<'EOF'
+          y
+          y
+          y
+          y
+          y
+          y
+          y
+          y
+          y
+          y
+          EOF
+          "$sdkmanager" --sdk_root="$ANDROID_HOME" --install "platform-tools" "platforms;android-36" "build-tools;36.0.0" "emulator" "system-images;android-35;google_apis;x86_64"
       - uses: actions/download-artifact@d3f86a106a0bac45b974a628896c90dbdf5c8093 # v4.3.0
         with:
           name: guardian-acceptance-debug-apk
           path: artifacts/android-acceptance
-      - name: Install and create API 35 Google APIs AVD
-        shell: bash
+      - name: Install locked dependencies for instrumentation
         run: |
-          set -euo pipefail
-          sdkmanager="${ANDROID_HOME}/cmdline-tools/latest/bin/sdkmanager"
-          avdmanager="${ANDROID_HOME}/cmdline-tools/latest/bin/avdmanager"
-          "$sdkmanager" --sdk_root="$ANDROID_HOME" --install \
-            "platform-tools" \
-            "emulator" \
-            "system-images;android-35;google_apis;x86_64"
-          echo no | "$avdmanager" create avd --force --name guardian-api35 \
-            --package "system-images;android-35;google_apis;x86_64" --device "pixel_5"
-      - name: Install and launch non-final debug APK
+          pnpm install --frozen-lockfile
+          uv sync --directory backend --locked --extra dev
+      - name: Start scoped ephemeral backend for child instrumentation
         shell: bash
         run: |
           set -euo pipefail
           mkdir -p artifacts/emulator
+          uv run --directory backend python - <<'PY'
+          import base64, json, os, secrets
+          from pathlib import Path
+          from cryptography.hazmat.primitives import serialization
+          from cryptography.hazmat.primitives.asymmetric.ed25519 import Ed25519PrivateKey
+          seed = Path(os.environ["RUNNER_TEMP"]) / "guardian-child-policy-seed"
+          seed.write_bytes(base64.b64encode(secrets.token_bytes(32)))
+          os.chmod(seed, 0o600)
+          public = Ed25519PrivateKey.from_private_bytes(base64.b64decode(seed.read_bytes())).public_key()
+          raw = public.public_bytes(serialization.Encoding.Raw, serialization.PublicFormat.Raw)
+          (Path(os.environ["RUNNER_TEMP"]) / "guardian-child-trust-map.json").write_text(json.dumps({"guardian-ci-2026-child": base64.b64encode(raw).decode("ascii")}))
+          PY
+          test "$(stat -c '%a' "$RUNNER_TEMP/guardian-child-policy-seed")" = 600
+          GUARDIAN_POLICY_KEY_ID=guardian-ci-2026-child GUARDIAN_POLICY_TRUSTED_PUBLIC_KEYS="$(< "$RUNNER_TEMP/guardian-child-trust-map.json")" GUARDIAN_POLICY_PRIVATE_KEY="$(< "$RUNNER_TEMP/guardian-child-policy-seed")" uv run --directory backend alembic upgrade head
+          GUARDIAN_POLICY_KEY_ID=guardian-ci-2026-child GUARDIAN_POLICY_TRUSTED_PUBLIC_KEYS="$(< "$RUNNER_TEMP/guardian-child-trust-map.json")" GUARDIAN_POLICY_PRIVATE_KEY="$(< "$RUNNER_TEMP/guardian-child-policy-seed")" uv run --directory backend uvicorn app.main:app --host 0.0.0.0 --port 8000 > artifacts/emulator/backend.log 2>&1 &
+          echo "$!" > artifacts/emulator/backend.pid
+          timeout 60 bash -c 'until curl -fsS http://127.0.0.1:8000/health; do sleep 2; done' | tee artifacts/emulator/backend-health.txt
+          rm -f "$RUNNER_TEMP/guardian-child-policy-seed" "$RUNNER_TEMP/guardian-child-trust-map.json"
+      - name: Create exact primary and child API 35 AVDs
+        shell: bash
+        run: |
+          set -euo pipefail
+          avdmanager="$ANDROID_HOME/cmdline-tools/latest/bin/avdmanager"
+          echo no | "$avdmanager" create avd --force --name guardian-api35 --package "system-images;android-35;google_apis;x86_64" --device "pixel_5"
+          echo no | "$avdmanager" create avd --force --name guardian-api35-child --package "system-images;android-35;google_apis;x86_64" --device "pixel_5"
+      - name: Boot primary, install, and launch non-final debug APK
+        shell: bash
+        run: |
+          set -euo pipefail
           sudo chmod 666 /dev/kvm || true
-          "$ANDROID_HOME/emulator/emulator" -avd guardian-api35 -no-window -no-audio \
-            -no-boot-anim -gpu swiftshader_indirect -no-snapshot -wipe-data \
-            > artifacts/emulator/emulator.log 2>&1 &
-          adb wait-for-device
+          emulator -avd guardian-api35 -no-window -no-audio -no-boot-anim -gpu swiftshader_indirect -no-snapshot -wipe-data > artifacts/emulator/guardian-api35.emulator.log 2>&1 &
+          timeout 120 adb wait-for-device
           timeout 300 bash -c 'until adb shell getprop sys.boot_completed | tr -d "\r" | grep -qx 1; do sleep 2; done'
-          adb shell input keyevent 82
-          apk="artifacts/android-acceptance/app-debug.apk"
-          test -s "$apk"
-          adb install -r "$apk"
-          adb shell am start -W -n com.guardian.family/.MainActivity
-          adb shell pidof com.guardian.family
-          adb logcat -d -t 500 > artifacts/emulator/logcat.txt
-      - name: Upload emulator smoke evidence
+          adb shell getprop ro.build.fingerprint | tee artifacts/emulator/guardian-api35.boot.txt
+          adb install -r artifacts/android-acceptance/app-debug.apk | tee artifacts/emulator/guardian-api35.install.txt
+          adb shell am start -W -n com.guardian.family/.MainActivity | tee artifacts/emulator/guardian-api35.launch.txt
+          adb shell pidof com.guardian.family | tee artifacts/emulator/guardian-api35.pid.txt
+          adb emu kill
+          timeout 90 bash -c 'until ! adb get-state >/dev/null 2>&1; do sleep 2; done'
+      - name: Boot child, install, launch, and run connected instrumentation
+        shell: bash
+        run: |
+          set -euo pipefail
+          emulator -avd guardian-api35-child -no-window -no-audio -no-boot-anim -gpu swiftshader_indirect -no-snapshot -wipe-data > artifacts/emulator/guardian-api35-child.emulator.log 2>&1 &
+          timeout 120 adb wait-for-device
+          timeout 300 bash -c 'until adb shell getprop sys.boot_completed | tr -d "\r" | grep -qx 1; do sleep 2; done'
+          adb shell getprop ro.build.fingerprint | tee artifacts/emulator/guardian-api35-child.boot.txt
+          adb install -r artifacts/android-acceptance/app-debug.apk | tee artifacts/emulator/guardian-api35-child.install.txt
+          adb shell am start -W -n com.guardian.family/.MainActivity | tee artifacts/emulator/guardian-api35-child.launch.txt
+          adb shell pidof com.guardian.family | tee artifacts/emulator/guardian-api35-child.pid.txt
+          (cd apps/mobile/android && ./gradlew :guardian-protection:connectedDebugAndroidTest --no-daemon --stacktrace) | tee artifacts/emulator/guardian-api35-child.connectedDebugAndroidTest.txt
+      - name: Capture emulator logs and instrumentation reports
+        if: always()
+        shell: bash
+        run: |
+          mkdir -p artifacts/emulator
+          adb logcat -d -t 1000 > artifacts/emulator/logcat.txt || true
+          cp -R apps/mobile/modules/guardian-protection/android/build/reports/androidTests artifacts/emulator/androidTest-reports 2>/dev/null || true
+      - name: Upload API 35 emulator evidence
         if: always()
         uses: actions/upload-artifact@ea165f8d65b6e75b540449e92b4886f43607fa02 # v4.6.2
         with:
-          name: guardian-api35-emulator-smoke
+          name: guardian-api35-emulator-acceptance
           path: artifacts/emulator/
           if-no-files-found: warn
           retention-days: 14

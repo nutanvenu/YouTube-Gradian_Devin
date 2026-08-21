@@ -84,7 +84,7 @@ def _is_placeholder_jwt_secret(jwt_secret: str) -> bool:
         re.search(
             r"(?:^|[^a-z0-9])"
             r"(?:change[-_ ]?me|replace|placeholder|development|example|fixture|"
-            r"default|dummy|ci[-_ ]?only|test)"
+            r"default|dummy|ci[-_ ]?only|acceptance[-_ ]?only|test)"
             r"(?:$|[^a-z0-9])",
             jwt_secret,
             flags=re.IGNORECASE,
