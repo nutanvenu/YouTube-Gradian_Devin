@@ -21,6 +21,35 @@ Authentication uses Argon2id password hashes, short-lived access JWTs, and
 hashed rotating refresh tokens. Configure secrets through environment
 variables; never commit `.env`.
 
+## AWS container deployment
+
+Build from the repository root so that the policy schema is included:
+
+```bash
+docker build -f backend/Dockerfile -t guardian-api .
+```
+
+The image runs as an unprivileged `guardian` user, validates production
+configuration, applies Alembic migrations, then starts exactly one Uvicorn
+worker. One worker is required because live approval broadcasts are currently
+in-process; do not horizontally scale this image until a shared broadcaster is
+introduced.
+
+For production, inject the following values from secret storage at runtime:
+
+```text
+GUARDIAN_ENVIRONMENT=production
+GUARDIAN_DATABASE_URL=postgresql+asyncpg://<user>:<password>@<rds-host>:5432/guardian?ssl=require
+GUARDIAN_JWT_SECRET=<random-32-plus-character-secret>
+GUARDIAN_POLICY_KEY_ID=<non-placeholder-key-id>
+GUARDIAN_POLICY_PRIVATE_KEY=<base64-ed25519-private-seed>
+GUARDIAN_POLICY_TRUSTED_PUBLIC_KEYS={"<key-id>":"<matching-base64-ed25519-public-key>"}
+```
+
+The production database URL must be non-local PostgreSQL and require TLS. The
+active public key must correspond to the private signing seed, preventing an
+APK trust-map mismatch at release time. Never bake these values into the image.
+
 ## Local policy signing key
 
 The backend refuses to start when `GUARDIAN_POLICY_PRIVATE_KEY` is absent,
