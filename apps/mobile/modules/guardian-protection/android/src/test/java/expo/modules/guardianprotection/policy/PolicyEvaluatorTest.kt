@@ -8,6 +8,43 @@ class PolicyEvaluatorTest {
   private val evaluator = PolicyEvaluator()
 
   @Test
+  fun categoryBudgetUsesAggregateCategoryUsageAcrossApps() {
+    val snapshot = CompiledPolicySnapshot(
+      policyVersion = 3,
+      appRules = emptyMap(), domainRules = emptyList(),
+      categoryRules = mapOf("VIDEO" to mapOf("action" to "LIMIT", "daily_minutes" to 20)),
+      temporaryOverrides = emptyList(), routines = emptyList(),
+      basePolicy = mapOf("unknown_app_policy" to "ALLOW_AND_NOTIFY"),
+    )
+    val context = PolicyContext(
+      now = Instant.parse("2026-01-01T12:00:00Z"), childId = "child",
+      packageName = "com.example.video", domain = null, destinationIp = null,
+      usageTodayMs = 60_000, sessionMs = null, activeRoutineIds = emptySet(), signal = null,
+      category = "VIDEO", categoryUsageTodayMs = 1_200_000,
+    )
+    assertEquals("LIMIT_REACHED", evaluator.evaluate(snapshot, context).action)
+    assertEquals("ALLOW_WITH_BUDGET", evaluator.evaluate(snapshot, context.copy(categoryUsageTodayMs = 1_199_000)).action)
+  }
+
+  @Test
+  fun categoryBlockAppliesToAppsUnlessAnExplicitAppRuleOverridesIt() {
+    val snapshot = CompiledPolicySnapshot(
+      policyVersion = 3, appRules = emptyMap(), domainRules = emptyList(),
+      categoryRules = mapOf("VIDEO" to mapOf("action" to "BLOCK")),
+      temporaryOverrides = emptyList(), routines = emptyList(),
+      basePolicy = mapOf("unknown_app_policy" to "ALLOW_AND_NOTIFY"),
+    )
+    val context = PolicyContext(
+      now = Instant.parse("2026-01-01T12:00:00Z"), childId = "child",
+      packageName = "com.example.video", domain = null, destinationIp = null,
+      usageTodayMs = 0, sessionMs = null, activeRoutineIds = emptySet(), signal = null,
+      category = "VIDEO", categoryUsageTodayMs = 0,
+    )
+    assertEquals("BLOCK", evaluator.evaluate(snapshot, context).action)
+    assertEquals("ALLOW", evaluator.evaluate(snapshot.copy(appRules = mapOf("com.example.video" to mapOf("action" to "ALLOW"))), context).action)
+  }
+
+  @Test
   fun explicitAppBlockWinsOverDefaultAllow() {
     val snapshot = CompiledPolicySnapshot(
       policyVersion = 7,

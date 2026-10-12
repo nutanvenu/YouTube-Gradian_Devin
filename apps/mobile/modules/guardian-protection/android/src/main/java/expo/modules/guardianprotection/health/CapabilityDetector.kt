@@ -57,9 +57,12 @@ class CapabilityDetector(private val context: Context) {
         else "Notification-listener consent is required; no notification content is collected.",
       ),
       "app_blocking" to status(
-        if (accessibilityPermissionGranted && GuardianAccessibilityService.isRunning()) "FULL" else "UNAVAILABLE",
+        if (accessibilityPermissionGranted && GuardianAccessibilityService.isRunning()) {
+          if (usageAccessGranted()) "FULL" else "LIMITED"
+        } else "UNAVAILABLE",
         now,
         if (!accessibilitySupported) "App limits are unavailable in this build."
+        else if (accessibilityPermissionGranted && !usageAccessGranted()) "Static app blocks only; Usage Access is required for timed app limits."
         else if (accessibilityPermissionGranted) "Accessibility app blocking" else "Accessibility permission",
       ),
       "web_filtering" to status(vpn.webLevel, now, vpn.webDetail),

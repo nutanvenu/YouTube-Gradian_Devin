@@ -22,6 +22,7 @@ class ChildVideoSettings(TimestampMixin, Base):
     learning_topics: Mapped[list[dict[str, object]]] = mapped_column(JSONB, default=list)
     picks: Mapped[list[dict[str, object]]] = mapped_column(JSONB, default=list)
     learning_only: Mapped[bool] = mapped_column(Boolean, default=False)
+    youtube_paused: Mapped[bool] = mapped_column(Boolean, default=False)
     hide_shorts: Mapped[bool] = mapped_column(Boolean, default=True)
     hide_comments: Mapped[bool] = mapped_column(Boolean, default=True)
     autoplay_next: Mapped[bool] = mapped_column(Boolean, default=False)

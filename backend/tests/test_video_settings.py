@@ -1,4 +1,7 @@
+# ruff: noqa: E501
 import json
+from dataclasses import replace
+from datetime import UTC, datetime
 from pathlib import Path
 
 import pytest
@@ -20,8 +23,8 @@ SCHEMA = json.loads(
 
 VIDEOS = {
     "goreVideo01": VideoMetadata(title="Brutal gore compilation", channel="Shock Clips"),
-    "scienceVid1": VideoMetadata(title="Volcano science project", channel="Science Kids"),
-    "randomVideo": VideoMetadata(title="Funny cats", channel="Cat Channel"),
+    "scienceVid1": VideoMetadata(title="Volcano science project", channel="Science Kids", safety_verified=True),
+    "randomVideo": VideoMetadata(title="Funny cats", channel="Cat Channel", safety_verified=True),
 }
 
 
@@ -55,6 +58,75 @@ async def put_settings(client, device: PairedDevice, **values: object) -> dict[s
     response = await client.put(settings_path(device), json=values, headers=parent_headers(device))
     assert response.status_code == 200, response.text
     return dict(response.json())
+
+
+async def test_live_pause_revokes_an_allowed_video_and_publishes_a_new_fingerprint(
+    client, paired_device: PairedDevice
+) -> None:
+    before = await check(client, paired_device, "scienceVid1")
+    assert before["verdict"] == "ALLOW"
+    expires = datetime.fromisoformat(str(before["valid_until"]))
+    assert 0 < (expires - datetime.now(UTC)).total_seconds() <= 15
+    await put_settings(client, paired_device, youtube_paused=True)
+    settings = (await client.get("/v1/devices/me/video-settings", headers={"Authorization": f"Bearer {paired_device.device_token}"})).json()
+    assert settings["youtube_paused"] is True
+    assert settings["rules_fingerprint"] != before["rules_fingerprint"]
+    paused = await check(client, paired_device, "scienceVid1")
+    assert paused["verdict"] == "BLOCKED"
+    assert paused["valid_until"] is None
+    await put_settings(client, paired_device, youtube_paused=False)
+    assert (await check(client, paired_device, "scienceVid1"))["verdict"] == "ALLOW"
+
+
+async def test_conflicting_parent_rule_save_is_rejected(client, paired_device: PairedDevice) -> None:
+    saved = await put_settings(client, paired_device, expected_revision=0, blocked_channels=["Shock Clips"])
+    response = await client.put(settings_path(paired_device), json={"expected_revision": 0}, headers=parent_headers(paired_device))
+    assert response.status_code == 409
+    current = (await client.get(settings_path(paired_device).replace("video-settings", "video-rules"), headers=parent_headers(paired_device))).json()
+    assert current["settings"]["blocked_channels"] == saved["blocked_channels"]
+
+
+async def test_unverified_or_risky_picks_do_not_bypass_age_screening(client, paired_device: PairedDevice) -> None:
+    await put_settings(client, paired_device, picks=[{"video_id": "goreVideo01"}], trusted_channels=["Shock Clips"])
+    assert (await check(client, paired_device, "goreVideo01"))["verdict"] == "REVIEW"
+    await put_settings(client, paired_device, picks=[{"video_id": "missingData"}])
+    assert (await check(client, paired_device, "missingData"))["verdict"] == "REVIEW"
+
+
+async def test_parent_denial_wins_when_metadata_later_looks_clean(client, paired_device: PairedDevice, monkeypatch: pytest.MonkeyPatch) -> None:
+    first = await check(client, paired_device, "goreVideo01")
+    response = await client.post(
+        f"/v1/families/{paired_device.parent.family_id}/requests/{first['request_id']}/deny",
+        json={"reason": "Not this video"}, headers=parent_headers(paired_device),
+    )
+    assert response.status_code == 200
+    async def clean_metadata(_video_id: str) -> VideoMetadata:
+        return VideoMetadata(title="New educational title", channel="Science Kids", safety_verified=True)
+    monkeypatch.setattr(video_router, "fetch_video_metadata", clean_metadata)
+    assert (await check(client, paired_device, "goreVideo01"))["verdict"] == "BLOCKED"
+
+
+async def test_partial_metadata_is_reviewed_and_age_gate_is_never_overridden(client, paired_device: PairedDevice, monkeypatch: pytest.MonkeyPatch) -> None:
+    async def partial(_video_id: str) -> VideoMetadata:
+        return replace(VIDEOS["scienceVid1"], safety_verified=False)
+    monkeypatch.setattr(video_router, "fetch_video_metadata", partial)
+    assert (await check(client, paired_device, "scienceVid1"))["verdict"] == "REVIEW"
+    async def restricted(_video_id: str) -> VideoMetadata:
+        return replace(VIDEOS["scienceVid1"], age_restricted=True)
+    monkeypatch.setattr(video_router, "fetch_video_metadata", restricted)
+    await put_settings(client, paired_device, picks=[{"video_id": "scienceVid1"}], trusted_channels=["Science Kids"])
+    assert (await check(client, paired_device, "scienceVid1"))["verdict"] == "BLOCKED"
+
+
+async def test_review_metadata_preserves_delimiters_in_channel_and_title(client, paired_device: PairedDevice, monkeypatch: pytest.MonkeyPatch) -> None:
+    async def tricky(_video_id: str) -> VideoMetadata:
+        return VideoMetadata(title="Horror | Official lesson", channel="Channel | Original")
+    monkeypatch.setattr(video_router, "fetch_video_metadata", tricky)
+    first = await check(client, paired_device, "goreVideo01")
+    requests = (await client.get(f"/v1/families/{paired_device.parent.family_id}/requests", headers=parent_headers(paired_device))).json()
+    row = next(request for request in requests if request["id"] == first["request_id"])
+    assert row["video_review"]["channel"] == "Channel | Original"
+    assert row["video_review"]["title"] == "Horror | Official lesson"
 
 
 async def test_channel_lists_picks_and_learning_only_drive_the_video_check(
@@ -100,7 +172,7 @@ async def test_rule_change_requires_a_fresh_parent_decision(
         client, paired_device, blocked_channels=["Someone Else"], hide_comments=False
     )
     same = await check(client, paired_device, "goreVideo01")
-    assert same["request_id"] == again["request_id"]
+    assert same["request_id"] != again["request_id"]
 
 
 async def test_youtube_guardian_only_publishes_signed_domain_blocks(
@@ -121,12 +193,16 @@ async def test_youtube_guardian_only_publishes_signed_domain_blocks(
     assert (
         list(Draft202012Validator(SCHEMA, format_checker=FormatChecker()).iter_errors(bundle)) == []
     )
+    apps = {rule["app_ref"]: rule for rule in bundle["app_rules"]}
+    assert apps["com.google.android.youtube"]["action"] == "BLOCK"
+    assert apps["com.google.android.apps.youtube.kids"]["action"] == "BLOCK"
 
     await put_settings(client, paired_device, youtube_guardian_only=False)
     bundle = (await client.get(policy_path, headers=parent_headers(paired_device))).json()[
         "policy_document"
     ]
     assert all(rule["domain"] != "youtube.com" for rule in bundle["domain_rules"])
+    assert all(not rule["rule_id"].startswith(video_router.YOUTUBE_RULE_PREFIX) for rule in bundle["app_rules"])
 
 
 async def test_sos_alert_is_deduplicated_and_acknowledged_without_policy_change(

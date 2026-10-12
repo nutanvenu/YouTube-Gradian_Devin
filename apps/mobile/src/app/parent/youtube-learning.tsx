@@ -1,8 +1,8 @@
-import { useEffect, useState } from "react";
+import { useEffect, useRef, useState } from "react";
 import { Pressable, StyleSheet, Text, View } from "react-native";
 import { useLocalSearchParams } from "expo-router";
 import { useMutation, useQuery, useQueryClient } from "@tanstack/react-query";
-import { api, type LearningTopic, type VideoSettingsInput } from "@/api/client";
+import { api, ApiError, type LearningTopic, type VideoSettingsInput } from "@/api/client";
 import { videoSettingsInput } from "@/state/video-settings";
 import { useFamilySync } from "@/hooks/use-family-sync";
 import { videoIdFromUrl } from "@/state/youtube-video";
@@ -14,6 +14,7 @@ const EMPTY: VideoSettingsInput = {
   learning_topics: [],
   picks: [],
   learning_only: false,
+  youtube_paused: false,
   hide_shorts: true,
   hide_comments: true,
   autoplay_next: false,
@@ -54,23 +55,29 @@ export default function YouTubeLearningRoute() {
   const [channel, setChannel] = useState("");
   const [pickUrl, setPickUrl] = useState("");
   const [message, setMessage] = useState<string | null>(null);
+  const dirty = useRef(false);
   useEffect(() => {
-    if (!rules.data) return;
+    if (!rules.data || dirty.current) return;
     setDraft(videoSettingsInput(rules.data.settings));
   }, [rules.data]);
   const save = useMutation({
     mutationFn: (next: VideoSettingsInput) => api.updateVideoSettings(familyId, childId, next),
     onSuccess: (saved) => {
+      dirty.current = false;
       setDraft(videoSettingsInput(saved));
-      setMessage("Saved. Your child's YouTube updates right away.");
+      setMessage("Saved. Online Guardian players receive changes within a few seconds.");
       void queryClient.invalidateQueries({ queryKey: ["video-rules", familyId, childId] });
     },
-    onError: () => setMessage("Couldn't save. Check your connection and try again."),
+    onError: (error) => setMessage(error instanceof ApiError && error.status === 409
+      ? "Another parent changed these rules. Reload before saving your changes."
+      : "Couldn't save. Your changes are not applied. Check your connection and try again."),
   });
   const update = (patch: Partial<VideoSettingsInput>) => {
+    if (save.isPending) return;
+    dirty.current = true;
     const next = { ...draft, ...patch };
     setDraft(next);
-    save.mutate(next);
+    setMessage("Unsaved changes. Tap Save to apply them to your child.");
   };
   const hasTopic = (topic: LearningTopic) => draft.learning_topics.some((t) => t.label === topic.label);
   const toggleTopic = (topic: LearningTopic) =>
@@ -104,6 +111,8 @@ export default function YouTubeLearningRoute() {
         <SectionSurface>
           {message ? <Text accessibilityLiveRegion="polite" style={styles.message}>{message}</Text> : null}
           <CardSurface>
+            <Toggle label="Pause YouTube now" detail="Stops Guardian playback while online. Overrides picks and previous approvals until you turn it off and save." value={draft.youtube_paused} onChange={(value) => update({ youtube_paused: value })} />
+            <Text style={styles.detail}>Changes take effect only after Save. Age-restricted videos stay blocked; risky or unverified picks still need an exact-video review. Metadata screening is not a guarantee of safe audio or video content.</Text>
             <Text style={styles.heading}>What should they learn? · Age {AGE_LABELS[ageBand] ?? ageBand}</Text>
             <Text style={styles.detail}>Topics show as one-tap “Watch & learn” buttons on your child's YouTube screen. Every video is still checked before it plays.</Text>
             <View style={styles.chips}>
@@ -152,9 +161,13 @@ export default function YouTubeLearningRoute() {
             <Toggle label="Hide Shorts" detail="Shorts open as normal videos and are checked first." value={draft.hide_shorts} onChange={(value) => update({ hide_shorts: value })} />
             <Toggle label="Hide comments" detail="Comments are hidden under every video." value={draft.hide_comments} onChange={(value) => update({ hide_comments: value })} />
             <Toggle label="Autoplay next video" detail="When off, the next video doesn't start by itself." value={draft.autoplay_next} onChange={(value) => update({ autoplay_next: value })} />
-            <Toggle label="YouTube only inside Guardian" detail="Blocks youtube.com in the YouTube app and other browsers on the child phone (needs web protection on)." value={draft.youtube_guardian_only} onChange={(value) => update({ youtube_guardian_only: value })} />
+            <Toggle label="YouTube only inside Guardian" detail="Adds YouTube domain and app blocks. External enforcement needs active VPN web protection; app blocking also needs the full Child build with Accessibility enabled. Check protection health on the child phone." value={draft.youtube_guardian_only} onChange={(value) => update({ youtube_guardian_only: value })} />
           </CardSurface>
           <PrimaryButton label={save.isPending ? "Saving…" : "Save"} disabled={save.isPending} onPress={() => save.mutate(draft)} />
+          <SecondaryButton label="Reload saved rules" disabled={save.isPending} onPress={async () => {
+            const latest = await rules.refetch();
+            if (latest.data) { dirty.current = false; setDraft(videoSettingsInput(latest.data.settings)); setMessage("Reloaded saved rules."); }
+          }} />
         </SectionSurface>
       </DataState>
     </ScreenScaffold>

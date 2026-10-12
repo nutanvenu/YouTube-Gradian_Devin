@@ -68,6 +68,7 @@ export type AccessRequest = {
   decision_reason: string | null;
   expires_at: string | null;
   content_review?: ContentReviewEvidence | null;
+  video_review?: { video_id: string; title: string | null; channel: string | null; topic: string } | null;
 };
 export type VideoCheck = {
   video_id: string;
@@ -76,6 +77,8 @@ export type VideoCheck = {
   verdict: "ALLOW" | "REVIEW" | "BLOCKED";
   topic: string | null;
   request_id: string | null;
+  rules_fingerprint: string;
+  valid_until: string | null;
 };
 export type LearningTopic = { label: string; keywords: string };
 export type VideoPick = { video_id: string; title?: string | null; channel?: string | null };
@@ -85,6 +88,8 @@ export type VideoSettingsInput = {
   learning_topics: LearningTopic[];
   picks: VideoPick[];
   learning_only: boolean;
+  youtube_paused: boolean;
+  expected_revision?: number;
   hide_shorts: boolean;
   hide_comments: boolean;
   autoplay_next: boolean;
@@ -105,6 +110,8 @@ export type DeviceVideoSettings = {
   hide_shorts: boolean;
   hide_comments: boolean;
   autoplay_next: boolean;
+  youtube_paused: boolean;
+  rules_fingerprint: string;
 };
 export type ContentReviewRequestInput = {
   request_type: "CONTENT_REVIEW";
@@ -311,13 +318,13 @@ export class GuardianApiClient {
     if (!this.refreshInFlight) {
       this.refreshInFlight = (async () => {
         const refreshToken = await sessionStorage.getRefreshToken();
-        if (!refreshToken) throw new Error("No refresh token is available.");
+        if (!refreshToken) throw new ApiError("No refresh token is available.", 401);
         const refreshed = await fetch(`${this.baseUrl}/v1/auth/refresh`, {
           method: "POST",
           headers: { "Content-Type": "application/json" },
           body: JSON.stringify({ refresh_token: refreshToken }),
         });
-        if (!refreshed.ok) throw new Error("Refresh token is invalid.");
+        if (!refreshed.ok) throw new ApiError("Couldn't refresh your session.", refreshed.status);
         const tokens = (await refreshed.json()) as Tokens;
         await sessionStorage.setTokens(tokens);
         return tokens;
@@ -365,11 +372,11 @@ export class GuardianApiClient {
           // second refresh; the retry remains bounded to one attempt.
           const currentAccessToken = await sessionStorage.getAccessToken();
           if (currentAccessToken && currentAccessToken !== accessToken) {
-            return await this.request<T>(path, init, false);
+            return this.request<T>(path, init, false);
           }
           await this.refreshParentSession();
-          return await this.request<T>(path, init, false);
-        } catch {
+        } catch (refreshError) {
+          if (!(refreshError instanceof ApiError) || ![401, 403].includes(refreshError.status)) throw refreshError;
           await sessionStorage.clearParentSession();
           parentSessionExpiryListener?.();
           throw new ApiError(
@@ -379,6 +386,7 @@ export class GuardianApiClient {
             requestId,
           );
         }
+        return this.request<T>(path, init, false);
       }
       if (error instanceof Error) {
         throw new ApiError(

@@ -103,6 +103,7 @@ object GuardianPolicyRuntime {
         signal = null,
         category = category,
         deviceUsageTodayMs = usage.deviceMillis,
+        categoryUsageTodayMs = usage.categoryMillis,
       ),
     )
     val targetRef = packageName

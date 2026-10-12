@@ -77,6 +77,15 @@ async def decide_request(
     # not a second policy mutation. The row lock makes this check atomic.
     if row.state == target.value:
         return RequestOut.model_validate(row)
+    if row.request_type == "VIDEO_REVIEW":
+        from ..videos.router import _settings_for, rules_fingerprint
+
+        child = await session.get(ChildProfile, row.child_profile_id)
+        if child is None:
+            raise HTTPException(status.HTTP_404_NOT_FOUND, "Child not found")
+        settings = await _settings_for(session, child.id)
+        if row.video_rules_fingerprint != rules_fingerprint(child.age_band, settings):
+            raise HTTPException(status.HTTP_409_CONFLICT, "YouTube rules changed. Ask the child to retry for a fresh review.")
     transition(row.state, target)
     previous = row.state
     row.state = target.value

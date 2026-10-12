@@ -1,7 +1,9 @@
 # ruff: noqa: E501
 import json
 import re
+from collections import OrderedDict
 from dataclasses import dataclass, field, replace
+from time import monotonic
 
 import httpx
 
@@ -94,6 +96,7 @@ class VideoMetadata:
     category: str | None = None
     family_safe: bool | None = None
     age_restricted: bool = False
+    safety_verified: bool = False
 
 
 @dataclass(frozen=True)
@@ -151,9 +154,7 @@ YOUTUBE_RESTRICTED = VideoTopic(
 
 
 def classify_video(metadata: VideoMetadata, age_band: str) -> VideoTopic | None:
-    if (metadata.age_restricted or metadata.family_safe is False) and age_band in AGE_BAND_ORDER[
-        :3
-    ]:
+    if metadata.age_restricted or (metadata.family_safe is False and age_band in AGE_BAND_ORDER[:3]):
         return YOUTUBE_RESTRICTED
     text = " ".join(
         [
@@ -169,7 +170,24 @@ def classify_video(metadata: VideoMetadata, age_band: str) -> VideoTopic | None:
     return None
 
 
+_metadata_cache: OrderedDict[str, tuple[float, VideoMetadata]] = OrderedDict()
+
+
 async def fetch_video_metadata(video_id: str) -> VideoMetadata | None:
+    cached = _metadata_cache.get(video_id)
+    if cached is not None and cached[0] > monotonic():
+        _metadata_cache.move_to_end(video_id)
+        return cached[1]
+    metadata = await _fetch_video_metadata(video_id)
+    if metadata is not None and metadata.safety_verified:
+        _metadata_cache[video_id] = (monotonic() + 60, metadata)
+        _metadata_cache.move_to_end(video_id)
+        while len(_metadata_cache) > 256:
+            _metadata_cache.popitem(last=False)
+    return metadata
+
+
+async def _fetch_video_metadata(video_id: str) -> VideoMetadata | None:
     """Public YouTube oEmbed metadata; None when YouTube withholds it."""
     try:
         async with httpx.AsyncClient(timeout=5.0) as client:
@@ -192,6 +210,7 @@ async def fetch_video_metadata(video_id: str) -> VideoMetadata | None:
     metadata = VideoMetadata(
         title=title if isinstance(title, str) else None,
         channel=channel if isinstance(channel, str) else None,
+        safety_verified=False,
     )
     details = await fetch_watch_page_details(video_id)
     if details is None:
@@ -203,6 +222,7 @@ async def fetch_video_metadata(video_id: str) -> VideoMetadata | None:
         category=details.category,
         family_safe=details.family_safe,
         age_restricted=details.age_restricted,
+        safety_verified=details.safety_verified,
     )
 
 
@@ -230,6 +250,8 @@ def parse_watch_page(page: str) -> VideoMetadata | None:
     )
     details = details if isinstance(details, dict) else {}
     renderer = renderer if isinstance(renderer, dict) else {}
+    if not details and not renderer:
+        return None
     status = playability.get("status") if isinstance(playability, dict) else None
     reason = str(playability.get("reason", "")) if isinstance(playability, dict) else ""
     raw_keywords = details.get("keywords")
@@ -245,8 +267,9 @@ def parse_watch_page(page: str) -> VideoMetadata | None:
         else (),
         category=category if isinstance(category, str) else None,
         family_safe=family_safe if isinstance(family_safe, bool) else None,
-        age_restricted=status in {"LOGIN_REQUIRED", "AGE_CHECK_REQUIRED"}
+        age_restricted=status in {"LOGIN_REQUIRED", "AGE_CHECK_REQUIRED", "CONTENT_CHECK_REQUIRED"}
         and "age" in reason.lower(),
+        safety_verified=isinstance(family_safe, bool),
     )
 
 

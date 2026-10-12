@@ -67,6 +67,8 @@ class VideoCheckOut(BaseModel):
     verdict: Literal["ALLOW", "REVIEW", "BLOCKED"]
     topic: str | None
     request_id: UUID | None
+    rules_fingerprint: str = ""
+    valid_until: datetime | None = None
 
 
 class VideoTopicOut(BaseModel):
@@ -92,6 +94,8 @@ class VideoSettingsBody(BaseModel):
     learning_topics: list[LearningTopic] = Field(default_factory=list, max_length=30)
     picks: list[VideoPick] = Field(default_factory=list, max_length=100)
     learning_only: bool = False
+    youtube_paused: bool = False
+    expected_revision: int | None = Field(default=None, ge=0, exclude=True)
     hide_shorts: bool = True
     hide_comments: bool = True
     autoplay_next: bool = False
@@ -117,6 +121,8 @@ class DeviceVideoSettingsOut(BaseModel):
     hide_shorts: bool
     hide_comments: bool
     autoplay_next: bool
+    youtube_paused: bool
+    rules_fingerprint: str
 
 
 class SosIn(BaseModel):
@@ -162,6 +168,7 @@ def _settings_out(settings: ChildVideoSettings | None) -> VideoSettingsOut:
         learning_topics=[LearningTopic.model_validate(t) for t in settings.learning_topics or []],
         picks=[VideoPick.model_validate(p) for p in settings.picks or []],
         learning_only=settings.learning_only,
+        youtube_paused=settings.youtube_paused,
         hide_shorts=settings.hide_shorts,
         hide_comments=settings.hide_comments,
         autoplay_next=settings.autoplay_next,
@@ -180,9 +187,17 @@ async def check_video(
     child = await session.get(ChildProfile, device.child_profile_id)
     if child is None:
         raise HTTPException(status.HTTP_404_NOT_FOUND, "Child profile not found")
+    metadata = await fetch_video_metadata(body.video_id)
+    await session.execute(
+        text("SELECT pg_advisory_xact_lock(hashtextextended(:lock_key, 0))"),
+        {"lock_key": f"video-review:{device.id}:{body.video_id}"},
+    )
+    # Reload after external I/O so a rule change during metadata retrieval wins.
+    await session.refresh(child)
     settings = await _settings_for(session, child.id)
     fingerprint = rules_fingerprint(child.age_band, settings)
-    metadata = await fetch_video_metadata(body.video_id)
+    now = datetime.now(UTC)
+    valid_until = now + timedelta(seconds=15)
     shown = metadata or VideoMetadata(title=None, channel=None)
     picked = settings is not None and any(
         p.get("video_id") == body.video_id for p in settings.picks or []
@@ -198,23 +213,23 @@ async def check_video(
         and bool(channel)
         and channel in {_channel_key(c) for c in settings.trusted_channels or []}
     )
-    if blocked:
+    if blocked or (settings is not None and settings.youtube_paused):
         return VideoCheckOut(
             video_id=body.video_id,
             title=shown.title,
             channel=shown.channel,
             verdict="BLOCKED",
-            topic="Channel blocked by your parent",
+            topic="YouTube paused by your parent" if settings and settings.youtube_paused else "Channel blocked by your parent",
             request_id=None,
+            rules_fingerprint=fingerprint,
         )
     topic = classify_video(metadata, child.age_band) if metadata else None
-    if (
-        metadata is not None
-        and topic is not None
-        and (picked or trusted)
-        and topic.code != "YOUTUBE_RESTRICTED"
-    ):
-        topic = None
+    if shown.age_restricted:
+        return VideoCheckOut(
+            video_id=body.video_id, title=shown.title, channel=shown.channel,
+            verdict="BLOCKED", topic="YouTube age-restricted video", request_id=None,
+            rules_fingerprint=fingerprint,
+        )
     if (
         metadata is not None
         and topic is None
@@ -223,21 +238,7 @@ async def check_video(
         and not (picked or trusted)
     ):
         topic = LEARNING_ONLY
-    if metadata is not None and topic is None:
-        return VideoCheckOut(
-            video_id=body.video_id,
-            title=shown.title,
-            channel=shown.channel,
-            verdict="ALLOW",
-            topic=None,
-            request_id=None,
-        )
     topic_label = topic.label if topic else UNVERIFIED_LABEL
-    await session.execute(
-        text("SELECT pg_advisory_xact_lock(hashtextextended(:lock_key, 0))"),
-        {"lock_key": f"video-review:{device.id}:{body.video_id}"},
-    )
-    now = datetime.now(UTC)
     previous = await session.scalar(
         select(RequestRow)
         .where(
@@ -261,6 +262,8 @@ async def check_video(
                 verdict="ALLOW",
                 topic=topic_label,
                 request_id=previous.id,
+                rules_fingerprint=fingerprint,
+                valid_until=min(valid_until, previous.created_at + DECISION_WINDOW),
             )
         if previous.state == RequestState.DENIED.value:
             return VideoCheckOut(
@@ -270,6 +273,7 @@ async def check_video(
                 verdict="BLOCKED",
                 topic=topic_label,
                 request_id=previous.id,
+                rules_fingerprint=fingerprint,
             )
         if previous.state == RequestState.PENDING.value:
             if not _expire_if_due(previous, now):
@@ -280,7 +284,15 @@ async def check_video(
                     verdict="REVIEW",
                     topic=topic_label,
                     request_id=previous.id,
+                    rules_fingerprint=fingerprint,
                 )
+    if metadata is not None and metadata.safety_verified and topic is None:
+        await session.commit()
+        return VideoCheckOut(
+            video_id=body.video_id, title=shown.title, channel=shown.channel,
+            verdict="ALLOW", topic=None, request_id=None,
+            rules_fingerprint=fingerprint, valid_until=valid_until,
+        )
     row = RequestRow(
         child_profile_id=device.child_profile_id,
         device_id=device.id,
@@ -291,6 +303,7 @@ async def check_video(
         )[:1000],
         expires_at=now + timedelta(hours=1),
         video_rules_fingerprint=fingerprint,
+        video_review={"video_id": body.video_id, "topic": topic_label, "title": shown.title, "channel": shown.channel},
     )
     session.add(row)
     await session.commit()
@@ -306,6 +319,7 @@ async def check_video(
         verdict="REVIEW",
         topic=topic_label,
         request_id=row.id,
+        rules_fingerprint=fingerprint,
     )
 
 
@@ -373,7 +387,14 @@ async def update_video_settings(
     )
     if child is None:
         raise HTTPException(status.HTTP_404_NOT_FOUND, "Child not found")
+    await session.execute(
+        text("SELECT pg_advisory_xact_lock(hashtextextended(:lock_key, 0))"),
+        {"lock_key": f"video-settings:{child.id}"},
+    )
     settings = await _settings_for(session, child.id)
+    revision = settings.rules_revision if settings else 0
+    if body.expected_revision is not None and body.expected_revision != revision:
+        raise HTTPException(status.HTTP_409_CONFLICT, "YouTube rules changed. Reload before saving.")
     if settings is None:
         settings = ChildVideoSettings(child_profile_id=child.id, rules_revision=1)
         session.add(settings)
@@ -393,6 +414,12 @@ async def update_video_settings(
         or [_channel_key(c) for c in settings.blocked_channels or []]
         != [_channel_key(c) for c in blocked]
         or settings.learning_only != body.learning_only
+        or settings.youtube_paused != body.youtube_paused
+        or settings.learning_topics != [t.model_dump() for t in body.learning_topics]
+        or settings.hide_shorts != body.hide_shorts
+        or settings.hide_comments != body.hide_comments
+        or settings.autoplay_next != body.autoplay_next
+        or settings.youtube_guardian_only != body.youtube_guardian_only
         or {p.get("video_id") for p in settings.picks or []} != {p.video_id for p in body.picks}
     ):
         rules_changed = True
@@ -416,6 +443,7 @@ async def update_video_settings(
     settings.learning_topics = [t.model_dump() for t in body.learning_topics]
     settings.picks = picks
     settings.learning_only = body.learning_only
+    settings.youtube_paused = body.youtube_paused
     settings.hide_shorts = body.hide_shorts
     settings.hide_comments = body.hide_comments
     settings.autoplay_next = body.autoplay_next
@@ -455,8 +483,6 @@ async def _apply_youtube_domain_rules(
     rules = [r for r in raw_rules if isinstance(r, dict)] if isinstance(raw_rules, list) else []
     rules = [r for r in rules if not str(r.get("rule_id", "")).startswith(YOUTUBE_RULE_PREFIX)]
     if enabled:
-        youtube = set(YOUTUBE_DOMAINS)
-        rules = [r for r in rules if r.get("domain") not in youtube]
         rules.extend(
             {
                 "rule_id": f"{YOUTUBE_RULE_PREFIX}{domain}",
@@ -467,6 +493,14 @@ async def _apply_youtube_domain_rules(
             for domain in YOUTUBE_DOMAINS
         )
     policy["domain_rules"] = rules
+    raw_apps = policy.get("app_rules")
+    apps = [r for r in raw_apps if isinstance(r, dict) and not str(r.get("rule_id", "")).startswith(YOUTUBE_RULE_PREFIX)] if isinstance(raw_apps, list) else []
+    if enabled:
+        apps.extend(
+            {"rule_id": f"{YOUTUBE_RULE_PREFIX}{package}", "app_ref": package, "action": "BLOCK"}
+            for package in ("com.google.android.youtube", "com.google.android.apps.youtube.kids")
+        )
+    policy["app_rules"] = apps
     bundle = await create_next_bundle(
         session,
         child.id,
@@ -485,7 +519,8 @@ async def device_video_settings(
     child = await session.get(ChildProfile, device.child_profile_id)
     if child is None:
         raise HTTPException(status.HTTP_404_NOT_FOUND, "Child profile not found")
-    settings = _settings_out(await _settings_for(session, child.id))
+    stored = await _settings_for(session, child.id)
+    settings = _settings_out(stored)
     topics = settings.learning_topics or [
         LearningTopic(label=p.label, keywords=p.keywords)
         for p in LEARNING_PRESETS.get(child.age_band, ())
@@ -498,6 +533,8 @@ async def device_video_settings(
         hide_shorts=settings.hide_shorts,
         hide_comments=settings.hide_comments,
         autoplay_next=settings.autoplay_next,
+        youtube_paused=settings.youtube_paused,
+        rules_fingerprint=rules_fingerprint(child.age_band, stored),
     )
 
 

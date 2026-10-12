@@ -6,9 +6,13 @@ import { useFamilySync } from "@/hooks/use-family-sync";
 import { CardSurface, PrimaryButton, SecondaryButton } from "@/design-system";
 
 export function parseVideoReview(request: AccessRequest) {
+  if (request.video_review) return {
+    videoId: request.video_review.video_id, topic: request.video_review.topic,
+    title: request.video_review.title || "YouTube video", channel: request.video_review.channel || "",
+  };
   const videoId = request.subject?.startsWith("youtube:") ? request.subject.slice("youtube:".length) : null;
-  const [topic, title, channel] = (request.reason ?? "").split(" | ");
-  return { videoId, topic: topic || "Needs review", title: title || "YouTube video", channel: channel || "" };
+  const [topic, title] = (request.reason ?? "").split(" | ");
+  return { videoId, topic: topic || "Needs review", title: title || "YouTube video", channel: "" };
 }
 
 export function VideoReviewAlerts({ familyId, childNames }: { familyId: string; childNames: Record<string, string> }) {
@@ -21,16 +25,17 @@ export function VideoReviewAlerts({ familyId, childNames }: { familyId: string; 
   });
   const decide = useMutation({
     mutationFn: async ({ request, decision, channel }: { request: AccessRequest; decision: "approve" | "deny"; channel?: string }) => {
+      const reason = channel
+        ? decision === "approve" ? `Trusted channel ${channel}` : `Blocked channel ${channel}`
+        : decision === "approve" ? "Approved this video" : "Blocked this video";
+      const result = await api.decideRequest(familyId, request.id, decision, reason);
       if (channel) {
         const rules = await api.videoRules(familyId, request.child_profile_id);
         await api.updateVideoSettings(familyId, request.child_profile_id, withChannel(rules.settings, channel, decision === "approve" ? "trusted" : "blocked"));
       }
-      const reason = channel
-        ? decision === "approve" ? `Trusted channel ${channel}` : `Blocked channel ${channel}`
-        : decision === "approve" ? "Approved this video" : "Blocked this video";
-      return api.decideRequest(familyId, request.id, decision, reason);
+      return result;
     },
-    onSuccess: () => void queryClient.invalidateQueries({ queryKey: ["requests", familyId] }),
+    onSettled: () => void queryClient.invalidateQueries({ queryKey: ["requests", familyId] }),
   });
   const acknowledge = useMutation({
     mutationFn: (requestId: string) => api.decideRequest(familyId, requestId, "approve", "I'm on my way"),
@@ -40,9 +45,12 @@ export function VideoReviewAlerts({ familyId, childNames }: { familyId: string; 
   const live = (request: AccessRequest) => request.state === "PENDING" && (!request.expires_at || Date.parse(request.expires_at) > now);
   const sos = (requests.data ?? []).filter((request) => request.request_type === "SOS" && live(request));
   const pending = (requests.data ?? []).filter((request) => request.request_type === "VIDEO_REVIEW" && live(request));
-  if (pending.length === 0 && sos.length === 0) return null;
+  if (pending.length === 0 && sos.length === 0 && !requests.isError) return null;
   return (
     <>
+      {requests.isError ? <Text accessibilityLiveRegion="polite">Couldn't load live alerts. Check your connection; Guardian will retry.</Text> : null}
+      {decide.isError ? <Text accessibilityLiveRegion="polite">Couldn't finish the action. A video decision may be saved even if the channel update failed. Reload saved rules and ask the child to retry if rules changed.</Text> : null}
+      {acknowledge.isError ? <Text accessibilityLiveRegion="assertive">Couldn't send your acknowledgment. Please contact your child directly and try again.</Text> : null}
       {sos.map((request) => {
         const alert = parseSos(request);
         return (

@@ -7,6 +7,8 @@ export function videoSettingsInput(settings: VideoSettings): VideoSettingsInput 
     learning_topics: settings.learning_topics,
     picks: settings.picks,
     learning_only: settings.learning_only,
+    youtube_paused: settings.youtube_paused,
+    expected_revision: settings.rules_revision,
     hide_shorts: settings.hide_shorts,
     hide_comments: settings.hide_comments,
     autoplay_next: settings.autoplay_next,

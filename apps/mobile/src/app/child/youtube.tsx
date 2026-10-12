@@ -1,34 +1,14 @@
 import { useCallback, useEffect, useRef, useState } from "react";
-import { BackHandler, Image, Pressable, ScrollView, StyleSheet, Text, View } from "react-native";
+import { AppState, BackHandler, Image, Pressable, ScrollView, StyleSheet, Text, View } from "react-native";
 import { WebView, type WebViewMessageEvent } from "react-native-webview";
 import { useQuery } from "@tanstack/react-query";
-import { useRouter } from "expo-router";
+import { useFocusEffect, useRouter } from "expo-router";
 import { api, sessionStorage, type DeviceVideoSettings, type VideoCheck } from "@/api/client";
 import { useFamilySync } from "@/hooks/use-family-sync";
 import { PrimaryButton, SecondaryButton } from "@/design-system";
-import { isAllowedYouTubeNavigation, videoIdFromUrl } from "@/state/youtube-video";
+import { isAllowedYouTubeNavigation, videoIdFromUrl, PLAY_GATE_SCRIPT } from "@/state/youtube-video";
 
 const YOUTUBE_HOME = "https://m.youtube.com/";
-
-const PLAY_GATE_SCRIPT = `
-(function () {
-  if (window.__guardianGate) return;
-  window.__guardianGate = true;
-  window.__guardianAllowed = window.__guardianAllowed || {};
-  function currentId() {
-    var match = /[?&]v=([A-Za-z0-9_-]{11})/.exec(location.search)
-      || /\\/(?:shorts|live|embed)\\/([A-Za-z0-9_-]{11})/.exec(location.pathname)
-      || (/(^|\\.)youtu\\.be$/.test(location.hostname) ? /^\\/([A-Za-z0-9_-]{11})/.exec(location.pathname) : null);
-    return match ? match[1] : null;
-  }
-  document.addEventListener("play", function (event) {
-    var id = currentId();
-    if (id && !window.__guardianAllowed[id]) window.__guardianHold = true;
-    if (window.__guardianHold && event.target && event.target.pause) event.target.pause();
-  }, true);
-})();
-true;
-`;
 
 const WATCH_SCRIPT = `
 (function () {
@@ -42,7 +22,6 @@ const WATCH_SCRIPT = `
       return;
     }
   }
-  window.__guardianHold = false;
   var lastHref = "";
   var videoPage = /\\/(watch|shorts\\/|live\\/|embed\\/)/;
   setInterval(function () {
@@ -102,7 +81,7 @@ true;
 
 function settingsScript(settings: DeviceVideoSettings | undefined) {
   if (!settings) return "true;";
-  const value = JSON.stringify({ hide_shorts: settings.hide_shorts, hide_comments: settings.hide_comments, autoplay_next: settings.autoplay_next });
+  const value = JSON.stringify({ hide_shorts: settings.hide_shorts, hide_comments: settings.hide_comments, autoplay_next: settings.autoplay_next, youtube_paused: settings.youtube_paused });
   return `window.__guardianSettings = ${value}; true;`;
 }
 
@@ -118,12 +97,18 @@ export default function ChildYouTubeRoute() {
   const webView = useRef<WebView>(null);
   const [familyId, setFamilyId] = useState<string>();
   const [gate, setGate] = useState<Gate | null>(null);
-  const allowed = useRef(new Set<string>());
+  const lease = useRef(0);
+  const generation = useRef(0);
+  const safetyHold = useRef(false);
+  const foreground = useRef(true);
+  const [renderer, setRenderer] = useState(0);
   const canGoBack = useRef(false);
   const currentVideo = useRef<string | null>(null);
   const [sos, setSos] = useState<Sos | null>(null);
   const [notice, setNotice] = useState<string | null>(null);
-  const settings = useQuery({ queryKey: ["device-video-settings"], queryFn: () => api.deviceVideoSettings(), refetchInterval: 30_000 });
+  const settings = useQuery({ queryKey: ["device-video-settings"], queryFn: () => api.deviceVideoSettings(), refetchInterval: 2_000, staleTime: 0 });
+  const rules = useRef<DeviceVideoSettings>();
+  rules.current = settings.data;
   const settingsJs = settingsScript(settings.data);
   useEffect(() => {
     webView.current?.injectJavaScript(settingsJs);
@@ -134,35 +119,63 @@ export default function ChildYouTubeRoute() {
   }, []);
   useFamilySync(familyId, "child");
 
-  const hold = useCallback((held: boolean, allowVideoId?: string) => {
-    const allow = allowVideoId ? `(window.__guardianAllowed = window.__guardianAllowed || {})[${JSON.stringify(allowVideoId)}] = true;` : "";
+  const hold = useCallback((held: boolean, allowVideoId?: string, until = 0) => {
+    held = held || safetyHold.current || !foreground.current || Boolean(rules.current?.youtube_paused);
+    const allow = !held && allowVideoId ? `window.__guardianAllowed = {}; window.__guardianAllowed[${JSON.stringify(allowVideoId)}] = ${until};` : "window.__guardianAllowed = {};";
     webView.current?.injectJavaScript(
-      `${allow} window.__guardianHold = ${held}; ${held ? "" : 'var v = document.querySelector("video"); if (v) v.play();'} true;`,
+      `${allow} window.__guardianHold = ${held}; ${held ? 'document.querySelectorAll("video").forEach(function(v) { v.pause(); });' : allowVideoId ? 'var v = document.querySelector("video"); if (v) v.play();' : ""} true;`,
     );
   }, []);
 
-  const inspect = useCallback(async (videoId: string) => {
-    if (allowed.current.has(videoId)) {
-      setGate(null);
-      hold(false, videoId);
-      return;
-    }
-    hold(true);
-    setGate({ videoId, status: "checking" });
+  const inspect = useCallback(async (videoId: string, pause = true) => {
+    const sequence = ++generation.current;
+    if (!foreground.current || safetyHold.current) { hold(true); return; }
+    if (pause) { lease.current = 0; hold(true); setGate({ videoId, status: "checking" }); }
     try {
       const check = await api.checkVideo(videoId);
-      if (currentVideo.current !== videoId) return;
-      if (check.verdict === "ALLOW") {
-        allowed.current.add(videoId);
+      if (currentVideo.current !== videoId || sequence !== generation.current || !foreground.current || safetyHold.current) return;
+      const until = check.valid_until ? Date.parse(check.valid_until) : 0;
+      if (check.rules_fingerprint !== rules.current?.rules_fingerprint) {
+        hold(true); setGate({ videoId, status: "unavailable" }); void settings.refetch(); return;
+      }
+      if (check.verdict === "ALLOW" && until > Date.now()) {
+        lease.current = Math.min(until, Date.now() + 15_000);
         setGate(null);
-        hold(false, videoId);
+        hold(false, videoId, lease.current);
       } else {
-        setGate({ videoId, status: check.verdict === "BLOCKED" ? "blocked" : "review", check });
+        lease.current = 0; hold(true);
+        setGate({ videoId, status: check.verdict === "BLOCKED" ? "blocked" : check.verdict === "REVIEW" ? "review" : "unavailable", check });
       }
     } catch {
-      if (currentVideo.current === videoId) setGate({ videoId, status: "unavailable" });
+      if (currentVideo.current === videoId && sequence === generation.current) {
+        lease.current = 0; hold(true); setGate({ videoId, status: "unavailable" });
+      }
     }
-  }, [hold]);
+  }, [hold, settings.refetch]);
+
+  const fingerprint = settings.data?.rules_fingerprint;
+  useEffect(() => {
+    generation.current += 1; lease.current = 0; hold(true);
+    if (currentVideo.current) void inspect(currentVideo.current);
+  }, [fingerprint, hold, inspect]);
+
+  useEffect(() => {
+    const timer = setInterval(() => {
+      if (currentVideo.current && foreground.current && !safetyHold.current && lease.current > 0) void inspect(currentVideo.current, false);
+    }, 8_000);
+    return () => clearInterval(timer);
+  }, [inspect]);
+
+  useFocusEffect(useCallback(() => {
+    foreground.current = AppState.currentState === "active";
+    const listener = AppState.addEventListener("change", (state) => {
+      foreground.current = state === "active";
+      generation.current += 1; lease.current = 0; hold(true);
+      if (foreground.current && currentVideo.current) void inspect(currentVideo.current);
+    });
+    if (currentVideo.current) void inspect(currentVideo.current);
+    return () => { foreground.current = false; generation.current += 1; lease.current = 0; hold(true); listener.remove(); };
+  }, [hold, inspect]));
 
   const onMessage = useCallback((event: WebViewMessageEvent) => {
     let message: { type?: string; href?: string };
@@ -175,13 +188,15 @@ export default function ChildYouTubeRoute() {
       setNotice("Autoplay is off. Pick your next video yourself.");
       return;
     }
-    if (message.type !== "url" || !message.href) return;
+    if (message.type === "lease-expired" && currentVideo.current) { void inspect(currentVideo.current); return; }
+    if (message.type !== "url" || !message.href || !isAllowedYouTubeNavigation(message.href)) return;
     const videoId = videoIdFromUrl(message.href);
     if (videoId === currentVideo.current) {
-      if (videoId && allowed.current.has(videoId)) hold(false, videoId);
+      if (videoId && lease.current <= Date.now() && !safetyHold.current) void inspect(videoId);
       return;
     }
     currentVideo.current = videoId;
+    generation.current += 1; lease.current = 0;
     if (videoId) void inspect(videoId);
     else {
       hold(false);
@@ -200,14 +215,14 @@ export default function ChildYouTubeRoute() {
   useEffect(() => {
     if (!gate || gate.status !== "review" || !decision.data) return;
     if (decision.data.state === "APPROVED") {
-      allowed.current.add(gate.videoId);
       setGate({ ...gate, status: "approved" });
     } else if (decision.data.state === "DENIED") {
       setGate({ ...gate, status: "blocked" });
+      hold(true);
     } else if (decision.data.state === "EXPIRED" || decision.data.state === "CANCELLED") {
       setGate({ ...gate, status: "blocked" });
     }
-  }, [decision.data, gate]);
+  }, [decision.data, gate, hold]);
 
   const leaveVideo = () => {
     currentVideo.current = null;
@@ -219,6 +234,7 @@ export default function ChildYouTubeRoute() {
 
   useEffect(() => {
     const subscription = BackHandler.addEventListener("hardwareBackPress", () => {
+      if (safetyHold.current) return true;
       if (!canGoBack.current) return false;
       webView.current?.goBack();
       return true;
@@ -234,6 +250,7 @@ export default function ChildYouTubeRoute() {
     refetchInterval: 3_000,
   });
   const sendSos = async () => {
+    safetyHold.current = true; generation.current += 1; lease.current = 0;
     hold(true);
     setSos({ status: "sending" });
     try {
@@ -278,6 +295,7 @@ export default function ChildYouTubeRoute() {
         <SecondaryButton label="Back to My time" onPress={() => router.back()} />
       </View>
       <WebView
+        key={renderer}
         ref={webView}
         source={{ uri: YOUTUBE_HOME }}
         injectedJavaScript={WATCH_SCRIPT}
@@ -286,7 +304,14 @@ export default function ChildYouTubeRoute() {
         onLoadEnd={() => webView.current?.injectJavaScript(settingsJs + PLAY_GATE_SCRIPT + RESTRICT_SCRIPT + WATCH_SCRIPT)}
         onNavigationStateChange={(state) => { canGoBack.current = state.canGoBack; }}
         onShouldStartLoadWithRequest={(request) => isAllowedYouTubeNavigation(request.url)}
+        originWhitelist={["*"]}
         onOpenWindow={() => undefined}
+        onRenderProcessGone={() => {
+          generation.current += 1; lease.current = 0; currentVideo.current = null; setGate(null);
+          setNotice("The player restarted. Choose your video again; it will be checked before playback.");
+          setRenderer((value) => value + 1);
+        }}
+        onError={() => { generation.current += 1; lease.current = 0; hold(true); setNotice("YouTube could not load. Check your connection and try again."); }}
         allowsInlineMediaPlayback
         mediaPlaybackRequiresUserAction={false}
         style={styles.web}
@@ -308,7 +333,7 @@ export default function ChildYouTubeRoute() {
             {gate.status === "approved" ? (
               <>
                 <Text style={styles.ok}>Your parent approved this video.</Text>
-                <PrimaryButton label="Watch now" onPress={() => { setGate(null); hold(false, gate.videoId); }} />
+                <PrimaryButton label="Watch now" onPress={() => void inspect(gate.videoId)} />
               </>
             ) : null}
             {gate.status === "blocked" ? (
@@ -345,7 +370,7 @@ export default function ChildYouTubeRoute() {
               <Text style={styles.body}>Guardian couldn't reach your parent right now. Please go and find a grown-up nearby.</Text>
             ) : null}
             {sos.status === "failed" ? <PrimaryButton label="Try again" onPress={() => void sendSos()} /> : null}
-            <PrimaryButton label="Leave this video" onPress={() => { setSos(null); leaveVideo(); }} />
+            <PrimaryButton label="Leave this video" onPress={() => { safetyHold.current = false; setSos(null); leaveVideo(); }} />
           </View>
         </View>
       ) : null}

@@ -52,6 +52,7 @@ class Request(TimestampMixin, Base):
     content_fingerprint: Mapped[str | None] = mapped_column(String(64))
     content_review: Mapped[dict[str, object] | None] = mapped_column(JSONB)
     video_rules_fingerprint: Mapped[str | None] = mapped_column(String(64))
+    video_review: Mapped[dict[str, object] | None] = mapped_column(JSONB)
 
 
 class ContentApproval(TimestampMixin, Base):

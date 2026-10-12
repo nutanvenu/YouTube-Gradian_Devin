@@ -19,6 +19,7 @@ data class PolicyContext(
   val timezone: String? = null,
   val reputationVerdict: String? = null,
   val reputationPendingUntil: Instant? = null,
+  val categoryUsageTodayMs: Long? = null,
 )
 
 data class PolicyDecision(
@@ -121,12 +122,21 @@ class PolicyEvaluator {
     }
 
     if (targetCategory != null) {
+      val categoryRule = snapshot.categoryRules[targetCategory]
+      val categoryUsageSeconds = if (targetKind == "APP") (context.categoryUsageTodayMs ?: context.usageTodayMs ?: 0L) / 1000 else usageSeconds
+      if (categoryRule != null) {
+        val schedule = categoryRule["schedule"] as? Map<*, *>
+        if (schedule != null && !inWindow(schedule, context.now, context.timezone ?: base["timezone"] as? String ?: "UTC")) {
+          return finish(Candidate("BLOCK", "SCHEDULE_OUTSIDE_WINDOW", categoryRule["rule_id"] as? String, false))
+        }
+        return finish(actionFor(categoryRule, categoryUsageSeconds, "EXPLICIT_CATEGORY_RULE", categoryRule["exclude_from_budget"] == true))
+      }
       val hard = (base["hard_category_rules"] as? List<*>).orEmpty().filterIsInstance<Map<*, *>>()
         .firstOrNull { it["category"] == targetCategory }
-      if (hard != null) return finish(actionFor(hard, usageSeconds, "AGE_BAND_HARD_CATEGORY", hard["exclude_from_budget"] == true))
+      if (hard != null) return finish(actionFor(hard, categoryUsageSeconds, "AGE_BAND_HARD_CATEGORY", hard["exclude_from_budget"] == true))
       val defaultRule = (base["default_category_rules"] as? List<*>).orEmpty().filterIsInstance<Map<*, *>>()
         .firstOrNull { it["category"] == targetCategory }
-      if (defaultRule != null) return finish(actionFor(defaultRule, usageSeconds, "DEFAULT_CATEGORY_RULE", defaultRule["exclude_from_budget"] == true))
+      if (defaultRule != null) return finish(actionFor(defaultRule, categoryUsageSeconds, "DEFAULT_CATEGORY_RULE", defaultRule["exclude_from_budget"] == true))
     }
 
     if (targetKind == "DOMAIN" && context.reputationVerdict in setOf("KNOWN_SAFE", "KNOWN_RISK")) {

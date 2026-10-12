@@ -7,6 +7,7 @@ const settings: VideoSettings = {
   learning_topics: [],
   picks: [],
   learning_only: false,
+  youtube_paused: false,
   hide_shorts: true,
   hide_comments: true,
   autoplay_next: false,
@@ -19,6 +20,7 @@ test("trusting a channel removes it from the blocked list and drops the revision
   expect(next.trusted_channels).toEqual(["Science Kids", "shock clips"]);
   expect(next.blocked_channels).toEqual([]);
   expect("rules_revision" in next).toBe(false);
+  expect(next.expected_revision).toBe(3);
 });
 
 test("blocking a channel removes it from the trusted list", () => {
