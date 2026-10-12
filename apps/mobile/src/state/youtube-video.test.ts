@@ -1,3 +1,4 @@
+/// <reference types="node" />
 import { runInNewContext } from "node:vm";
 import { isAllowedYouTubeNavigation, videoIdFromUrl, PLAY_GATE_SCRIPT } from "./youtube-video";
 

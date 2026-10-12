@@ -107,7 +107,7 @@ export default function ChildYouTubeRoute() {
   const [sos, setSos] = useState<Sos | null>(null);
   const [notice, setNotice] = useState<string | null>(null);
   const settings = useQuery({ queryKey: ["device-video-settings"], queryFn: () => api.deviceVideoSettings(), refetchInterval: 2_000, staleTime: 0 });
-  const rules = useRef<DeviceVideoSettings>();
+  const rules = useRef<DeviceVideoSettings | undefined>(undefined);
   rules.current = settings.data;
   const settingsJs = settingsScript(settings.data);
   useEffect(() => {
@@ -127,13 +127,14 @@ export default function ChildYouTubeRoute() {
     );
   }, []);
 
+  const playbackHeld = useCallback(() => !foreground.current || safetyHold.current, []);
   const inspect = useCallback(async (videoId: string, pause = true) => {
     const sequence = ++generation.current;
-    if (!foreground.current || safetyHold.current) { hold(true); return; }
+    if (playbackHeld()) { hold(true); return; }
     if (pause) { lease.current = 0; hold(true); setGate({ videoId, status: "checking" }); }
     try {
       const check = await api.checkVideo(videoId);
-      if (currentVideo.current !== videoId || sequence !== generation.current || !foreground.current || safetyHold.current) return;
+      if (currentVideo.current !== videoId || sequence !== generation.current || playbackHeld()) return;
       const until = check.valid_until ? Date.parse(check.valid_until) : 0;
       if (check.rules_fingerprint !== rules.current?.rules_fingerprint) {
         hold(true); setGate({ videoId, status: "unavailable" }); void settings.refetch(); return;
@@ -151,7 +152,7 @@ export default function ChildYouTubeRoute() {
         lease.current = 0; hold(true); setGate({ videoId, status: "unavailable" });
       }
     }
-  }, [hold, settings.refetch]);
+  }, [hold, playbackHeld, settings.refetch]);
 
   const fingerprint = settings.data?.rules_fingerprint;
   useEffect(() => {

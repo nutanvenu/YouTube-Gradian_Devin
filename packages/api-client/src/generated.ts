@@ -458,6 +458,14 @@ export const openApiDocument = {
             },
             "title": "Picks",
             "type": "array"
+          },
+          "rules_fingerprint": {
+            "title": "Rules Fingerprint",
+            "type": "string"
+          },
+          "youtube_paused": {
+            "title": "Youtube Paused",
+            "type": "boolean"
           }
         },
         "required": [
@@ -467,7 +475,9 @@ export const openApiDocument = {
           "learning_only",
           "hide_shorts",
           "hide_comments",
-          "autoplay_next"
+          "autoplay_next",
+          "youtube_paused",
+          "rules_fingerprint"
         ],
         "title": "DeviceVideoSettingsOut",
         "type": "object"
@@ -1608,6 +1618,18 @@ export const openApiDocument = {
               }
             ],
             "title": "Subject"
+          },
+          "video_review": {
+            "anyOf": [
+              {
+                "additionalProperties": true,
+                "type": "object"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Video Review"
           }
         },
         "required": [
@@ -1875,6 +1897,11 @@ export const openApiDocument = {
             ],
             "title": "Request Id"
           },
+          "rules_fingerprint": {
+            "default": "",
+            "title": "Rules Fingerprint",
+            "type": "string"
+          },
           "title": {
             "anyOf": [
               {
@@ -1896,6 +1923,18 @@ export const openApiDocument = {
               }
             ],
             "title": "Topic"
+          },
+          "valid_until": {
+            "anyOf": [
+              {
+                "format": "date-time",
+                "type": "string"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Valid Until"
           },
           "verdict": {
             "enum": [
@@ -2008,6 +2047,18 @@ export const openApiDocument = {
             "title": "Blocked Channels",
             "type": "array"
           },
+          "expected_revision": {
+            "anyOf": [
+              {
+                "minimum": 0.0,
+                "type": "integer"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Expected Revision"
+          },
           "hide_comments": {
             "default": true,
             "title": "Hide Comments",
@@ -2050,6 +2101,11 @@ export const openApiDocument = {
           "youtube_guardian_only": {
             "default": false,
             "title": "Youtube Guardian Only",
+            "type": "boolean"
+          },
+          "youtube_paused": {
+            "default": false,
+            "title": "Youtube Paused",
             "type": "boolean"
           }
         },
@@ -2117,6 +2173,11 @@ export const openApiDocument = {
           "youtube_guardian_only": {
             "default": false,
             "title": "Youtube Guardian Only",
+            "type": "boolean"
+          },
+          "youtube_paused": {
+            "default": false,
+            "title": "Youtube Paused",
             "type": "boolean"
           }
         },

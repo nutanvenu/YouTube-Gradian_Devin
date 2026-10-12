@@ -372,7 +372,7 @@ export class GuardianApiClient {
           // second refresh; the retry remains bounded to one attempt.
           const currentAccessToken = await sessionStorage.getAccessToken();
           if (currentAccessToken && currentAccessToken !== accessToken) {
-            return this.request<T>(path, init, false);
+            return await this.request<T>(path, init, false);
           }
           await this.refreshParentSession();
         } catch (refreshError) {
