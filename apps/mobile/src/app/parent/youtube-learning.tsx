@@ -161,7 +161,7 @@ export default function YouTubeLearningRoute() {
             <Toggle label="Hide Shorts" detail="Shorts open as normal videos and are checked first." value={draft.hide_shorts} onChange={(value) => update({ hide_shorts: value })} />
             <Toggle label="Hide comments" detail="Comments are hidden under every video." value={draft.hide_comments} onChange={(value) => update({ hide_comments: value })} />
             <Toggle label="Autoplay next video" detail="When off, the next video doesn't start by itself." value={draft.autoplay_next} onChange={(value) => update({ autoplay_next: value })} />
-            <Toggle label="YouTube only inside Guardian" detail="Adds YouTube domain and app blocks. External enforcement needs active VPN web protection; app blocking also needs the full Child build with Accessibility enabled. Check protection health on the child phone." value={draft.youtube_guardian_only} onChange={(value) => update({ youtube_guardian_only: value })} />
+            <Toggle label="Block external YouTube routes" detail="Blocks known YouTube domains and apps. Needs active VPN and the full Child build with Accessibility enabled. This is not a device allowlist: encrypted-DNS browsers, cached media, and alternative clients may bypass domain filtering. Check protection health and restrict other browsers separately." value={draft.youtube_guardian_only} onChange={(value) => update({ youtube_guardian_only: value })} />
           </CardSurface>
           <PrimaryButton label={save.isPending ? "Saving…" : "Save"} disabled={save.isPending} onPress={() => save.mutate(draft)} />
           <SecondaryButton label="Reload saved rules" disabled={save.isPending} onPress={async () => {

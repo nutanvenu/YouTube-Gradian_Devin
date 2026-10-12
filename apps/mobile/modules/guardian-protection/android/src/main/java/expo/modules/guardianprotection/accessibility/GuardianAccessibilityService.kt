@@ -220,15 +220,12 @@ class GuardianAccessibilityService : AccessibilityService() {
       mainHandler.post {
         if (serviceDestroyed || !enforcement.isCurrentForeground(packageName)) return@post
         performGlobalAction(GLOBAL_ACTION_BACK)
-        mainHandler.postDelayed({
-          if (serviceDestroyed || !enforcement.isCurrentForeground(packageName)) return@postDelayed
-          startActivity(
-            Intent(this, GuardianBlockActivity::class.java)
-              .addFlags(Intent.FLAG_ACTIVITY_NEW_TASK or Intent.FLAG_ACTIVITY_CLEAR_TOP)
-              .putExtra(GuardianBlockActivity.EXTRA_APP, packageName)
-              .putExtra(GuardianBlockActivity.EXTRA_REASON, decision.reasonCode),
-          )
-        }, BLOCK_SURFACE_DELAY_MS)
+        startActivity(
+          Intent(this, GuardianBlockActivity::class.java)
+            .addFlags(Intent.FLAG_ACTIVITY_NEW_TASK or Intent.FLAG_ACTIVITY_CLEAR_TOP)
+            .putExtra(GuardianBlockActivity.EXTRA_APP, packageName)
+            .putExtra(GuardianBlockActivity.EXTRA_REASON, decision.reasonCode),
+        )
       }
     }
   }
@@ -260,7 +257,6 @@ class GuardianAccessibilityService : AccessibilityService() {
 
   companion object {
     private const val BUDGET_TICK_INTERVAL_MS = 3_000L
-    private const val BLOCK_SURFACE_DELAY_MS = 300L
     private const val CONTENT_DEBOUNCE_MS = 750L
     private const val CONTENT_TRAVERSAL_BUDGET_MS = 20L
     private const val CONTENT_MAX_NODES = 80

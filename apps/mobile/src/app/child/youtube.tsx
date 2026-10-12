@@ -193,7 +193,10 @@ export default function ChildYouTubeRoute() {
     if (message.type !== "url" || !message.href || !isAllowedYouTubeNavigation(message.href)) return;
     const videoId = videoIdFromUrl(message.href);
     if (videoId === currentVideo.current) {
-      if (videoId && lease.current <= Date.now() && !safetyHold.current) void inspect(videoId);
+      if (videoId && !playbackHeld()) {
+        if (lease.current <= Date.now()) void inspect(videoId);
+        else hold(false, videoId, lease.current);
+      }
       return;
     }
     currentVideo.current = videoId;
@@ -203,7 +206,7 @@ export default function ChildYouTubeRoute() {
       hold(false);
       setGate(null);
     }
-  }, [hold, inspect]);
+  }, [hold, inspect, playbackHeld]);
 
   const requestId = gate?.status === "review" ? gate.check.request_id : null;
   const decision = useQuery({

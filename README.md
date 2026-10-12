@@ -1,3 +1,14 @@
+# YouTube enforcement boundary
+
+Guardian's protected player checks exact videos and uses short-lived playback leases.
+The external-route control adds known YouTube domain and app rules; it is not a
+device-wide application allowlist. Encrypted-DNS browsers, cached media, and alternate
+clients can bypass DNS filtering. For an unattended child device, parents must also
+restrict alternative browsers/clients and verify the required Android capabilities.
+Parent debug APKs retain native testing declarations; only Parent release manifests
+remove child-monitoring services and permissions. Developer APKs are not production
+installers.
+
 # Guardian
 
 Guardian is a family-safety product that connects a parent account to one or

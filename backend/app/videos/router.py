@@ -559,6 +559,7 @@ async def send_sos(
             RequestRow.device_id == device.id,
             RequestRow.request_type == RequestType.SOS.value,
             RequestRow.state == RequestState.PENDING.value,
+            RequestRow.reason.startswith(f"{body.kind} |", autoescape=True),
             RequestRow.subject.is_(None) if subject is None else RequestRow.subject == subject,
             RequestRow.created_at > now - timedelta(minutes=2),
         )

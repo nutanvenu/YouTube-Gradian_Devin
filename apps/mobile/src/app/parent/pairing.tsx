@@ -1,4 +1,4 @@
-import { useCallback, useEffect, useState } from "react";
+import { useCallback, useEffect, useRef, useState } from "react";
 import { useLocalSearchParams } from "expo-router";
 import QRCode from "react-native-qrcode-svg";
 import { Text } from "react-native";
@@ -11,11 +11,20 @@ export default function ParentPairingRoute() {
   const [remaining, setRemaining] = useState<string>("Unknown");
   const [failed, setFailed] = useState(false);
   const [expired, setExpired] = useState(false);
+  const generation = useRef(0);
   const regenerate = useCallback(() => {
+    const sequence = ++generation.current;
     setPairing(null); setFailed(false); setExpired(false);
-    void api.createPairing(familyId, childId).then(setPairing).catch(() => setFailed(true));
+    void api.createPairing(familyId, childId).then((value) => {
+      if (sequence === generation.current) setPairing(value);
+    }).catch(() => {
+      if (sequence === generation.current) setFailed(true);
+    });
   }, [childId, familyId]);
-  useEffect(regenerate, [regenerate]);
+  useEffect(() => {
+    regenerate();
+    return () => { generation.current += 1; };
+  }, [regenerate]);
   useEffect(() => {
     if (!pairing) return;
     const update = () => {

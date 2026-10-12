@@ -218,6 +218,15 @@ async def test_sos_alert_is_deduplicated_and_acknowledged_without_policy_change(
     assert first.json()["id"] == second.json()["id"]
     assert first.json()["request_type"] == "SOS"
     assert first.json()["reason"] == "SCARY_CONTENT | saw something scary | Brutal gore compilation"
+    help_body = json.dumps(
+        {"kind": "NEED_HELP", "video_id": "goreVideo01"}, separators=(",", ":")
+    ).encode()
+    help_request = await client.post(path, content=help_body, headers=paired_device.signed_headers(path, help_body))
+    help_retry = await client.post(path, content=help_body, headers=paired_device.signed_headers(path, help_body))
+    assert help_request.status_code == 201, help_request.text
+    assert help_request.json()["id"] != first.json()["id"]
+    assert help_request.json()["id"] == help_retry.json()["id"]
+    assert help_request.json()["reason"].startswith("NEED_HELP |")
     acknowledged = await client.post(
         f"/v1/families/{paired_device.parent.family_id}/requests/{first.json()['id']}/approve",
         json={"reason": "On my way"},

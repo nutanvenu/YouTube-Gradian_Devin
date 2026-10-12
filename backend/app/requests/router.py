@@ -67,8 +67,9 @@ async def decide_request(
     *,
     locked_row: RequestRow | None = None,
     commit: bool = True,
+    family_id: UUID | None = None,
 ) -> RequestOut:
-    row = locked_row or await _request_for_parent_for_update(request_id, parent, session)
+    row = locked_row or await _request_for_parent_for_update(request_id, parent, session, family_id)
     if row is None:
         raise HTTPException(status.HTTP_404_NOT_FOUND, "Request not found")
     if is_expired(row.expires_at):
@@ -171,14 +172,18 @@ async def decide_request(
 
 
 async def _request_for_parent_for_update(
-    request_id: UUID, parent: Parent, session: AsyncSession
+    request_id: UUID, parent: Parent, session: AsyncSession, family_id: UUID | None = None
 ) -> RequestRow | None:
     row = await session.scalar(
         select(RequestRow)
         .join(ChildProfile, ChildProfile.id == RequestRow.child_profile_id)
         .join(Family, Family.id == ChildProfile.family_id)
         .join(FamilyGuardian, FamilyGuardian.family_id == Family.id)
-        .where(RequestRow.id == request_id, FamilyGuardian.parent_id == parent.id)
+        .where(
+            RequestRow.id == request_id,
+            FamilyGuardian.parent_id == parent.id,
+            *([Family.id == family_id] if family_id is not None else []),
+        )
         .with_for_update()
     )
     return row if isinstance(row, RequestRow) else None
@@ -218,7 +223,7 @@ async def _idempotent_decision(
         }
     )
     await acquire_idempotency_lock(session, operation, idempotency_key)
-    row = await _request_for_parent_for_update(request_id, parent, session)
+    row = await _request_for_parent_for_update(request_id, parent, session, family_id)
     if row is None:
         raise HTTPException(status.HTTP_404_NOT_FOUND, "Request not found")
     replay = await replay_or_conflict(session, operation, idempotency_key, digest)
@@ -264,7 +269,7 @@ async def approve_request(
             idempotency_key,
             session,
         )
-    return await decide_request(request_id, RequestState.APPROVED, body, parent, session)
+    return await decide_request(request_id, RequestState.APPROVED, body, parent, session, family_id=family_id)
 
 async def deny_request(
     family_id: UUID,
@@ -285,7 +290,7 @@ async def deny_request(
             idempotency_key,
             session,
         )
-    return await decide_request(request_id, RequestState.DENIED, body, parent, session)
+    return await decide_request(request_id, RequestState.DENIED, body, parent, session, family_id=family_id)
 
 router.add_api_route("/v1/families/{family_id}/requests", list_requests, methods=["GET"], response_model=list[RequestOut])
 router.add_api_route("/v1/families/{family_id}/requests/{request_id}/approve", approve_request, methods=["POST"], response_model=RequestOut)
