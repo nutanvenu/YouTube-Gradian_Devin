@@ -10,6 +10,18 @@ import android.widget.LinearLayout
 import android.widget.TextView
 import expo.modules.guardianprotection.content.ContentBlockCoordinator
 
+internal fun appBlockExplanation(reason: String?): String = when (reason) {
+  "EXPLICIT_TARGET_RULE", "TEMPORARY_PARENT_OVERRIDE" ->
+    "Your parent has blocked this app. Ask a parent to change the app rule if you need access."
+  "BUDGET_EXHAUSTED", "DEVICE_BUDGET_EXHAUSTED", "UNKNOWN_APP_BUDGET_EXHAUSTED" ->
+    "Your time limit has been reached. Ask a parent for more time."
+  "MANUAL_ROUTINE", "SCHEDULED_ROUTINE", "SCHEDULE_OUTSIDE_WINDOW" ->
+    "Your current routine or schedule blocks this app. Ask a parent to review the routine or schedule."
+  "REQUIRES_PARENT_APPROVAL" ->
+    "This app needs a parent's approval. Ask a parent before using it."
+  else -> "Guardian's rules block this app. Ask a parent to review the rules if you need access."
+}
+
 class GuardianBlockActivity : Activity() {
   private val isContentBlock: Boolean
     get() = intent.getBooleanExtra(EXTRA_CONTENT_BLOCK, false)
@@ -32,7 +44,7 @@ class GuardianBlockActivity : Activity() {
       text = if (isContentBlock) {
         "Guardian did not save the content. You can ask a parent, go back, close the app, or choose something else."
       } else {
-        "Your time limit or routine applies. Ask a parent to change the limit or routine if you need more time."
+        appBlockExplanation(intent.getStringExtra(EXTRA_REASON))
       }
       textSize = 16f
       setTextColor(Color.DKGRAY)
