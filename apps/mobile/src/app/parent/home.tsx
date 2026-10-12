@@ -5,7 +5,7 @@ import { VideoReviewAlerts } from "@/components/video-review-alerts";
 import { api } from "@/api/client";
 import { useSession } from "@/auth/session";
 import { useNetworkStatus } from "@/state/network";
-import { resolveActiveChildId, selectParentHomeChild } from "./home-selection";
+import { resolveActiveChildId, selectParentHomeChild } from "@/state/home-selection";
 import {
   CardSurface,
   DataState,
