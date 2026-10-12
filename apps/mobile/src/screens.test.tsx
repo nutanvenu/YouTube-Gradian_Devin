@@ -16,6 +16,7 @@ const mockSetAccessibilityContentConsent = jest.fn((granted: boolean) => {
   return Promise.resolve({ granted: true });
 });
 const mockOpenAccessibilitySettings = jest.fn(() => Promise.resolve());
+const mockOpenUsageAccessSettings = jest.fn(() => Promise.resolve());
 const mockRequestVpnPermission = jest.fn(() => Promise.resolve({ granted: false }));
 const mockApplyPolicyBundle = jest.fn<Promise<{ applied: boolean }>, [unknown]>();
 const mockStartProtection = jest.fn<Promise<void>, []>();
@@ -118,7 +119,7 @@ jest.mock("../modules/guardian-protection/src", () => ({
     getReputationStatus: () => mockGetReputationStatus(),
     applyReputationBundle: jest.fn(() => Promise.resolve({ applied: true })),
     getUsageSummary: () => Promise.resolve({ byTarget: {} }),
-    openUsageAccessSettings: jest.fn(),
+    openUsageAccessSettings: () => mockOpenUsageAccessSettings(),
     openAccessibilitySettings: () => mockOpenAccessibilitySettings(),
     requestVpnPermission: () => mockRequestVpnPermission(),
     setAccessibilityContentConsent: (granted: boolean) => mockSetAccessibilityContentConsent(granted),
@@ -181,6 +182,8 @@ beforeEach(() => {
   mockGetCapabilities.mockReset();
   mockGetProtectionStatus.mockReset();
   mockRequestVpnPermission.mockClear();
+  mockOpenAccessibilitySettings.mockClear();
+  mockOpenUsageAccessSettings.mockClear();
   mockApplyPolicyBundle.mockReset();
   mockApplyPolicyBundle.mockResolvedValue({ applied: true });
   mockStartProtection.mockReset();
@@ -721,6 +724,7 @@ test("Child home surfaces unavailable app blocking with a recovery action", asyn
     vpn_filtering: { level: "FULL" },
     web_filtering: { level: "LIMITED" },
     app_blocking: { level: "UNAVAILABLE" },
+    app_usage: { level: "UNAVAILABLE" },
   };
   mockGuardianProtectionStatus = { active: true, health: "DEGRADED" };
   const screen = render(<ChildHomeScreen />);
@@ -728,6 +732,10 @@ test("Child home surfaces unavailable app blocking with a recovery action", asyn
     expect(screen.getByText("App limits are not being enforced right now. Re-enable Accessibility to restore app blocking.")).toBeTruthy();
   });
   expect(screen.getByLabelText("Enable app limits")).toBeTruthy();
+  fireEvent.press(screen.getByLabelText("Enable app limits"));
+  expect(mockOpenAccessibilitySettings).toHaveBeenCalledTimes(1);
+  fireEvent.press(screen.getByLabelText("Enable Usage Access"));
+  expect(mockOpenUsageAccessSettings).toHaveBeenCalledTimes(1);
   screen.unmount();
 
   mockGuardianCapabilities = {
@@ -750,6 +758,38 @@ test("Child home surfaces unavailable app blocking with a recovery action", asyn
   reduced.unmount();
 });
 
+test("Child home distinguishes static blocks from timed limits and opens Usage Access", async () => {
+  const detail = "Static app blocks only; Usage Access is required for timed app limits.";
+  mockGuardianCapabilities = {
+    vpn_filtering: { level: "FULL" },
+    web_filtering: { level: "LIMITED" },
+    app_blocking: { level: "LIMITED", detail },
+    app_usage: { level: "UNAVAILABLE" },
+  };
+  mockGuardianProtectionStatus = { active: true, health: "DEGRADED" };
+  const screen = render(<ChildHomeScreen />);
+  await waitFor(() => expect(screen.getByText(detail)).toBeTruthy());
+  expect(screen.queryByLabelText("Enable app limits")).toBeNull();
+  expect(screen.queryByText("App limits are not being enforced right now. Re-enable Accessibility to restore app blocking.")).toBeNull();
+  fireEvent.press(screen.getByLabelText("Enable Usage Access"));
+  expect(mockOpenUsageAccessSettings).toHaveBeenCalledTimes(1);
+  expect(mockOpenAccessibilitySettings).not.toHaveBeenCalled();
+
+  act(() => {
+    mockGuardianEventListener?.({ type: "PERMISSION_STATE_CHANGED", capability: "app_blocking", state: "LIMITED" });
+  });
+  expect(screen.getByText("Static app blocks are active. Usage Access is required for timed app limits.")).toBeTruthy();
+
+  act(() => {
+    mockGuardianEventListener?.({ type: "PERMISSION_STATE_CHANGED", capability: "app_usage", state: "FULL" });
+    mockGuardianEventListener?.({ type: "PERMISSION_STATE_CHANGED", capability: "app_blocking", state: "FULL" });
+  });
+  await waitFor(() => expect(screen.queryByLabelText("Enable Usage Access")).toBeNull());
+  expect(screen.queryByText("Static app blocks are active. Usage Access is required for timed app limits.")).toBeNull();
+  expect(screen.queryByLabelText("Enable app limits")).toBeNull();
+  screen.unmount();
+});
+
 test("limited Child build shows its unavailable protections without offering sensitive permissions", async () => {
   process.env.EXPO_PUBLIC_GUARDIAN_LIMITED_CHILD = "true";
   try {
@@ -757,11 +797,13 @@ test("limited Child build shows its unavailable protections without offering sen
       vpn_filtering: { level: "UNAVAILABLE", detail: "VPN consent is required before Guardian can start protection." },
       web_filtering: { level: "UNAVAILABLE" },
       app_blocking: { level: "UNAVAILABLE", detail: "App limits are unavailable in this build." },
+      app_usage: { level: "UNAVAILABLE" },
       accessibility_signals: { level: "UNAVAILABLE" },
     };
     const screen = render(<ChildHomeScreen />);
     await waitFor(() => expect(screen.getByText("This web-only test build cannot enforce app limits or provide notification-based safety. Usage and time shown here are informational.")).toBeTruthy());
     expect(screen.queryByLabelText("Enable app limits")).toBeNull();
+    expect(screen.queryByLabelText("Enable Usage Access")).toBeNull();
     expect(screen.queryByLabelText("Enable content-safety inspection")).toBeNull();
     expect(screen.getByLabelText("Enable web protection")).toBeTruthy();
     screen.unmount();

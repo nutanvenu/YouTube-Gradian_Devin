@@ -86,7 +86,8 @@ export default function ChildHomeRoute() {
     level: string;
     detail?: string | null;
   } | null>(null);
-  const [appBlockingAvailable, setAppBlockingAvailable] = useState<boolean | null>(null);
+  const [appBlocking, setAppBlocking] = useState<{ level: string; detail?: string | null } | null>(null);
+  const [usageAccessAvailable, setUsageAccessAvailable] = useState<boolean | null>(null);
   const [blockedEvent, setBlockedEvent] = useState<Extract<GuardianNativeEvent, { type: "WEB_BLOCKED" }> | null>(null);
   const [blockedEventCount, setBlockedEventCount] = useState(0);
   const [appBlockedMessage, setAppBlockedMessage] = useState<string | null>(null);
@@ -195,7 +196,8 @@ export default function ChildHomeRoute() {
           ? "Web protection is active for encrypted DNS and known blocked destinations. Other traffic may bypass Guardian."
           : "Web protection is active, but coverage may be limited. Some traffic may bypass Guardian.",
     );
-    setAppBlockingAvailable(appBlockingCapability.level === "FULL");
+    setAppBlocking(appBlockingCapability);
+    setUsageAccessAvailable(capabilities.app_usage ? capabilities.app_usage.level === "FULL" : null);
     setAccessibilitySignals(accessibilityCapability);
   };
 
@@ -278,7 +280,10 @@ export default function ChildHomeRoute() {
         setTimeMessage(`${event.targetRef} · time expired`);
       }
       if (event.type === "PERMISSION_STATE_CHANGED" && event.capability === "app_blocking") {
-        setAppBlockingAvailable(event.state === "FULL");
+        setAppBlocking({ level: event.state });
+      }
+      if (event.type === "PERMISSION_STATE_CHANGED" && event.capability === "app_usage") {
+        setUsageAccessAvailable(event.state === "FULL");
       }
       if (event.type === "PROTECTION_STATUS_CHANGED") {
         void refreshNativeProtection().catch(() => undefined);
@@ -293,7 +298,8 @@ export default function ChildHomeRoute() {
       void refreshNativeProtection().catch(() => {
         if (!cancelled) {
           setProtectionMessage("Web protection is unavailable.");
-          setAppBlockingAvailable(null);
+          setAppBlocking(null);
+          setUsageAccessAvailable(null);
         }
       });
     };
@@ -462,12 +468,23 @@ export default function ChildHomeRoute() {
             {reputationMessage ? <Text accessibilityRole="alert">{reputationMessage}</Text> : null}
             {limitedChildBuild ? (
               <Text accessibilityRole="alert">This web-only test build cannot enforce app limits or provide notification-based safety. Usage and time shown here are informational.</Text>
-            ) : appBlockingAvailable === false ? (
+            ) : appBlocking?.level === "LIMITED" ? (
+              <Text>{appBlocking.detail ?? "Static app blocks are active. Usage Access is required for timed app limits."}</Text>
+            ) : appBlocking?.level === "UNAVAILABLE" ? (
               <>
                 <Text>App limits are not being enforced right now. Re-enable Accessibility to restore app blocking.</Text>
                 <PrimaryButton
                   label="Enable app limits"
                   onPress={() => void GuardianProtection.openAccessibilitySettings().catch(() => undefined)}
+                />
+              </>
+            ) : null}
+            {!limitedChildBuild && (usageAccessAvailable === false || appBlocking?.level === "LIMITED") ? (
+              <>
+                <Text>Usage Access is required for usage reporting and timed app limits.</Text>
+                <PrimaryButton
+                  label="Enable Usage Access"
+                  onPress={() => void GuardianProtection.openUsageAccessSettings().catch(() => undefined)}
                 />
               </>
             ) : null}
