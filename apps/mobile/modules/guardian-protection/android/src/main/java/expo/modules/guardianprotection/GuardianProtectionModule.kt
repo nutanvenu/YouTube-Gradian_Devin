@@ -173,9 +173,9 @@ class GuardianProtectionModule : Module() {
     AsyncFunction("stopProtection") {
       GuardianVpnService.stop(requireNotNull(appContext.reactContext))
     }
-    AsyncFunction("applyPolicyBundle") { bundle: Map<String, Any?> ->
+    AsyncFunction("applyPolicyBundle") { bundleJson: String ->
       GuardianPolicyRuntime.install(policyManager)
-      val result = policyManager.apply(bundle)
+      val result = policyManager.applyJson(bundleJson)
       if (result["applied"] == true) {
         ContentSafetyServiceRuntime.refresh(
           requireNotNull(appContext.reactContext),

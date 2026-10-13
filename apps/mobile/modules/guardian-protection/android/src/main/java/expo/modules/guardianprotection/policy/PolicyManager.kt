@@ -30,6 +30,12 @@ class PolicyManager(
     }
   }
 
+  fun applyJson(bundleJson: String): Map<String, Any?> {
+    val bundle = runCatching { parseJsonObject(bundleJson) }.getOrNull()
+      ?: return failure("SCHEMA_INVALID")
+    return apply(bundle)
+  }
+
   fun apply(bundle: Map<String, Any?>): Map<String, Any?> {
     val started = System.nanoTime()
     if (store.hasCorruptState()) return failure("LOCAL_STATE_CORRUPT", store.appliedVersion())

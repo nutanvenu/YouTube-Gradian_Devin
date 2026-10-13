@@ -31,7 +31,40 @@ class PolicyManagerTest {
     assertEquals(1L, manager.activeSnapshot()?.policyVersion)
   }
 
-  private fun signedPolicy(keyPair: KeyPair, version: Long, familyId: String): Map<String, Any?> {
+  @Test
+  fun signedJsonPreservesNullWhenDeactivatingAManualRoutine() {
+    val keyPair = KeyPairGenerator.getInstance("Ed25519").generateKeyPair()
+    val store = InMemoryPolicyStore()
+    val trustedPublicKey = Base64.getEncoder().encodeToString(keyPair.public.encoded)
+    val manager = PolicyManager(
+      store,
+      "{\"current\":\"$trustedPublicKey\"}",
+      decodeBase64 = Base64.getDecoder()::decode,
+    )
+    val activated = signedPolicy(keyPair, 1, "family", mapOf("current_manual_routine_id" to "focus"))
+    assertEquals(true, manager.applyJson(CanonicalJson.encode(activated))["applied"])
+    assertEquals("focus", manager.activeSnapshot()?.basePolicy?.get("current_manual_routine_id"))
+
+    val deactivated = signedPolicy(keyPair, 2, "family", mapOf("current_manual_routine_id" to null))
+    assertEquals(true, manager.applyJson(CanonicalJson.encode(deactivated))["applied"])
+    assertTrue(manager.activeSnapshot()?.basePolicy?.containsKey("current_manual_routine_id") == true)
+    assertNull(manager.activeSnapshot()?.basePolicy?.get("current_manual_routine_id"))
+    assertEquals(2L, store.appliedVersion())
+
+    val next = CanonicalJson.encode(signedPolicy(keyPair, 3, "family", mapOf("current_manual_routine_id" to null)))
+    val tampered = next.replace("\"current_manual_routine_id\":null", "\"current_manual_routine_id\":\"focus\"")
+    assertEquals("SIGNATURE_INVALID", manager.applyJson(tampered)["reason"])
+    assertEquals("POLICY_VERSION_NOT_MONOTONIC", manager.applyJson(CanonicalJson.encode(activated))["reason"])
+    assertEquals("SCHEMA_INVALID", manager.applyJson("not JSON")["reason"])
+    assertEquals(2L, store.appliedVersion())
+  }
+
+  private fun signedPolicy(
+    keyPair: KeyPair,
+    version: Long,
+    familyId: String,
+    basePolicy: Map<String, Any?> = emptyMap(),
+  ): Map<String, Any?> {
     val bundle = mutableMapOf<String, Any?>(
       "schema_version" to 1,
       "policy_version" to version,
@@ -41,7 +74,7 @@ class PolicyManagerTest {
       "expires_soft_at" to "2026-08-29T00:00:00Z",
       "key_id" to "current",
       "age_band" to "TEEN",
-      "base_policy" to emptyMap<String, Any?>(),
+      "base_policy" to basePolicy,
       "app_rules" to emptyList<Any?>(),
       "domain_rules" to emptyList<Any?>(),
       "category_rules" to emptyList<Any?>(),

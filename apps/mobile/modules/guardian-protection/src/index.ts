@@ -16,7 +16,8 @@ import type {
   UsageSummary,
 } from "@guardian/contracts";
 
-type NativeModule = Omit<GuardianProtectionNative, "subscribe"> & {
+type NativeModule = Omit<GuardianProtectionNative, "subscribe" | "applyPolicyBundle"> & {
+  applyPolicyBundle(bundleJson: string): Promise<ApplyResult>;
   addListener(
     eventName: "onGuardianEvent",
     listener: (event: GuardianNativeEvent) => void,
@@ -45,7 +46,8 @@ export const GuardianProtection: GuardianProtectionNative = {
   openNotificationAccessSettings: () => native.openNotificationAccessSettings(),
   startProtection: () => native.startProtection(),
   stopProtection: () => native.stopProtection(),
-  applyPolicyBundle: (bundle: unknown): Promise<ApplyResult> => native.applyPolicyBundle(bundle),
+  // Expo's nested Any conversion cannot preserve JSON nulls in signed policies.
+  applyPolicyBundle: (bundle: unknown): Promise<ApplyResult> => native.applyPolicyBundle(JSON.stringify(bundle)),
   applyReputationBundle: (bundle: unknown): Promise<ReputationApplyResult> =>
     native.applyReputationBundle(bundle),
   getReputationStatus: (): Promise<ReputationStatus> => native.getReputationStatus(),
