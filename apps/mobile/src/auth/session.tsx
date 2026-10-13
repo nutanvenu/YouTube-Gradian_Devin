@@ -1,5 +1,6 @@
 import { createContext, PropsWithChildren, useContext, useEffect, useMemo, useState } from "react";
 import { api, ApiError, Parent, sessionStorage, subscribeToParentSessionExpiry, Tokens } from "@/api/client";
+import { useQueryClient } from "@tanstack/react-query";
 
 type SessionContextValue = {
   parent: Parent | null;
@@ -15,6 +16,11 @@ type SessionContextValue = {
 const SessionContext = createContext<SessionContextValue | null>(null);
 
 export function SessionProvider({ children }: PropsWithChildren) {
+  const queryClient = useQueryClient();
+  const clearParentQueries = () => {
+    void queryClient.cancelQueries({ predicate: (query) => !String(query.queryKey[0]).startsWith("device-") });
+    queryClient.removeQueries({ predicate: (query) => !String(query.queryKey[0]).startsWith("device-") });
+  };
   const [parent, setParent] = useState<Parent | null>(null);
   const [loading, setLoading] = useState(true);
   const [familyId, setFamilyIdState] = useState<string | null>(null);
@@ -40,6 +46,9 @@ export function SessionProvider({ children }: PropsWithChildren) {
       // The API client has already removed parent credentials.  Do not touch
       // the paired child device credentials: child protection continues.
       setParent(null);
+      setFamilyIdState(null);
+      setChildIdState(null);
+      clearParentQueries();
       setSessionError("SESSION_EXPIRED");
     }),
     [],
@@ -55,7 +64,7 @@ export function SessionProvider({ children }: PropsWithChildren) {
       })
       .then(setParent)
       .catch(async (error: unknown) => {
-        await sessionStorage.clearParentSession();
+        if (error instanceof ApiError && error.code === "SESSION_EXPIRED") await sessionStorage.clearParentSession();
         setParent(null);
         setSessionError(error instanceof ApiError && error.code === "SESSION_EXPIRED" ? "SESSION_EXPIRED" : null);
       })
@@ -82,6 +91,7 @@ export function SessionProvider({ children }: PropsWithChildren) {
         await api.logout();
       } finally {
         await sessionStorage.clearParentSession();
+        clearParentQueries();
         setParent(null);
         setFamilyIdState(null);
         setChildIdState(null);

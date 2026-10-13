@@ -21,7 +21,7 @@ export type Guardian = { id: string; family_id: string; parent_id: string; role:
 export type Child = { id: string; family_id: string; name: string; date_of_birth: string; age_band: string; timezone: string; policy_document?: unknown };
 export type Pairing = { session_id: string; code: string; qr_payload: string; expires_at: string };
 export type DeviceCredentials = { device_id: string; device_token: string; family_id: string };
-export type Health = { child_profile_id: string; device_id: string; state: "PROTECTED" | "DEGRADED" | "UNKNOWN"; last_seen_at: string | null; policy_version_applied: number | null };
+export type Health = { child_profile_id: string; device_id: string; state: "HEALTHY" | "PROTECTED" | "DEGRADED" | "DISABLED" | "UNKNOWN"; last_seen_at: string | null; policy_version_applied: number | null };
 export type PolicyMutationInput = {
   operation:
     | "APP_ALLOW"
@@ -61,13 +61,57 @@ export type AccessRequest = {
   id: string;
   child_profile_id: string;
   device_id: string;
-  request_type: "MORE_TIME" | "UNBLOCK_APP" | "UNBLOCK_SITE" | "CONTENT_REVIEW";
+  request_type: "MORE_TIME" | "UNBLOCK_APP" | "UNBLOCK_SITE" | "CONTENT_REVIEW" | "VIDEO_REVIEW" | "SOS";
   subject: string | null;
   state: "PENDING" | "APPROVED" | "DENIED" | "EXPIRED" | "CANCELLED";
   reason: string | null;
   decision_reason: string | null;
   expires_at: string | null;
   content_review?: ContentReviewEvidence | null;
+  video_review?: { video_id: string; title: string | null; channel: string | null; topic: string } | null;
+};
+export type VideoCheck = {
+  video_id: string;
+  title: string | null;
+  channel: string | null;
+  verdict: "ALLOW" | "REVIEW" | "BLOCKED";
+  topic: string | null;
+  request_id: string | null;
+  rules_fingerprint: string;
+  valid_until: string | null;
+};
+export type LearningTopic = { label: string; keywords: string };
+export type VideoPick = { video_id: string; title?: string | null; channel?: string | null };
+export type VideoSettingsInput = {
+  trusted_channels: string[];
+  blocked_channels: string[];
+  learning_topics: LearningTopic[];
+  picks: VideoPick[];
+  learning_only: boolean;
+  youtube_paused: boolean;
+  expected_revision?: number;
+  hide_shorts: boolean;
+  hide_comments: boolean;
+  autoplay_next: boolean;
+  youtube_guardian_only: boolean;
+};
+export type VideoSettings = VideoSettingsInput & { rules_revision: number };
+export type VideoRules = {
+  age_band: string;
+  topics: Array<{ code: string; label: string; keywords: string[] }>;
+  suggested_learning_topics: LearningTopic[];
+  settings: VideoSettings;
+};
+export type DeviceVideoSettings = {
+  age_band: string;
+  learning_topics: LearningTopic[];
+  picks: VideoPick[];
+  learning_only: boolean;
+  hide_shorts: boolean;
+  hide_comments: boolean;
+  autoplay_next: boolean;
+  youtube_paused: boolean;
+  rules_fingerprint: string;
 };
 export type ContentReviewRequestInput = {
   request_type: "CONTENT_REVIEW";
@@ -274,13 +318,13 @@ export class GuardianApiClient {
     if (!this.refreshInFlight) {
       this.refreshInFlight = (async () => {
         const refreshToken = await sessionStorage.getRefreshToken();
-        if (!refreshToken) throw new Error("No refresh token is available.");
+        if (!refreshToken) throw new ApiError("No refresh token is available.", 401);
         const refreshed = await fetch(`${this.baseUrl}/v1/auth/refresh`, {
           method: "POST",
           headers: { "Content-Type": "application/json" },
           body: JSON.stringify({ refresh_token: refreshToken }),
         });
-        if (!refreshed.ok) throw new Error("Refresh token is invalid.");
+        if (!refreshed.ok) throw new ApiError("Couldn't refresh your session.", refreshed.status);
         const tokens = (await refreshed.json()) as Tokens;
         await sessionStorage.setTokens(tokens);
         return tokens;
@@ -331,8 +375,8 @@ export class GuardianApiClient {
             return await this.request<T>(path, init, false);
           }
           await this.refreshParentSession();
-          return await this.request<T>(path, init, false);
-        } catch {
+        } catch (refreshError) {
+          if (!(refreshError instanceof ApiError) || ![401, 403].includes(refreshError.status)) throw refreshError;
           await sessionStorage.clearParentSession();
           parentSessionExpiryListener?.();
           throw new ApiError(
@@ -342,6 +386,7 @@ export class GuardianApiClient {
             requestId,
           );
         }
+        return this.request<T>(path, init, false);
       }
       if (error instanceof Error) {
         throw new ApiError(
@@ -486,6 +531,33 @@ export class GuardianApiClient {
   }
   requests(familyId: string, childId?: string) {
     return this.request<AccessRequest[]>(`/v1/families/${familyId}/requests${childId ? `?child_id=${encodeURIComponent(childId)}` : ""}`);
+  }
+  deviceRequest(requestId: string) {
+    return this.request<AccessRequest>(`/v1/devices/me/requests/${requestId}`);
+  }
+  checkVideo(videoId: string) {
+    return this.request<VideoCheck>("/v1/devices/me/videos/check", {
+      method: "POST",
+      body: JSON.stringify({ video_id: videoId }),
+    });
+  }
+  videoRules(familyId: string, childId: string) {
+    return this.request<VideoRules>(`/v1/families/${familyId}/children/${childId}/video-rules`);
+  }
+  updateVideoSettings(familyId: string, childId: string, settings: VideoSettingsInput) {
+    return this.request<VideoSettings>(`/v1/families/${familyId}/children/${childId}/video-settings`, {
+      method: "PUT",
+      body: JSON.stringify(settings),
+    });
+  }
+  deviceVideoSettings() {
+    return this.request<DeviceVideoSettings>("/v1/devices/me/video-settings");
+  }
+  sendSos(kind: "SCARY_CONTENT" | "NEED_HELP", videoId?: string | null) {
+    return this.request<AccessRequest>("/v1/devices/me/sos", {
+      method: "POST",
+      body: JSON.stringify(videoId ? { kind, video_id: videoId } : { kind }),
+    });
   }
   contentApprovals() {
     return this.request<ContentApproval[]>("/v1/devices/me/content-approvals");

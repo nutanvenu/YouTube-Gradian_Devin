@@ -529,6 +529,7 @@ class RequestOut(BaseModel):
     decision_reason: str | None
     expires_at: datetime | None
     content_review: ContentReviewEvidenceIn | None = None
+    video_review: dict[str, object] | None = None
 
 
 class ContentApprovalOut(BaseModel):

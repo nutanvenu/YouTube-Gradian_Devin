@@ -1,4 +1,4 @@
-import { fireEvent, render } from "@testing-library/react-native";
+import { act, fireEvent, render, waitFor } from "@testing-library/react-native";
 
 const mockQueryState = new Map<string, Record<string, unknown>>();
 const mockMutatePolicy = jest.fn();
@@ -21,6 +21,20 @@ jest.mock("expo-router", () => ({
   useRouter: () => ({ push: mockPush }),
 }));
 
+jest.mock("expo-crypto", () => ({ randomUUID: () => "routine-new" }));
+
+jest.mock("@/auth/session", () => ({
+  useSession: () => ({
+    familyId: "family-1",
+    childId: null,
+    setChildId: jest.fn(),
+    signOut: jest.fn(),
+    sessionError: null,
+  }),
+}));
+
+jest.mock("@/state/network", () => ({ useNetworkStatus: () => ({ isOffline: false }) }));
+
 jest.mock("@/api/client", () => ({
   api: {
     child: jest.fn(),
@@ -33,7 +47,7 @@ jest.mock("@/api/client", () => ({
     policy: jest.fn(),
     mutatePolicy: (...args: unknown[]) => {
       mockMutatePolicy(...args);
-      return Promise.resolve({});
+      return Promise.resolve({ policy_version: 5 });
     },
     decideRequest: (...args: unknown[]) => {
       mockDecideRequest(...args);
@@ -52,9 +66,9 @@ jest.mock("@tanstack/react-query", () => ({
       refetch: state?.refetch ?? jest.fn(),
     };
   },
-  useMutation: ({ mutationFn, onSuccess }: { mutationFn: (input: unknown) => Promise<unknown>; onSuccess?: () => void }) => ({
+  useMutation: ({ mutationFn, onSuccess }: { mutationFn: (input: unknown) => Promise<unknown>; onSuccess?: (result: unknown, input: unknown) => void }) => ({
     mutate: (input: unknown) => {
-      void mutationFn(input).then(onSuccess);
+      void mutationFn(input).then((result) => onSuccess?.(result, input));
     },
     isPending: false,
   }),
@@ -62,6 +76,7 @@ jest.mock("@tanstack/react-query", () => ({
 }));
 
 import ActivityDetailRoute from "@/app/parent/activity-detail";
+import ParentHomeRoute from "@/app/parent/home";
 import ChildDetailRoute from "@/app/parent/child-detail";
 import FamilySettingsRoute from "@/app/parent/family-settings";
 import GuardianDeviceSettingsRoute from "@/app/parent/guardian-device-settings";
@@ -142,6 +157,14 @@ function setLoadedQueries() {
   });
 }
 
+test("Parent can add a child when its family has no child profiles", () => {
+  setQuery(["children", "family-1"], { data: [] });
+  const screen = render(<ParentHomeRoute />);
+  expect(screen.getByText("Nothing to show yet.")).toBeTruthy();
+  fireEvent.press(screen.getByLabelText("Add a child"));
+  expect(mockPush).toHaveBeenCalledWith({ pathname: "/parent/setup", params: { familyId: "family-1" } });
+});
+
 test("new parent and child routes render loaded data", () => {
   setLoadedQueries();
 
@@ -185,7 +208,7 @@ test("new routes expose loading, error, and empty states with recovery", () => {
   expect(empty.getByText("Nothing to show yet.")).toBeTruthy();
 });
 
-test("new route actions navigate and submit policy/request decisions", () => {
+test("new route actions navigate and submit policy/request decisions", async () => {
   setLoadedQueries();
 
   const timeUp = render(<ChildTimeUpRoute />);
@@ -194,11 +217,16 @@ test("new route actions navigate and submit policy/request decisions", () => {
   timeUp.unmount();
 
   const routine = render(<RoutineEditorRoute />);
-  fireEvent.press(routine.getByLabelText("Activate routine"));
+  expect(routine.queryByLabelText("Activate routine")).toBeNull();
+  fireEvent.changeText(routine.getByLabelText("Routine name"), "Study time");
+  await act(async () => {
+    fireEvent.press(routine.getByLabelText("Save routine"));
+    await Promise.resolve();
+  });
   expect(mockMutatePolicy).toHaveBeenCalledWith(
     "family-1",
     "child-1",
-    { operation: "ROUTINE_ACTIVATE", target: "routine-1" },
+    expect.objectContaining({ operation: "ROUTINE_UPDATE", target: "routine-1", value: expect.objectContaining({ name: "Study time", kind: "SCHEDULED" }) }),
   );
   routine.unmount();
 
@@ -210,4 +238,32 @@ test("new route actions navigate and submit policy/request decisions", () => {
     "approve",
     "Reviewed in request detail",
   );
+});
+
+test("creates a manual routine and can activate it after saving", async () => {
+  setLoadedQueries();
+  delete mockParams.routineId;
+  const editor = render(<RoutineEditorRoute />);
+  fireEvent.press(editor.getByLabelText("Switch to manual"));
+  expect(editor.queryByLabelText("Activate routine")).toBeNull();
+  fireEvent.press(editor.getByLabelText("Save routine"));
+  await waitFor(() => expect(editor.getByLabelText("Activate routine")).toBeTruthy());
+  expect(mockMutatePolicy).toHaveBeenCalledWith("family-1", "child-1", expect.objectContaining({
+    operation: "ROUTINE_CREATE", target: "routine-new",
+    value: expect.objectContaining({ routine_id: "routine-new", kind: "MANUAL" }),
+  }));
+  await act(async () => {
+    fireEvent.press(editor.getByLabelText("Activate routine"));
+    await Promise.resolve();
+  });
+  expect(mockMutatePolicy).toHaveBeenLastCalledWith("family-1", "child-1", { operation: "ROUTINE_ACTIVATE", target: "routine-new" });
+});
+
+test("invalid routine drafts show a correction without submitting", () => {
+  setLoadedQueries();
+  const editor = render(<RoutineEditorRoute />);
+  fireEvent.changeText(editor.getByLabelText("Routine name"), " ");
+  fireEvent.press(editor.getByLabelText("Save routine"));
+  expect(editor.getByText("Enter a routine name.")).toBeTruthy();
+  expect(mockMutatePolicy).not.toHaveBeenCalled();
 });

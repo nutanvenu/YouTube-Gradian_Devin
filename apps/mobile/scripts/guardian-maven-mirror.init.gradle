@@ -1,0 +1,19 @@
+def mirrorCentral = { repositories ->
+    repositories.maven { url = 'https://maven-central.storage-download.googleapis.com/maven2/' }
+    repositories.all { repository ->
+        if (repository instanceof org.gradle.api.artifacts.repositories.MavenArtifactRepository &&
+            repository.url.toString().contains('repo.maven.apache.org')) {
+            repository.setUrl('https://maven-central.storage-download.googleapis.com/maven2/')
+        }
+    }
+}
+gradle.beforeSettings { settings ->
+    mirrorCentral(settings.pluginManagement.repositories)
+    settings.pluginManagement.repositories.gradlePluginPortal()
+    settings.pluginManagement.repositories.google()
+    mirrorCentral(settings.dependencyResolutionManagement.repositories)
+}
+gradle.beforeProject { project ->
+    mirrorCentral(project.buildscript.repositories)
+    mirrorCentral(project.repositories)
+}

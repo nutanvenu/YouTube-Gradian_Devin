@@ -30,6 +30,17 @@ class BudgetEnforcementControllerTest {
   }
 
   @Test
+  fun navigationBeforeBlockDispatchInvalidatesTheEvaluatedApp() {
+    val controller = BudgetEnforcementController()
+    controller.updateForeground("com.example.blocked", hasBudget = false, guardianPackage = "com.guardian")
+    assertTrue(controller.isCurrentForeground("com.example.blocked"))
+    controller.updateForeground("com.example.other", hasBudget = false, guardianPackage = "com.guardian")
+    assertFalse(controller.isCurrentForeground("com.example.blocked"))
+    controller.updateForeground("com.guardian", hasBudget = false, guardianPackage = "com.guardian")
+    assertFalse(controller.isCurrentForeground("com.example.blocked"))
+  }
+
+  @Test
   fun repeatedExhaustionReportsOnlyOnceWithinExistingDedupWindow() {
     val controller = BudgetEnforcementController(blockDedupMs = 2_000L)
 

@@ -79,6 +79,34 @@ test("refreshes once and retries a parent request after a 401", async () => {
   fetcher.mockRestore();
 });
 
+test("a temporary refresh failure preserves parent credentials", async () => {
+  (SecureStore.deleteItemAsync as jest.Mock).mockClear();
+  (SecureStore.getItemAsync as jest.Mock).mockImplementation((key: string) => Promise.resolve(
+    key === "guardian.access-token" ? "expired-access" : key === "guardian.refresh-token" ? "valid-refresh" : null,
+  ));
+  const fetcher = jest.spyOn(globalThis, "fetch")
+    .mockResolvedValueOnce(new Response("{}", { status: 401 }))
+    .mockResolvedValueOnce(new Response("{}", { status: 503 }));
+  await expect(new GuardianApiClient("https://guardian.test").me()).rejects.toMatchObject({ status: 503 });
+  expect(SecureStore.deleteItemAsync).not.toHaveBeenCalled();
+  fetcher.mockRestore();
+});
+
+test("a failed business request after a successful refresh is not session expiry", async () => {
+  (SecureStore.deleteItemAsync as jest.Mock).mockClear();
+  const values: Record<string, string | null> = { "guardian.access-token": "expired-access", "guardian.refresh-token": "valid-refresh" };
+  (SecureStore.getItemAsync as jest.Mock).mockImplementation((key: string) => Promise.resolve(values[key] ?? null));
+  (SecureStore.setItemAsync as jest.Mock).mockImplementation((key: string, value: string) => { values[key] = value; return Promise.resolve(); });
+  const fetcher = jest.spyOn(globalThis, "fetch")
+    .mockResolvedValueOnce(new Response("{}", { status: 401 }))
+    .mockResolvedValueOnce(new Response(JSON.stringify({ access_token: "new-access", refresh_token: "new-refresh" }), { status: 200 }))
+    .mockResolvedValueOnce(new Response(JSON.stringify({ error: { message: "Rules changed" } }), { status: 409 }));
+  await expect(new GuardianApiClient("https://guardian.test").me()).rejects.toMatchObject({ status: 409 });
+  expect(values["guardian.access-token"]).toBe("new-access");
+  expect(SecureStore.deleteItemAsync).not.toHaveBeenCalled();
+  fetcher.mockRestore();
+});
+
 test("shares one refresh across concurrent parent requests", async () => {
   const values: Record<string, string | null> = {
     "guardian.access-token": "expired-access",

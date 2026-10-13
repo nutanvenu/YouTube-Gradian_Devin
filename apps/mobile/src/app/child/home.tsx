@@ -1,6 +1,6 @@
 import { useEffect, useRef, useState } from "react";
 import { useQuery } from "@tanstack/react-query";
-import { useRouter } from "expo-router";
+import { useLocalSearchParams, useRouter } from "expo-router";
 import { Alert, AppState, Platform, Text } from "react-native";
 import { ApiError, api, sessionStorage, type DeviceEvent } from "@/api/client";
 import { useFamilySync } from "@/hooks/use-family-sync";
@@ -72,24 +72,31 @@ function isRevokedDeviceError(error: unknown): boolean {
 }
 
 export default function ChildHomeRoute() {
+  const limitedChildBuild = process.env.EXPO_PUBLIC_GUARDIAN_LIMITED_CHILD === "true";
   const router = useRouter();
+  const { openYouTube } = useLocalSearchParams<{ openYouTube?: string }>();
   const policy = useQuery({ queryKey: ["device-policy"], queryFn: () => api.policy() });
   const { isOffline } = useNetworkStatus();
   const [familyId, setFamilyId] = useState<string>();
   const revoked = isRevokedDeviceError(policy.error);
   const [protectionMessage, setProtectionMessage] = useState("Checking web protection…");
   const [canRetryProtection, setCanRetryProtection] = useState(false);
+  const [canEnableWebProtection, setCanEnableWebProtection] = useState(false);
   const [accessibilitySignals, setAccessibilitySignals] = useState<{
     level: string;
     detail?: string | null;
   } | null>(null);
-  const [appBlockingAvailable, setAppBlockingAvailable] = useState<boolean | null>(null);
+  const [appBlocking, setAppBlocking] = useState<{ level: string; detail?: string | null } | null>(null);
+  const [usageAccessAvailable, setUsageAccessAvailable] = useState<boolean | null>(null);
   const [blockedEvent, setBlockedEvent] = useState<Extract<GuardianNativeEvent, { type: "WEB_BLOCKED" }> | null>(null);
   const [blockedEventCount, setBlockedEventCount] = useState(0);
   const [appBlockedMessage, setAppBlockedMessage] = useState<string | null>(null);
   const [timeMessage, setTimeMessage] = useState<string | null>(null);
   const [reputationMessage, setReputationMessage] = useState<string | null>(null);
   const [acknowledgedVersion, setAcknowledgedVersion] = useState<number | null>(null);
+  const [webProtectionActive, setWebProtectionActive] = useState(false);
+  const [sosMessage, setSosMessage] = useState<string | null>(null);
+  const openedYouTube = useRef(false);
   const usageUploaded = useRef(false);
   const inventoryUploaded = useRef(false);
   const policyUnavailable = isOffline || policy.isError;
@@ -177,7 +184,9 @@ export default function ChildHomeRoute() {
     const vpnReady = vpnCapability.level === "LIMITED" || vpnCapability.level === "FULL";
     const webActive = webCapability.level === "LIMITED" || webCapability.level === "FULL";
     const vpnActive = status.active && vpnReady;
+    setWebProtectionActive(vpnActive);
     setCanRetryProtection(!vpnActive && vpnReady);
+    setCanEnableWebProtection(!vpnReady);
     setProtectionMessage(
       !vpnActive
         ? vpnReady
@@ -187,7 +196,8 @@ export default function ChildHomeRoute() {
           ? "Web protection is active for encrypted DNS and known blocked destinations. Other traffic may bypass Guardian."
           : "Web protection is active, but coverage may be limited. Some traffic may bypass Guardian.",
     );
-    setAppBlockingAvailable(appBlockingCapability.level === "FULL");
+    setAppBlocking(appBlockingCapability);
+    setUsageAccessAvailable("app_usage" in capabilities ? capabilities.app_usage.level === "FULL" : null);
     setAccessibilitySignals(accessibilityCapability);
   };
 
@@ -215,7 +225,15 @@ export default function ChildHomeRoute() {
     }
   }, []);
 
-  useFamilySync(familyId);
+  useFamilySync(familyId, "child");
+
+  useEffect(() => {
+    if (openYouTube !== "true" || !webProtectionActive ||
+        acknowledgedVersion !== policy.data?.policy_version || openedYouTube.current) return;
+    openedYouTube.current = true;
+    router.setParams({ openYouTube: undefined });
+    router.push("/child/youtube");
+  }, [openYouTube, webProtectionActive, acknowledgedVersion, policy.data?.policy_version, router]);
 
   useEffect(() => {
     const subscription = GuardianProtection.subscribe((event) => {
@@ -262,7 +280,10 @@ export default function ChildHomeRoute() {
         setTimeMessage(`${event.targetRef} · time expired`);
       }
       if (event.type === "PERMISSION_STATE_CHANGED" && event.capability === "app_blocking") {
-        setAppBlockingAvailable(event.state === "FULL");
+        setAppBlocking({ level: event.state });
+      }
+      if (event.type === "PERMISSION_STATE_CHANGED" && event.capability === "app_usage") {
+        setUsageAccessAvailable(event.state === "FULL");
       }
       if (event.type === "PROTECTION_STATUS_CHANGED") {
         void refreshNativeProtection().catch(() => undefined);
@@ -277,7 +298,8 @@ export default function ChildHomeRoute() {
       void refreshNativeProtection().catch(() => {
         if (!cancelled) {
           setProtectionMessage("Web protection is unavailable.");
-          setAppBlockingAvailable(null);
+          setAppBlocking(null);
+          setUsageAccessAvailable(null);
         }
       });
     };
@@ -334,12 +356,13 @@ export default function ChildHomeRoute() {
       }
       const capabilities = await GuardianProtection.getCapabilities();
       const vpnReady = capabilities.vpn_filtering.level === "LIMITED" || capabilities.vpn_filtering.level === "FULL";
+      setCanEnableWebProtection(!vpnReady);
       if (!vpnReady) {
         setProtectionMessage(capabilities.vpn_filtering.detail ?? "Web protection permission is required.");
         return;
       }
       const communication = policy.data.bundle as { communication_safety?: { enabled?: boolean } };
-      if (communication.communication_safety?.enabled && capabilities.communication_risk_signals.level === "UNAVAILABLE") {
+      if (!limitedChildBuild && communication.communication_safety?.enabled && capabilities.communication_risk_signals.level === "UNAVAILABLE") {
         setProtectionMessage("Communication safety permission is required.");
       }
       await GuardianProtection.startProtection();
@@ -431,6 +454,7 @@ export default function ChildHomeRoute() {
               />
             ) : null}
             <Text>{protectionMessage}</Text>
+            {openYouTube === "true" ? <Text>YouTube will open after web protection is active.</Text> : null}
             {canRetryProtection ? (
               <PrimaryButton
                 label="Retry web protection"
@@ -442,7 +466,11 @@ export default function ChildHomeRoute() {
               />
             ) : null}
             {reputationMessage ? <Text accessibilityRole="alert">{reputationMessage}</Text> : null}
-            {appBlockingAvailable === false ? (
+            {limitedChildBuild ? (
+              <Text accessibilityRole="alert">This web-only test build cannot enforce app limits or provide notification-based safety. Usage and time shown here are informational.</Text>
+            ) : appBlocking?.level === "LIMITED" ? (
+              <Text>{appBlocking.detail ?? "Static app blocks are active. Usage Access is required for timed app limits."}</Text>
+            ) : appBlocking?.level === "UNAVAILABLE" ? (
               <>
                 <Text>App limits are not being enforced right now. Re-enable Accessibility to restore app blocking.</Text>
                 <PrimaryButton
@@ -451,7 +479,16 @@ export default function ChildHomeRoute() {
                 />
               </>
             ) : null}
-            {accessibilitySignals?.level === "UNAVAILABLE" &&
+            {!limitedChildBuild && (usageAccessAvailable === false || appBlocking?.level === "LIMITED") ? (
+              <>
+                <Text>Usage Access is required for usage reporting and timed app limits.</Text>
+                <PrimaryButton
+                  label="Enable Usage Access"
+                  onPress={() => void GuardianProtection.openUsageAccessSettings().catch(() => undefined)}
+                />
+              </>
+            ) : null}
+            {limitedChildBuild ? null : accessibilitySignals?.level === "UNAVAILABLE" &&
             accessibilitySignals.detail === ACCESSIBILITY_SIGNALS_DISABLED_BY_PARENT_POLICY ? (
               <Text accessibilityRole="alert">Disabled by parent policy. Ask a parent to enable Android content-safety signals.</Text>
             ) : (
@@ -461,12 +498,12 @@ export default function ChildHomeRoute() {
                 <SecondaryButton label="Turn off content-safety inspection" onPress={() => { void GuardianProtection.setAccessibilityContentConsent(false); }} />
               </>
             )}
-            <Text>
+            {!limitedChildBuild ? <Text>
               Communication Safety checks notification signals from supported communication apps.
               Guardian analyzes notification text briefly on this device, discards it, and sends
               only category, severity, confidence, source app, time, and reason. Guardian cannot
               read message history, passwords, or content outside notifications.
-            </Text>
+            </Text> : null}
             {blockedEvent ? (
               <Text>
                 WEB_BLOCKED events: {blockedEventCount} · {blockedEvent.domain} ·{" "}
@@ -476,7 +513,7 @@ export default function ChildHomeRoute() {
             ) : null}
             {appBlockedMessage ? <Text>APP_BLOCKED: {appBlockedMessage}</Text> : null}
             {timeMessage ? <Text>TIME: {timeMessage}</Text> : null}
-            {protectionMessage === "Web protection permission is required." ? (
+            {canEnableWebProtection ? (
               <PrimaryButton
                 label="Enable web protection"
                 onPress={() => Alert.alert(
@@ -489,7 +526,7 @@ export default function ChildHomeRoute() {
                 )}
               />
             ) : null}
-            {protectionMessage === "Communication safety permission is required." ? (
+            {!limitedChildBuild && protectionMessage === "Communication safety permission is required." ? (
               <PrimaryButton
                 label="Restore communication safety permission"
                 onPress={() => Alert.alert(
@@ -502,10 +539,18 @@ export default function ChildHomeRoute() {
                 )}
               />
             ) : null}
+            <PrimaryButton label="Watch YouTube safely" onPress={() => router.push("/child/youtube")} />
             <PrimaryButton label="My time" onPress={() => router.push("/child/time")} />
             <PrimaryButton label="My simple rules" onPress={() => router.push("/child/rules-summary")} />
-            {timeMessage?.includes("expired") ? <PrimaryButton label="Open time-up" onPress={() => router.push("/child/time-up")} /> : null}
+            {!limitedChildBuild && timeMessage?.includes("expired") ? <PrimaryButton label="Open time-up" onPress={() => router.push("/child/time-up")} /> : null}
             <PrimaryButton label="Ask for help" onPress={() => router.push("/child/requests")} />
+            <SecondaryButton label="I saw something scary" disabled={sosMessage === "Telling your parent…"} onPress={() => {
+              setSosMessage("Telling your parent…");
+              api.sendSos("SCARY_CONTENT")
+                .then(() => setSosMessage("We told your parent. You did the right thing."))
+                .catch(() => setSosMessage("Guardian couldn't reach your parent. Please find a grown-up nearby."));
+            }} />
+            {sosMessage ? <Text accessibilityLiveRegion="assertive">{sosMessage}</Text> : null}
           </SectionSurface>
         </DataState>
       )}

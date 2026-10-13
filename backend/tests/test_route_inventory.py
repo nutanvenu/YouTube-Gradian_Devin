@@ -28,6 +28,10 @@ EXPECTED_ROUTES: tuple[ExpectedRoute, ...] = (
     ("/v1/devices/me/policy", "GET", "device"),
     ("/v1/devices/me/policy/ack", "POST", "device"),
     ("/v1/devices/me/reputation", "GET", "device"),
+    ("/v1/devices/me/requests/{request_id}", "GET", "device"),
+    ("/v1/devices/me/videos/check", "POST", "device"),
+    ("/v1/devices/me/video-settings", "GET", "device"),
+    ("/v1/devices/me/sos", "POST", "device"),
     ("/v1/devices/me/reputation/classify", "POST", "device"),
     ("/v1/devices/me/push-tokens", "POST", "device"),
     ("/v1/devices/me/requests", "POST", "device"),
@@ -43,6 +47,8 @@ EXPECTED_ROUTES: tuple[ExpectedRoute, ...] = (
     ("/v1/families/{family_id}/children/{child_id}", "DELETE", "parent"),
     ("/v1/families/{family_id}/children/{child_id}", "GET", "parent"),
     ("/v1/families/{family_id}/children/{child_id}", "PATCH", "parent"),
+    ("/v1/families/{family_id}/children/{child_id}/video-rules", "GET", "parent"),
+    ("/v1/families/{family_id}/children/{child_id}/video-settings", "PUT", "parent"),
     (
         "/v1/families/{family_id}/children/{child_id}/pairing",
         "POST",
@@ -80,6 +86,8 @@ EXPECTED_ROUTES: tuple[ExpectedRoute, ...] = (
     ("/v1/policy/public-key", "GET", "public"),
     ("/v1/push/actions/{action_token}/approve", "POST", "action-token"),
     ("/v1/push/actions/{action_token}/deny", "POST", "action-token"),
+    ("/v1/ws/child", "WEBSOCKET", "device"),
+    ("/v1/ws/parent", "WEBSOCKET", "parent"),
     ("/v1/ws/sync", "WEBSOCKET", "parent-or-device"),
 )
 
@@ -106,7 +114,11 @@ def _registered_routes() -> list[ExpectedRoute]:
             pending.extend(nested_routes)
             continue
         if isinstance(route, APIWebSocketRoute):
-            routes.append((route.path, "WEBSOCKET", "parent-or-device"))
+            auth_kind = {
+                "/v1/ws/child": "device",
+                "/v1/ws/parent": "parent",
+            }.get(route.path, "parent-or-device")
+            routes.append((route.path, "WEBSOCKET", auth_kind))
             continue
         if not isinstance(route, APIRoute):
             continue

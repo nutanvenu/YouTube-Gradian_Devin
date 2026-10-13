@@ -1,3 +1,14 @@
+# YouTube enforcement boundary
+
+Guardian's protected player checks exact videos and uses short-lived playback leases.
+The external-route control adds known YouTube domain and app rules; it is not a
+device-wide application allowlist. Encrypted-DNS browsers, cached media, and alternate
+clients can bypass DNS filtering. For an unattended child device, parents must also
+restrict alternative browsers/clients and verify the required Android capabilities.
+Parent debug APKs retain native testing declarations; only Parent release manifests
+remove child-monitoring services and permissions. Developer APKs are not production
+installers.
+
 # Guardian
 
 Guardian is a family-safety product that connects a parent account to one or
@@ -158,6 +169,31 @@ endpoints, missing public policy authority, and a missing/invalid release
 version code. It then verifies signed APK/AAB artifacts, including their final
 manifests. Backend-only secrets (including JWT and policy private keys) are
 validated by the backend and are never passed to the Android build.
+
+The Android production APK workflow builds two signed, universal APKs from the
+same commit: `Guardian-parent-release.apk` (`com.guardian.family.parent`) and
+`Guardian-child-release.apk` (`com.guardian.family.child`). They can be installed
+on separate devices or side by side. The parent app opens parent sign-in and
+uses the parent real-time API; the child app opens pairing and uses the child
+real-time API after pairing. The production workflow requires the protected
+`guardian-production` environment, a deployed HTTPS API, and the release
+signing configuration above. For a local role build, set
+`EXPO_PUBLIC_GUARDIAN_ROLE=parent` and pass `-PguardianRole=parent` to Gradle
+(use `child` for the child app). The unqualified build retains the original
+single-app role selection and `com.guardian.family` package for development.
+Parent release APKs omit Child-only monitoring, VPN, Accessibility, and
+notification-listener declarations. Parent protection health displays the
+paired Child device's reported state; permissions are granted on that device.
+
+For a temporary web-only Child APK, use the same release configuration and
+Child role, and add `GUARDIAN_RELEASE_LIMITED_CHILD=true` and
+`EXPO_PUBLIC_GUARDIAN_LIMITED_CHILD=true` to the build environment. The APK
+keeps the Child package and signing identity so it can update an installed
+Child release, but omits Accessibility and notification-listener services.
+VPN website protection, pairing, and policy sync remain. App-limit enforcement,
+Accessibility content inspection, and notification-based safety are unavailable;
+the Child app reports this explicitly. This build is for testing and does not
+guarantee acceptance by Google Play Protect on a physical phone.
 
 ## Emulator harness
 

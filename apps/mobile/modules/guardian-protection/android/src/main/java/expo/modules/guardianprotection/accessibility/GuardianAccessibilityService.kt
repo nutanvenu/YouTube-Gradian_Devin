@@ -84,7 +84,10 @@ class GuardianAccessibilityService : AccessibilityService() {
         AccessibilityEvent.TYPE_WINDOWS_CHANGED,
         AccessibilityEvent.TYPE_WINDOW_CONTENT_CHANGED,
       )) return
-    if (packageName == packageNameOfGuardian()) return
+    if (packageName == packageNameOfGuardian()) {
+      if (eventType != AccessibilityEvent.TYPE_WINDOW_CONTENT_CHANGED) updateForeground(packageName)
+      return
+    }
     if (eventType != AccessibilityEvent.TYPE_WINDOW_CONTENT_CHANGED) {
       updateForeground(packageName)
       ContentBlockCoordinator.reblockIfCurrentForeground(this, packageName)
@@ -215,17 +218,14 @@ class GuardianAccessibilityService : AccessibilityService() {
       if (!enforcement.shouldReportBlock(packageName, now)) return
       GuardianPolicyRuntime.reportAppBlocked(packageName, decision.reasonCode)
       mainHandler.post {
-        if (serviceDestroyed) return@post
+        if (serviceDestroyed || !enforcement.isCurrentForeground(packageName)) return@post
         performGlobalAction(GLOBAL_ACTION_BACK)
-        mainHandler.postDelayed({
-          if (serviceDestroyed) return@postDelayed
-          startActivity(
-            Intent(this, GuardianBlockActivity::class.java)
-              .addFlags(Intent.FLAG_ACTIVITY_NEW_TASK or Intent.FLAG_ACTIVITY_CLEAR_TOP)
-              .putExtra(GuardianBlockActivity.EXTRA_APP, packageName)
-              .putExtra(GuardianBlockActivity.EXTRA_REASON, decision.reasonCode),
-          )
-        }, BLOCK_SURFACE_DELAY_MS)
+        startActivity(
+          Intent(this, GuardianBlockActivity::class.java)
+            .addFlags(Intent.FLAG_ACTIVITY_NEW_TASK or Intent.FLAG_ACTIVITY_CLEAR_TOP)
+            .putExtra(GuardianBlockActivity.EXTRA_APP, packageName)
+            .putExtra(GuardianBlockActivity.EXTRA_REASON, decision.reasonCode),
+        )
       }
     }
   }
@@ -257,7 +257,6 @@ class GuardianAccessibilityService : AccessibilityService() {
 
   companion object {
     private const val BUDGET_TICK_INTERVAL_MS = 3_000L
-    private const val BLOCK_SURFACE_DELAY_MS = 300L
     private const val CONTENT_DEBOUNCE_MS = 750L
     private const val CONTENT_TRAVERSAL_BUDGET_MS = 20L
     private const val CONTENT_MAX_NODES = 80

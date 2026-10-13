@@ -184,6 +184,83 @@ async def test_manual_routine_activation_is_carried_in_signed_policy(client, par
 
 
 @pytest.mark.asyncio
+@pytest.mark.parametrize("operation", ["ROUTINE_DELETE", "ROUTINE_UPDATE"])
+async def test_removing_manual_routine_clears_active_reference(client, parent_a, operation) -> None:
+    path = f"/v1/families/{parent_a.family_id}/children/{parent_a.child_id}/policy/mutations"
+    headers = {"Authorization": f"Bearer {parent_a.token}"}
+    routine = {"routine_id": "focus", "name": "Focus", "kind": "MANUAL"}
+    created = await client.post(
+        path,
+        headers=headers,
+        json={"operation": "ROUTINE_CREATE", "target": "focus", "value": routine},
+    )
+    assert created.status_code == 200
+    activated = await client.post(
+        path, headers=headers, json={"operation": "ROUTINE_ACTIVATE", "target": "focus"}
+    )
+    assert activated.status_code == 200
+    body = {"operation": operation, "target": "focus"}
+    if operation == "ROUTINE_UPDATE":
+        body["value"] = {
+            **routine,
+            "kind": "SCHEDULED",
+            "window": {"days": [1], "start": "18:00", "end": "19:00"},
+        }
+    result = await client.post(path, headers=headers, json=body)
+    assert result.status_code == 200, result.text
+    assert result.json()["bundle"]["base_policy"]["current_manual_routine_id"] is None
+
+
+@pytest.mark.asyncio
+async def test_deactivating_other_routine_preserves_active_routine(client, parent_a) -> None:
+    path = f"/v1/families/{parent_a.family_id}/children/{parent_a.child_id}/policy/mutations"
+    headers = {"Authorization": f"Bearer {parent_a.token}"}
+    for identifier in ("focus", "homework"):
+        created = await client.post(
+            path,
+            headers=headers,
+            json={
+                "operation": "ROUTINE_CREATE",
+                "target": identifier,
+                "value": {"routine_id": identifier, "name": identifier, "kind": "MANUAL"},
+            },
+        )
+        assert created.status_code == 200
+    activated = await client.post(
+        path, headers=headers, json={"operation": "ROUTINE_ACTIVATE", "target": "focus"}
+    )
+    assert activated.status_code == 200
+    result = await client.post(
+        path, headers=headers, json={"operation": "ROUTINE_DEACTIVATE", "target": "homework"}
+    )
+    assert result.status_code == 200
+    assert result.json()["bundle"]["base_policy"]["current_manual_routine_id"] == "focus"
+
+
+@pytest.mark.asyncio
+async def test_routine_update_rejects_identifier_change(client, parent_a) -> None:
+    path = f"/v1/families/{parent_a.family_id}/children/{parent_a.child_id}/policy/mutations"
+    headers = {"Authorization": f"Bearer {parent_a.token}"}
+    routine = {"routine_id": "focus", "name": "Focus", "kind": "MANUAL"}
+    created = await client.post(
+        path,
+        headers=headers,
+        json={"operation": "ROUTINE_CREATE", "target": "focus", "value": routine},
+    )
+    assert created.status_code == 200
+    result = await client.post(
+        path,
+        headers=headers,
+        json={
+            "operation": "ROUTINE_UPDATE",
+            "target": "focus",
+            "value": {**routine, "routine_id": "renamed"},
+        },
+    )
+    assert result.status_code == 422
+
+
+@pytest.mark.asyncio
 async def test_parent_time_extension_is_signed_and_expires(client, parent_a) -> None:
     response = await client.post(
         f"/v1/families/{parent_a.family_id}/children/{parent_a.child_id}/policy/mutations",
@@ -272,10 +349,7 @@ async def test_request_approval_retry_replays_without_new_policy_version(
         content=request_body,
     )
     assert created.status_code == 201
-    path = (
-        f"/v1/families/{paired_device.parent.family_id}/requests/"
-        f"{created.json()['id']}/approve"
-    )
+    path = f"/v1/families/{paired_device.parent.family_id}/requests/{created.json()['id']}/approve"
     headers = {**parent_headers, "Idempotency-Key": "approval-retry"}
     first = await client.post(path, headers=headers, json={"reason": "Approved"})
     second = await client.post(path, headers=headers, json={"reason": "Approved"})

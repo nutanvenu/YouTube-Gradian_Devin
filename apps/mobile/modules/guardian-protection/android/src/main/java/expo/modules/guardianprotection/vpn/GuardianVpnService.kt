@@ -147,7 +147,8 @@ class GuardianVpnService : VpnService() {
     try {
       while (running.get() && synchronized(stateLock) { interfaceFd === fd }) {
         val length = input.read(packet)
-        if (length <= 0) continue
+        if (length < 0) throw java.io.EOFException("VPN interface closed")
+        if (length == 0) { SystemClock.sleep(10); continue }
         if (blockedRoutes.prune()) restartInterface()
         val ip = PacketCodec.parseIp(packet, length) ?: continue
         when (ip.protocol) {
@@ -157,10 +158,20 @@ class GuardianVpnService : VpnService() {
         }
       }
     } catch (_: Exception) {
-      if (running.get()) fail("VPN_PACKET_LOOP_FAILED")
+      synchronized(stateLock) {
+        if (running.get() && interfaceFd === fd) {
+          running.set(false)
+          interfaceFd = null
+          runCatching { fd.close() }
+          GuardianVpnPreferences.recordRuntimeStatus(this, GuardianVpnRuntimeState.UNAVAILABLE, "VPN_PACKET_LOOP_FAILED")
+          setRunningState(false, "VPN_PACKET_LOOP_FAILED")
+          fail("VPN_PACKET_LOOP_FAILED")
+          stopSelf()
+        }
+      }
     } finally {
-      input.close()
-      localOutput.close()
+      runCatching { input.close() }
+      runCatching { localOutput.close() }
       synchronized(stateLock) {
         if (output === localOutput) output = null
       }
@@ -270,10 +281,13 @@ class GuardianVpnService : VpnService() {
   private fun establishInterface(): Boolean {
     repeat(MAX_INTERFACE_ESTABLISH_ATTEMPTS) { attempt ->
       val builder = Builder()
+        .setBlocking(true)
         .setSession("Guardian protection")
         .setMtu(1500)
         .addAddress("10.0.0.2", 32)
         .addAddress("fd00:0:0:0:0:0:0:2", 128)
+      runCatching { builder.addDisallowedApplication(packageName) }
+        .onFailure { failOnce("SELF_EXCLUSION_CONFIGURATION_FAILED") }
       dnsServers.ifEmpty { listOf(InetAddress.getByName("10.0.0.1")) }.forEach { dns ->
         runCatching {
           builder.addDnsServer(dns)
@@ -313,9 +327,11 @@ class GuardianVpnService : VpnService() {
       if (establishInterface()) {
         startPacketWorker()
       } else {
+        running.set(false)
         GuardianVpnPreferences.recordRuntimeStatus(this, GuardianVpnRuntimeState.UNAVAILABLE, "VPN_REESTABLISH_FAILED")
         setRunningState(false, "VPN_REESTABLISH_FAILED")
         fail("VPN_REESTABLISH_FAILED")
+        stopSelf()
       }
     }
   }

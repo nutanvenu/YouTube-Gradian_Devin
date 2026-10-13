@@ -6,6 +6,8 @@ import java.net.InetSocketAddress
 import java.net.InetAddress
 import java.net.Socket
 import java.net.URI
+import java.util.concurrent.Executors
+import java.util.concurrent.TimeUnit
 import javax.net.ssl.SNIHostName
 import javax.net.ssl.SSLSocket
 import javax.net.ssl.SSLSocketFactory
@@ -52,6 +54,8 @@ internal class EncryptedDohTransport(
   private fun query(address: InetAddress, dnsMessage: ByteArray): ByteArray? = runCatching {
     val rawSocket = Socket()
     try {
+      // VpnService.protect needs a socket descriptor, which an unbound java.net.Socket lacks.
+      rawSocket.bind(null)
       check(protectSocket(rawSocket))
       rawSocket.soTimeout = TIMEOUT_MILLIS
       rawSocket.connect(InetSocketAddress(address, endpoint.port), TIMEOUT_MILLIS)
@@ -118,10 +122,22 @@ internal class EncryptedDohTransport(
       protectSocket: (Socket) -> Boolean,
       resolver: (String) -> Array<InetAddress> = InetAddress::getAllByName,
     ): EncryptedDohTransport? {
-      val addresses = runCatching { resolver(endpoint.host).toList() }.getOrDefault(emptyList())
+      val addresses = runCatching { resolveOffCallerThread { resolver(endpoint.host).toList() } }
+        .getOrDefault(emptyList())
       return addresses.takeIf { it.isNotEmpty() }?.let { EncryptedDohTransport(endpoint, it, protectSocket) }
     }
 
+    /** Android forbids DNS lookups on the main thread, where services receive start commands. */
+    private fun <T> resolveOffCallerThread(lookup: () -> T): T {
+      val executor = Executors.newSingleThreadExecutor()
+      try {
+        return executor.submit(lookup).get(RESOLVE_TIMEOUT_MILLIS, TimeUnit.MILLISECONDS)
+      } finally {
+        executor.shutdownNow()
+      }
+    }
+
+    private const val RESOLVE_TIMEOUT_MILLIS = 5_000L
     const val TIMEOUT_MILLIS = 2_000
     const val MAX_DNS_MESSAGE_BYTES = 4_096
     const val MAX_HEADER_LINE_BYTES = 8_192

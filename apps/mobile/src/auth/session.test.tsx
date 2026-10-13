@@ -1,5 +1,7 @@
 import { fireEvent, render, screen, waitFor } from "@testing-library/react-native";
 import { Pressable, Text } from "react-native";
+import type { ReactNode } from "react";
+import { QueryClient, QueryClientProvider } from "@tanstack/react-query";
 
 jest.mock("@/api/client", () => {
   class MockApiError extends Error {
@@ -28,6 +30,10 @@ jest.mock("@/api/client", () => {
 import { ApiError, api, sessionStorage } from "@/api/client";
 import { SessionProvider, useSession } from "@/auth/session";
 
+function TestSessionProvider({ children }: { children: ReactNode }) {
+  return <QueryClientProvider client={new QueryClient()}><SessionProvider>{children}</SessionProvider></QueryClientProvider>;
+}
+
 function SessionState() {
   const { childId, familyId, loading, sessionError, signIn } = useSession();
   return <>
@@ -51,7 +57,7 @@ beforeEach(() => {
 test("bootstrap preserves SESSION_EXPIRED as an actionable signed-out state", async () => {
   (api.me as jest.Mock).mockRejectedValue(new ApiError("Session expired", 401, "SESSION_EXPIRED"));
 
-  render(<SessionProvider><SessionState /></SessionProvider>);
+  render(<TestSessionProvider><SessionState /></TestSessionProvider>);
 
   await waitFor(() => expect(screen.getByText("SESSION_EXPIRED")).toBeTruthy());
   expect(sessionStorage.clearParentSession).toHaveBeenCalledTimes(1);
@@ -64,7 +70,7 @@ test("parent sign-in discovers an existing family and selected child without cre
   (api.children as jest.Mock).mockResolvedValue([{ id: "child-existing", name: "Alex" }]);
   (sessionStorage.getSelectedChildId as jest.Mock).mockResolvedValue(null);
 
-  render(<SessionProvider><SessionState /></SessionProvider>);
+  render(<TestSessionProvider><SessionState /></TestSessionProvider>);
   fireEvent.press(await screen.findByLabelText("Sign in for test"));
 
   await waitFor(() => expect(screen.getByText("family-existing:child-existing")).toBeTruthy());

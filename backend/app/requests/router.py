@@ -67,8 +67,9 @@ async def decide_request(
     *,
     locked_row: RequestRow | None = None,
     commit: bool = True,
+    family_id: UUID | None = None,
 ) -> RequestOut:
-    row = locked_row or await _request_for_parent_for_update(request_id, parent, session)
+    row = locked_row or await _request_for_parent_for_update(request_id, parent, session, family_id)
     if row is None:
         raise HTTPException(status.HTTP_404_NOT_FOUND, "Request not found")
     if is_expired(row.expires_at):
@@ -77,13 +78,22 @@ async def decide_request(
     # not a second policy mutation. The row lock makes this check atomic.
     if row.state == target.value:
         return RequestOut.model_validate(row)
+    if row.request_type == "VIDEO_REVIEW":
+        from ..videos.router import _settings_for, rules_fingerprint
+
+        child = await session.get(ChildProfile, row.child_profile_id)
+        if child is None:
+            raise HTTPException(status.HTTP_404_NOT_FOUND, "Child not found")
+        settings = await _settings_for(session, child.id)
+        if row.video_rules_fingerprint != rules_fingerprint(child.age_band, settings):
+            raise HTTPException(status.HTTP_409_CONFLICT, "YouTube rules changed. Ask the child to retry for a fresh review.")
     transition(row.state, target)
     previous = row.state
     row.state = target.value
     row.decision_reason = body.reason
     row.decided_by_parent_id = parent.id
     row.decided_at = datetime.now(UTC)
-    if target is RequestState.APPROVED:
+    if target is RequestState.APPROVED and row.request_type not in {"VIDEO_REVIEW", "SOS"}:
         if row.request_type == "CONTENT_REVIEW":
             evidence = row.content_review
             app_ref = row.content_app_ref
@@ -162,14 +172,18 @@ async def decide_request(
 
 
 async def _request_for_parent_for_update(
-    request_id: UUID, parent: Parent, session: AsyncSession
+    request_id: UUID, parent: Parent, session: AsyncSession, family_id: UUID | None = None
 ) -> RequestRow | None:
     row = await session.scalar(
         select(RequestRow)
         .join(ChildProfile, ChildProfile.id == RequestRow.child_profile_id)
         .join(Family, Family.id == ChildProfile.family_id)
         .join(FamilyGuardian, FamilyGuardian.family_id == Family.id)
-        .where(RequestRow.id == request_id, FamilyGuardian.parent_id == parent.id)
+        .where(
+            RequestRow.id == request_id,
+            FamilyGuardian.parent_id == parent.id,
+            *([Family.id == family_id] if family_id is not None else []),
+        )
         .with_for_update()
     )
     return row if isinstance(row, RequestRow) else None
@@ -209,7 +223,7 @@ async def _idempotent_decision(
         }
     )
     await acquire_idempotency_lock(session, operation, idempotency_key)
-    row = await _request_for_parent_for_update(request_id, parent, session)
+    row = await _request_for_parent_for_update(request_id, parent, session, family_id)
     if row is None:
         raise HTTPException(status.HTTP_404_NOT_FOUND, "Request not found")
     replay = await replay_or_conflict(session, operation, idempotency_key, digest)
@@ -255,7 +269,7 @@ async def approve_request(
             idempotency_key,
             session,
         )
-    return await decide_request(request_id, RequestState.APPROVED, body, parent, session)
+    return await decide_request(request_id, RequestState.APPROVED, body, parent, session, family_id=family_id)
 
 async def deny_request(
     family_id: UUID,
@@ -276,7 +290,7 @@ async def deny_request(
             idempotency_key,
             session,
         )
-    return await decide_request(request_id, RequestState.DENIED, body, parent, session)
+    return await decide_request(request_id, RequestState.DENIED, body, parent, session, family_id=family_id)
 
 router.add_api_route("/v1/families/{family_id}/requests", list_requests, methods=["GET"], response_model=list[RequestOut])
 router.add_api_route("/v1/families/{family_id}/requests/{request_id}/approve", approve_request, methods=["POST"], response_model=RequestOut)
