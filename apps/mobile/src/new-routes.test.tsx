@@ -219,7 +219,10 @@ test("new route actions navigate and submit policy/request decisions", async () 
   const routine = render(<RoutineEditorRoute />);
   expect(routine.queryByLabelText("Activate routine")).toBeNull();
   fireEvent.changeText(routine.getByLabelText("Routine name"), "Study time");
-  await act(async () => fireEvent.press(routine.getByLabelText("Save routine")));
+  await act(async () => {
+    fireEvent.press(routine.getByLabelText("Save routine"));
+    await Promise.resolve();
+  });
   expect(mockMutatePolicy).toHaveBeenCalledWith(
     "family-1",
     "child-1",
@@ -249,7 +252,10 @@ test("creates a manual routine and can activate it after saving", async () => {
     operation: "ROUTINE_CREATE", target: "routine-new",
     value: expect.objectContaining({ routine_id: "routine-new", kind: "MANUAL" }),
   }));
-  await act(async () => fireEvent.press(editor.getByLabelText("Activate routine")));
+  await act(async () => {
+    fireEvent.press(editor.getByLabelText("Activate routine"));
+    await Promise.resolve();
+  });
   expect(mockMutatePolicy).toHaveBeenLastCalledWith("family-1", "child-1", { operation: "ROUTINE_ACTIVATE", target: "routine-new" });
 });
 
