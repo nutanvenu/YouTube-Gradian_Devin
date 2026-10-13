@@ -51,7 +51,7 @@ jobs:
       - run: pnpm install --frozen-lockfile
       - run: npx expo prebuild --platform android --no-install
         working-directory: apps/mobile
-      - run: ./gradlew :guardian-protection:assembleDebug :guardian-protection:testDebugUnitTest
+      - run: ./gradlew --init-script guardian-maven-mirror.init.gradle :guardian-protection:assembleDebug :guardian-protection:testDebugUnitTest
         working-directory: apps/mobile/android
 
   android-role-apks:
@@ -103,7 +103,7 @@ jobs:
           test "$(awk -F' = ' '/Pkg.Revision/{print $2}' "$sdk_root/ndk/27.1.12297006/source.properties")" = "27.1.12297006"
           echo "ANDROID_HOME=$sdk_root" >> "$GITHUB_ENV"
           echo "ANDROID_SDK_ROOT=$sdk_root" >> "$GITHUB_ENV"
-      - run: ./gradlew -PguardianRole="${{ matrix.role }}" -PreactNativeArchitectures=x86_64 :app:assembleDebug --no-daemon
+      - run: ./gradlew --init-script guardian-maven-mirror.init.gradle -PguardianRole="${{ matrix.role }}" -PreactNativeArchitectures=x86_64 :app:assembleDebug --no-daemon
         working-directory: apps/mobile/android
       - name: Verify role package and signer
         run: |

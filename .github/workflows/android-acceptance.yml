@@ -219,7 +219,7 @@ jobs:
           git diff --exit-code -- packages/api-client/src/generated.ts
       - name: Kotlin policy unit tests and acceptance debug APK
         working-directory: apps/mobile/android
-        run: ./gradlew -PreactNativeArchitectures=x86_64 :guardian-protection:testDebugUnitTest :app:assembleDebug --no-daemon --stacktrace
+        run: ./gradlew --init-script guardian-maven-mirror.init.gradle -PreactNativeArchitectures=x86_64 :guardian-protection:testDebugUnitTest :app:assembleDebug --no-daemon --stacktrace
       - name: Record public-build APK and security evidence
         shell: bash
         run: |
@@ -489,7 +489,7 @@ jobs:
           export GUARDIAN_POLICY_KEY_ID="$key_id"
           export GUARDIAN_POLICY_TRUSTED_PUBLIC_KEYS="$(< "$trust_map")"
           GUARDIAN_POLICY_PRIVATE_KEY="$(< "$seed")" uv run --directory backend alembic upgrade head
-          (cd apps/mobile/android && ./gradlew -PreactNativeArchitectures=x86_64 :guardian-protection:testDebugUnitTest :app:assembleDebug --no-daemon --stacktrace)
+          (cd apps/mobile/android && ./gradlew --init-script guardian-maven-mirror.init.gradle -PreactNativeArchitectures=x86_64 :guardian-protection:testDebugUnitTest :app:assembleDebug --no-daemon --stacktrace)
           apk=apps/mobile/android/app/build/outputs/apk/debug/app-debug.apk
           aapt="$ANDROID_HOME/build-tools/36.0.0/aapt"
           test -s "$apk"
@@ -563,7 +563,7 @@ jobs:
           adb install -r artifacts/trusted-acceptance/app-debug.apk | tee artifacts/emulator/guardian-api35-child.install.txt
           adb shell am start -W -n com.guardian.family/.MainActivity | tee artifacts/emulator/guardian-api35-child.launch.txt
           adb shell pidof com.guardian.family | tee artifacts/emulator/guardian-api35-child.pid.txt
-          (cd apps/mobile/android && ./gradlew :guardian-protection:connectedDebugAndroidTest --no-daemon --stacktrace) | tee artifacts/emulator/guardian-api35-child.connectedDebugAndroidTest.txt
+          (cd apps/mobile/android && ./gradlew --init-script guardian-maven-mirror.init.gradle :guardian-protection:connectedDebugAndroidTest --no-daemon --stacktrace) | tee artifacts/emulator/guardian-api35-child.connectedDebugAndroidTest.txt
       - name: Capture emulator logs and instrumentation reports
         if: always()
         shell: bash
