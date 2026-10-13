@@ -277,12 +277,8 @@ export default function ParentRulesRoute() {
             </CardSurface>
           ))}
           <PrimaryButton
-            label="Add manual routine"
-            onPress={() => save({
-              operation: "ROUTINE_CREATE",
-              target: "new",
-              value: { routine_id: `manual-${Date.now()}`, name: "Focus time", kind: "MANUAL", blocked_categories: ["SOCIAL_MEDIA", "GAMES"] },
-            })}
+            label="Add routine"
+            onPress={() => router.push({ pathname: "/parent/routine-editor", params: { familyId, childId } })}
           />
           <Text>Manual activation is delivered in the signed policy and becomes active only after the child device acknowledges it.</Text>
         </SectionSurface>
