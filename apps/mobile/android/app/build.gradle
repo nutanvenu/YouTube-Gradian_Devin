@@ -267,6 +267,9 @@ configureReleaseArtifactVerification("verifyGuardianReleaseApkArtifact", "apk", 
 configureReleaseArtifactVerification("verifyGuardianReleaseAabArtifact", "aab", "$buildDir/outputs/bundle/release", "**/*.aab")
 
 tasks.configureEach { task ->
+    if (task.name ==~ /createBundle.*JsAndAssets/) {
+        task.inputs.property("expoPublicEnvironment", System.getenv().findAll { name, value -> name.startsWith("EXPO_PUBLIC_") })
+    }
     if (task.name != "verifyGuardianReleaseAdmission" && (task.name ==~ /(?i).*(assemble|bundle|package|sign).*release.*/)) {
         task.dependsOn("verifyGuardianReleaseAdmission")
     }

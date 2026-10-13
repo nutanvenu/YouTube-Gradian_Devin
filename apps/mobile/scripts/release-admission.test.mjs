@@ -69,6 +69,13 @@ test.after(async () => {
   }
 });
 
+test("bundled role builds invalidate JavaScript when Expo public environment changes", async () => {
+  const gradle = await readFile(new URL("../android/app/build.gradle", import.meta.url), "utf8");
+  assert.match(gradle, /createBundle\.\*JsAndAssets/);
+  assert.match(gradle, /task\.inputs\.property\("expoPublicEnvironment", System\.getenv\(\)\.findAll/);
+  assert.match(gradle, /name\.startsWith\("EXPO_PUBLIC_"\)/);
+});
+
 test("release admission fails closed when the required configuration is absent", () => {
   const errors = validateReleaseAdmission({});
   assert.ok(errors.some((error) => error.includes("Release API URL")));
